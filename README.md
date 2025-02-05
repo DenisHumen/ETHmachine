@@ -3,7 +3,9 @@
 ### Donation ``` TRC20 - TRWzXZE16bgJg3eHa9n8q4ioZjMgKHwF9a ```
 <img src="usdt.jpg" alt="Donation" width="150"/>
 
-This repository contains scripts to check Ethereum wallet balances using different methods and APIs. Below is a description of each script and how to run them.
+## About
+
+This project provides a set of scripts to check Ethereum wallet balances using different methods and APIs. It supports fetching balances from the Sepolia testnet, Ethereum mainnet, and Base network. The scripts read wallet addresses from a file, fetch their balances, and write the results to an output file.
 
 ## General Usage
 
