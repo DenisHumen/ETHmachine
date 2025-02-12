@@ -1,64 +1,44 @@
 # check_balance_eth
 
-### Donation ``` TRC20 - TRWzXZE16bgJg3eHa9n8q4ioZjMgKHwF9a ```
+### Пожертвование ``` TRC20 - TRWzXZE16bgJg3eHa9n8q4ioZjMgKHwF9a ```
 <img src="usdt.jpg" alt="Donation" width="150"/>
 
-## About
+## О проекте
 
-This project provides a set of scripts to check Ethereum wallet balances using different methods and APIs. It supports fetching balances from the Sepolia testnet, Ethereum mainnet, and Base network. The scripts read wallet addresses from a file, fetch their balances, and write the results to an output file.
+Этот проект предоставляет скрипт для проверки балансов Ethereum кошельков с использованием различных методов и API. Он поддерживает получение балансов из тестовой сети Sepolia, основной сети Ethereum и сети Base. Скрипт считывает адреса кошельков из файла, получает их балансы и записывает результаты в выходной файл.
 
-## General Usage
+## Общие инструкции
 
-1. Ensure you have Python installed on your system.
-2. Install the required dependencies using:
+1. Убедитесь, что у вас установлен Python на вашем компьютере.
+2. Установите необходимые зависимости с помощью:
    ```sh
    pip install -r requirements.txt
    ```
-3. Prepare a file named `walletss.txt` containing the wallet addresses you want to check, one per line.
+3. Подготовьте файл с именем `walletss.txt`, содержащий адреса кошельков, которые вы хотите проверить, по одному на строку.
 
-## Scripts
+## Скрипт
 
-### sum_eth.py
+### check_balance.py
 
-This script sums up the balances from a file and prints the total balance.
+Этот скрипт позволяет проверять балансы кошельков в различных сетях или суммировать балансы из файла с результатами. Он использует графический терминал для выбора сети и сохраняет результаты в `result.csv`.
 
-#### Usage
+#### Использование
 
-1. Ensure you have a file named `wallet_balances.txt` with the balances.
-2. Run the script:
+1. Запустите скрипт:
    ```sh
-   python sum_eth.py
+   python check_balance.py
    ```
+2. Следуйте подсказкам для выбора действия:
+   - **Check Balances**: Выберите сеть (Sepolia, Ethereum Mainnet, Base) для проверки балансов кошельков.
+   - **Sum Balances**: Суммируйте балансы из файла `result.csv`.
+   - **Exit**: Выйти из скрипта.
 
-### sepolia.py
+#### Вывод
 
-This script fetches wallet balances from the Sepolia testnet using the Infura API and writes them to a file.
-
-#### Usage
-
-1. Run the script:
-   ```sh
-   python sepolia.py
-   ```
-
-### L1.py
-
-This script fetches wallet balances from the Ethereum mainnet using the Web3 library and writes them to a file.
-
-#### Usage
-
-1. Run the script:
-   ```sh
-   python L1.py
-   ```
-
-### base.py
-
-This script fetches wallet balances from the Base network using the Web3 library and writes them to a file.
-
-#### Usage
-
-1. Run the script:
-   ```sh
-   python base.py
-   ```
+Результаты сохраняются в `result.csv` в следующем формате:
+```
+address,balance,network
+0x71751F9b41545641bB26fghfgu65uhgjghj767jh,0.09904150891088649,Sepolia
+0x41893a8f842aghj667jhgjjghj7tjghgjgjt7ytj,1.2813724074459425,Sepolia
+0x3940DBD1dBghj76jgjghj7tjhgjghj6258cdCFC7,0.006639414546265589,Sepolia
+```
