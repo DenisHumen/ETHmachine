@@ -5,6 +5,9 @@ import time
 import csv
 import inquirer
 from config.rpc import L1, base, sepolia
+from colorama import Fore, Style, init
+
+init(autoreset=True)
 
 def get_wallet_balance_sepolia(wallet_address, rpc_urls):
     for rpc_url in rpc_urls:
@@ -50,20 +53,32 @@ def get_wallet_balance_base(wallet_address, rpc_urls):
     print("All Base RPC URLs failed. Please add more proxies.")
     return None
 
+def get_gas_price(rpc_urls):
+    for rpc_url in rpc_urls:
+        try:
+            web3 = Web3(Web3.HTTPProvider(rpc_url))
+            if web3.is_connected():
+                gas_price = web3.eth.gas_price
+                return round(web3.from_wei(gas_price, 'gwei'), 2)
+        except Exception as e:
+            print(f"Error with RPC URL {rpc_url}: {e}")
+    print("All RPC URLs failed. Please add more proxies.")
+    return None
+
 def sum_balances(file_path):
     total_balance = 0.0
     with open(file_path, 'r') as file:
         reader = csv.DictReader(file)
         for row in reader:
             total_balance += float(row['balance'])
-    print(f"\n\n\n⭐ Total balance: {total_balance}")
+    print(Fore.GREEN + f"\n\n\n⭐ Total balance: {total_balance}\n")
 
 def main_menu():
     while True:
         questions = [
             inquirer.List('action',
                           message="What do you want to do?",
-                          choices=['💲 Check Balances', '💰 Sum Balances', '❌ Exit'],
+                          choices=['💲 Check Balances', '💰 Sum Balances', '⛽ Check Gas Price', '❌ Exit'],
                          ),
         ]
         answers = inquirer.prompt(questions)
@@ -75,6 +90,8 @@ def main_menu():
             sum_balances('result.csv')
         elif action == '💲 Check Balances':
             check_balances_menu()
+        elif action == '⛽ Check Gas Price':
+            check_gas_price_menu()
 
 def check_balances_menu():
     while True:
@@ -111,7 +128,33 @@ def check_balances_menu():
                 time.sleep(1)
                 writer.writerow({'address': address, 'balance': balance, 'network': network})
 
-        print(f"Balances checked and saved in result.csv for {network} network")
+        print(Fore.GREEN + f"\n\n\nBalances checked and saved in result.csv for {network} network\n")
+
+def check_gas_price_menu():
+    while True:
+        questions = [
+            inquirer.List('network',
+                          message="Which network's gas price do you want to check?",
+                          choices=['🚀 Sepolia', '🚀 Ethereum Mainnet', '🚀 Base', '🔙 Back'],
+                         ),
+        ]
+        answers = inquirer.prompt(questions)
+        network = answers['network']
+
+        if network == '🔙 Back':
+            return
+
+        if network == '🚀 Sepolia':
+            gas_price = get_gas_price(sepolia)
+        elif network == '🚀 Ethereum Mainnet':
+            gas_price = get_gas_price(L1)
+        elif network == '🚀 Base':
+            gas_price = get_gas_price(base)
+
+        if gas_price is not None:
+            print(Fore.GREEN + f"\n\n\n⛽ Current gas price on {network}: {gas_price} Gwei\n")
+        else:
+            print(Fore.RED + f"\n\n\n❌ Failed to retrieve gas price for {network}\n")
 
 if __name__ == "__main__":
     main_menu()
