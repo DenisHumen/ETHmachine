@@ -1,3 +1,17 @@
+import os
+import sys
+import platform
+
+# Установить кодировку консоли на UTF-8 для Windows
+if platform.system() == 'Windows':
+    os.system('chcp 65001')
+
+# Установить кодировку stdout на UTF-8
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+else:
+    sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
+
 import json
 import requests
 from web3 import Web3
@@ -67,11 +81,11 @@ def get_gas_price(rpc_urls):
 
 def sum_balances(file_path):
     total_balance = 0.0
-    with open(file_path, 'r') as file:
+    with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         for row in reader:
             total_balance += float(row['balance'])
-    print(Fore.GREEN + f"\n\n\n⭐ Total balance: {total_balance}\n")
+    print(Fore.GREEN + f"\n\n\n⭐ Total balance: {total_balance:.8f}\n")
 
 def main_menu():
     while True:
@@ -114,10 +128,10 @@ def check_balances_menu():
         elif network == '🚀 Base':
             get_balance = lambda addr: get_wallet_balance_base(addr, base)
 
-        with open('walletss.txt', 'r') as file:
+        with open('walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
 
-        with open('result.csv', 'w', newline='') as csvfile:
+        with open('result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'balance', 'network']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
