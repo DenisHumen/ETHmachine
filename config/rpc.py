@@ -1,3 +1,5 @@
 L1 = ["https://eth.merkle.io"]
 base = ["https://base.llamarpc.com"]
 sepolia = ["https://sepolia.infura.io/v3/3fed4f332ce94dd19bed579f074f8aab"]
+arbitrum = ['https://arbitrum.llamarpc.com']
+optimism = ['https://optimism.llamarpc.com', 'https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org']
