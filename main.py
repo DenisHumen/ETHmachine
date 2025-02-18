@@ -2,11 +2,9 @@ import os
 import sys
 import platform
 
-# Установить кодировку консоли на UTF-8 для Windows
 if platform.system() == 'Windows':
     os.system('chcp 65001')
 
-# Установить кодировку stdout на UTF-8
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 else:
@@ -22,107 +20,18 @@ from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium
 from colorama import Fore, Style, init
 from tqdm import tqdm
 
+# импорт функций из модулей
+from modules.get_wallet_balance_base import get_wallet_balance_base
+from modules.get_wallet_balance_arbitrum import get_wallet_balance_arbitrum
+from modules.get_wallet_balance_eth import get_wallet_balance_eth
+from modules.get_wallet_balance_optimism import get_wallet_balance_optimism
+from modules.get_wallet_balance_sepolia import get_wallet_balance_sepolia
+from modules.get_wallet_balance_soneium import get_wallet_balance_soneium
+from modules.get_gas_price import get_gas_price
+from modules.sum_balances import sum_balances
+
 init(autoreset=True)
 
-def get_wallet_balance_sepolia(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "eth_getBalance",
-                "params": [wallet_address, "latest"],
-                "id": 1
-            }
-            response = requests.post(rpc_url, headers=headers, data=json.dumps(payload))
-            result = response.json().get("result")
-            if result:
-                balance = int(result, 16) / 10**18  
-                return balance
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Sepolia RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_wallet_balance_eth(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                balance = web3.eth.get_balance(wallet_address)
-                return round(web3.from_wei(balance, 'ether'), 5)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Ethereum Mainnet RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_wallet_balance_base(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                balance = web3.eth.get_balance(wallet_address)
-                return round(web3.from_wei(balance, 'ether'), 5)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Base RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_wallet_balance_arbitrum(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                balance = web3.eth.get_balance(wallet_address)
-                return round(web3.from_wei(balance, 'ether'), 5)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Arbitrum One RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_wallet_balance_optimism(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                balance = web3.eth.get_balance(wallet_address)
-                return round(web3.from_wei(balance, 'ether'), 5)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Optimism RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_wallet_balance_soneium(wallet_address, rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                balance = web3.eth.get_balance(wallet_address)
-                return round(web3.from_wei(balance, 'ether'), 5)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All Soneium RPC URLs failed. Please add more proxies.")
-    return None
-
-def get_gas_price(rpc_urls):
-    for rpc_url in rpc_urls:
-        try:
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
-            if web3.is_connected():
-                gas_price = web3.eth.gas_price
-                return round(web3.from_wei(gas_price, 'gwei'), 2)
-        except Exception as e:
-            print(f"Error with RPC URL {rpc_url}: {e}")
-    print("All RPC URLs failed. Please add more proxies.")
-    return None
-
-def sum_balances(file_path):
-    total_balance = 0.0
-    with open(file_path, 'r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            total_balance += float(row['balance'])
-    print(Fore.GREEN + f"\n\n\n⭐ Total balance: {total_balance:.8f}\n")
 
 def main_menu():
     while True:
