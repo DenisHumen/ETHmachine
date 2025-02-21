@@ -29,6 +29,7 @@ from modules.get_wallet_balance_sepolia import get_wallet_balance_sepolia
 from modules.get_wallet_balance_soneium import get_wallet_balance_soneium
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
+from modules.get_transaction_count import get_transaction_count
 
 init(autoreset=True)
 
@@ -38,7 +39,7 @@ def main_menu():
             questions = [
                 inquirer.List('action',
                               message="What do you want to do?",
-                              choices=['💲 Check Balances', '💰 Sum Balances', '⛽ Check Gas Price', '❌ Exit'],
+                              choices=['💲 Check Balances', '💰 Sum Balances', '⛽ Check Gas Price', '🔢 Check Transaction Count', '❌ Exit'],
                              ),
             ]
             answers = inquirer.prompt(questions)
@@ -52,6 +53,8 @@ def main_menu():
                 check_balances_menu()
             elif action == '⛽ Check Gas Price':
                 check_gas_price_menu()
+            elif action == '🔢 Check Transaction Count':
+                check_transaction_count_menu()
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
@@ -133,6 +136,52 @@ def check_gas_price_menu():
                 print(Fore.GREEN + f"\n\n\n⛽ Current gas price on {network}: {gas_price} Gwei\n")
             else:
                 print(Fore.RED + f"\n\n\n❌ Failed to retrieve gas price for {network}\n")
+    except Exception as e:
+        print(Fore.RED + f"Error: {e}")
+
+def check_transaction_count_menu():
+    try:
+        while True:
+            questions = [
+                inquirer.List('network',
+                              message="Which network's transaction count do you want to check?",
+                              choices=['🚀 Sepolia', '🚀 Ethereum Mainnet', '🚀 Base', '🚀 Arbitrum One', '🚀 Optimism', '🚀 Soneium', '🔙 Back'],
+                             ),
+            ]
+            answers = inquirer.prompt(questions)
+            network = answers['network']
+
+            if network == '🔙 Back':
+                return
+
+            if network == '🚀 Sepolia':
+                get_count = lambda addr: get_transaction_count(addr, sepolia)
+            elif network == '🚀 Ethereum Mainnet':
+                get_count = lambda addr: get_transaction_count(addr, L1)
+            elif network == '🚀 Base':
+                get_count = lambda addr: get_transaction_count(addr, base)
+            elif network == '🚀 Arbitrum One':
+                get_count = lambda addr: get_transaction_count(addr, arbitrum)
+            elif network == '🚀 Optimism':
+                get_count = lambda addr: get_transaction_count(addr, optimism)
+            elif network == '🚀 Soneium':
+                get_count = lambda addr: get_transaction_count(addr, soneium)
+
+            with open('walletss.txt', 'r', encoding='utf-8') as file:
+                wallet_addresses = file.readlines()
+
+            with open('transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['address', 'transaction_count', 'network']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for address in tqdm(wallet_addresses, desc="Checking transaction counts", unit="wallet"):
+                    address = address.strip()
+                    count = get_count(address)
+                    time.sleep(1)
+                    writer.writerow({'address': address, 'transaction_count': count, 'network': network})
+
+            print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in transaction_count_result.csv for {network} network\n")
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
