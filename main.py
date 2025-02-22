@@ -48,7 +48,7 @@ def main_menu():
             if action == '❌ Exit':
                 break
             elif action == '💰 Sum Balances':
-                sum_balances('result.csv')
+                sum_balances('result/result.csv')
             elif action == '💲 Check Balances':
                 check_balances_menu()
             elif action == '⛽ Check Gas Price':
@@ -89,7 +89,7 @@ def check_balances_menu():
             with open('walletss.txt', 'r', encoding='utf-8') as file:
                 wallet_addresses = file.readlines()
 
-            with open('result.csv', 'w', newline='', encoding='utf-8') as csvfile:
+            with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['address', 'balance', 'network']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
@@ -100,7 +100,7 @@ def check_balances_menu():
                     time.sleep(1)
                     writer.writerow({'address': address, 'balance': balance, 'network': network})
 
-            print(Fore.GREEN + f"\n\n\nBalances checked and saved in result.csv for {network} network\n")
+            print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
@@ -170,7 +170,7 @@ def check_transaction_count_menu():
             with open('walletss.txt', 'r', encoding='utf-8') as file:
                 wallet_addresses = file.readlines()
 
-            with open('transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
+            with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['address', 'transaction_count', 'network']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
@@ -181,7 +181,7 @@ def check_transaction_count_menu():
                     time.sleep(1)
                     writer.writerow({'address': address, 'transaction_count': count, 'network': network})
 
-            print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in transaction_count_result.csv for {network} network\n")
+            print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in result/transaction_count_result.csv for {network} network\n")
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
