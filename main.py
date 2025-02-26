@@ -89,27 +89,33 @@ def check_balances_menu():
         if mode == '🚀 Fast (requires proxies)':
             with open('proxy.csv', 'r', encoding='utf-8') as file:
                 proxies = file.readlines()[1:]
+            if len(proxies) < 1:
+                print(Fore.RED + "❌ Error: Number of proxies is less than 1. Fast mode cannot be executed.")
+                return
+            elif len(proxies) < 10 and len(proxies) != len(wallet_addresses):
+                print(Fore.YELLOW + "⚠️ Warning: Number of proxies is less than 10. The operation may be unstable.")
+
             if network == '🚀 Sepolia':
-                get_balance = lambda addr: get_wallet_balance_sepolia_with_proxy(addr, sepolia, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_sepolia_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Ethereum Mainnet':
-                get_balance = lambda addr: get_wallet_balance_eth_with_proxy(addr, L1, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_eth_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Base':
-                get_balance = lambda addr: get_wallet_balance_base_with_proxy(addr, base, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_base_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Arbitrum One':
-                get_balance = lambda addr: get_wallet_balance_arbitrum_with_proxy(addr, arbitrum, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_arbitrum_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Optimism':
-                get_balance = lambda addr: get_wallet_balance_optimism_with_proxy(addr, optimism, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_optimism_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Soneium':
-                get_balance = lambda addr: get_wallet_balance_soneium_with_proxy(addr, soneium, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_soneium_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Polygon':
-                get_balance = lambda addr: get_wallet_balance_polygon_with_proxy(addr, Polygon, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_polygon_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Binance Smart Chain':
-                get_balance = lambda addr: get_wallet_balance_bsc_with_proxy(addr, Binance_Smart_Chain, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_bsc_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Avalanche':
-                get_balance = lambda addr: get_wallet_balance_avalanche_with_proxy(addr, Avalanche, proxies)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_avalanche_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Fantom':
-                get_balance = lambda addr: get_wallet_balance_fantom_with_proxy(addr, Fantom, proxies)
-            check_balances_fast(wallet_addresses, get_balance, network)
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_fantom_with_proxy(addr, rpc_urls, proxies)
+            check_balances_fast(wallet_addresses, get_balance, network, sepolia)
         else:
             if network == '🚀 Sepolia':
                 get_balance = lambda addr: get_wallet_balance_sepolia(addr, sepolia)
@@ -135,7 +141,7 @@ def check_balances_menu():
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
-def check_balances_fast(wallet_addresses, get_balance, network):
+def check_balances_fast(wallet_addresses, get_balance, network, rpc_urls):
     try:
         with open('proxy.csv', 'r', encoding='utf-8') as file:
             proxies = file.readlines()[1:]
@@ -151,7 +157,7 @@ def check_balances_fast(wallet_addresses, get_balance, network):
             writer.writeheader()
 
             with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-                future_to_address = {executor.submit(get_balance_with_proxy, addr.strip(), proxies, get_balance, wallet_addresses): addr for addr in wallet_addresses}
+                future_to_address = {executor.submit(get_balance_with_proxy, addr.strip(), proxies, get_balance, wallet_addresses, rpc_urls): addr for addr in wallet_addresses}
                 for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
                     address = future_to_address[future]
                     try:
@@ -168,9 +174,15 @@ def check_balances_fast(wallet_addresses, get_balance, network):
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
-def get_balance_with_proxy(address, proxies, get_balance, wallet_addresses):
+def get_balance_with_proxy(address, proxies, get_balance, wallet_addresses, rpc_urls):
     backup_proxies = proxies.copy()
-    while True:
+    max_proxy_switches = 5
+    max_rpc_switches = 10
+    rpc_index = 0
+    proxy_switch_count = 0
+    rpc_switch_count = 0
+
+    while rpc_switch_count < max_rpc_switches:
         if address in wallet_addresses:
             proxy = random.choice(proxies) if len(proxies) < len(wallet_addresses) else proxies[wallet_addresses.index(address) % len(proxies)]
         else:
@@ -180,16 +192,28 @@ def get_balance_with_proxy(address, proxies, get_balance, wallet_addresses):
             "https": proxy,
         }
         try:
-            return get_balance(address)
+            balance = get_balance(address, [rpc_urls[rpc_index]])
+            if balance is not None:
+                return balance
         except Exception as e:
             print(Fore.RED + f"Error with proxy {proxy}: {e}")
             proxies.remove(proxy)
+            proxy_switch_count += 1
+            if proxy_switch_count >= max_proxy_switches:
+                proxy_switch_count = 0
+                rpc_index += 1
+                rpc_switch_count += 1
+                if rpc_index >= len(rpc_urls):
+                    rpc_index = 0
+                proxies = backup_proxies.copy()
             if not proxies:
                 print(Fore.YELLOW + "No working proxies left, switching to backup proxies.")
                 proxies = backup_proxies.copy()
             if not proxies:
                 print(Fore.RED + "No working proxies available.")
                 return None
+    print(Fore.RED + "All RPC URLs and proxies failed. Marking as error.")
+    return None
 
 def check_balances_slow(wallet_addresses, get_balance, network):
     try:
@@ -315,6 +339,11 @@ def check_transaction_count_menu():
             if mode == '🚀 Fast (requires proxies)':
                 with open('proxy.csv', 'r', encoding='utf-8') as file:
                     proxies = file.readlines()[1:]
+                if len(proxies) < 1:
+                    print(Fore.RED + "❌ Error: Number of proxies is less than 1. Fast mode cannot be executed.")
+                    return
+                elif len(proxies) < 10 and len(proxies) != len(wallet_addresses):
+                    print(Fore.YELLOW + "⚠️ Warning: Number of proxies is less than 10. The operation may be unstable.")
                 check_transaction_count_fast(wallet_addresses, get_count_with_proxy, network, proxies)
             else:
                 check_transaction_count_slow(wallet_addresses, get_count, network)

@@ -1,5 +1,5 @@
 import csv
-from colorama import Fore, Style, init
+from colorama import Fore
 
 def sum_balances(file_path):
     try:
