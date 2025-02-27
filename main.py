@@ -1,8 +1,3 @@
-import os
-import sys
-import platform
-import json
-import requests
 from web3 import Web3
 import time
 import csv
