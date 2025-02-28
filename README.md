@@ -50,6 +50,7 @@
 - 🚀 Binance Smart Chain
 - 🚀 Avalanche
 - 🚀 Fantom
+- 🚀 Gravity Alpha Mainnet
 
 #### Настройка потоков и прокси
 
