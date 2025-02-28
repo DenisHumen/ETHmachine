@@ -8,3 +8,4 @@ Polygon = ['https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://p
 Binance_Smart_Chain = ['https://binance.llamarpc.com', 'https://bsc.blockrazor.xyz', 'https://bsc-pokt.nodies.app']
 Avalanche = ['https://avax-pokt.nodies.app/ext/bc/C/rpc', 'https://avax.meowrpc.com', 'https://1rpc.io/avax/c']
 Fantom = ['https://fantom.drpc.org', 'https://fantom-pokt.nodies.app', 'https://rpcapi.fantom.network']
+Gravity_Alpha_Mainnet = ['https://rpc.gravity.xyz', 'https://rpc.ankr.com/gravity']

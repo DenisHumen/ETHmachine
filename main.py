@@ -2,7 +2,7 @@ from web3 import Web3
 import time
 import csv
 import inquirer
-from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom
+from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet
 from config.config import NUM_THREADS
 from colorama import Fore, Style, init
 from tqdm import tqdm
@@ -20,6 +20,7 @@ from modules.get_wallet_balance_eth import get_wallet_balance_eth, get_wallet_ba
 from modules.get_wallet_balance_optimism import get_wallet_balance_optimism, get_wallet_balance_optimism_with_proxy
 from modules.get_wallet_balance_sepolia import get_wallet_balance_sepolia, get_wallet_balance_sepolia_with_proxy
 from modules.get_wallet_balance_soneium import get_wallet_balance_soneium, get_wallet_balance_soneium_with_proxy
+from modules.get_wallet_balance_gravity import get_wallet_balance_gravity, get_wallet_balance_gravity_with_proxy
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count, get_transaction_count_with_proxy
@@ -69,7 +70,7 @@ def check_balances_menu():
         questions = [
             inquirer.List('network',
                           message="Which network do you want to check?",
-                          choices=['🚀 Sepolia', '🚀 Ethereum Mainnet', '🚀 Base', '🚀 Arbitrum One', '🚀 Optimism', '🚀 Soneium', '🚀 Polygon', '🚀 Binance Smart Chain', '🚀 Avalanche', '🚀 Fantom', '', '🔙 Back'],
+                          choices=['🚀 Sepolia', '🚀 Ethereum Mainnet', '🚀 Base', '🚀 Arbitrum One', '🚀 Optimism', '🚀 Soneium', '🚀 Polygon', '🚀 Binance Smart Chain', '🚀 Avalanche', '🚀 Fantom', '🚀 Gravity Alpha Mainnet', '', '🔙 Back'],
                          ),
         ]
         answers = inquirer.prompt(questions)
@@ -110,7 +111,9 @@ def check_balances_menu():
                 get_balance = lambda addr, rpc_urls: get_wallet_balance_avalanche_with_proxy(addr, rpc_urls, proxies)
             elif network == '🚀 Fantom':
                 get_balance = lambda addr, rpc_urls: get_wallet_balance_fantom_with_proxy(addr, rpc_urls, proxies)
-            check_balances_fast(wallet_addresses, get_balance, network, sepolia)
+            elif network == '🚀 Gravity Alpha Mainnet':
+                get_balance = lambda addr, rpc_urls: get_wallet_balance_gravity_with_proxy(addr, rpc_urls, proxies)
+            check_balances_fast(wallet_addresses, get_balance, network, Gravity_Alpha_Mainnet)
         else:
             if network == '🚀 Sepolia':
                 get_balance = lambda addr: get_wallet_balance_sepolia(addr, sepolia)
@@ -132,6 +135,8 @@ def check_balances_menu():
                 get_balance = lambda addr: get_wallet_balance_avalanche(addr, Avalanche)
             elif network == '🚀 Fantom':
                 get_balance = lambda addr: get_wallet_balance_fantom(addr, Fantom)
+            elif network == '🚀 Gravity Alpha Mainnet':
+                get_balance = lambda addr: get_wallet_balance_gravity(addr, Gravity_Alpha_Mainnet)
             check_balances_slow(wallet_addresses, get_balance, network)
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
