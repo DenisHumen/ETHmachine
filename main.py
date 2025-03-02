@@ -87,7 +87,10 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         with open('proxy.csv', 'r', encoding='utf-8') as file:
             proxies = file.readlines()[1:]
 
-        if len(proxies) < len(wallet_addresses):
+        if len(proxies) == 0:
+            print(Fore.RED + "ERROR: No proxies found in proxy.csv")
+            return
+        elif len(proxies) < len(wallet_addresses):
             print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")
         else:
             print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
@@ -98,7 +101,7 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
             writer.writeheader()
 
             with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-                future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies): addr for addr in wallet_addresses}
+                future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
                 for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
                     address = future_to_address[future]
                     try:
@@ -114,6 +117,7 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
+
 
 def check_balances_slow(wallet_addresses, network, rpc_url):
     try:

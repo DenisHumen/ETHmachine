@@ -2,7 +2,7 @@ from web3 import Web3
 import random
 
 def get_wallet_balance_fast(address, rpc_url, proxies):
-    while True:
+    while proxies:
         proxy = random.choice(proxies)
         proxies_dict = {
             "http": proxy,
@@ -15,6 +15,6 @@ def get_wallet_balance_fast(address, rpc_url, proxies):
         except Exception as e:
             print(f"Error with proxy {proxy}: {e}")
             proxies.remove(proxy)
-            if not proxies:
-                print("No working proxies left")
-                return None
+    
+    print("No working proxies left")
+    return None

@@ -1,6 +1,6 @@
 L1 = ["https://eth.merkle.io"]
 base = ["https://base.llamarpc.com"]
-sepolia = ["https://sepolia.infura.io/v3/3fed4f332ce94dd19bed579f074f8aab", 'https://endpoints.omniatech.io/v1/eth/sepolia/public', 'https://1rpc.io/sepolia']
+sepolia = ['https://1rpc.io/sepolia']
 arbitrum = ['https://arbitrum.llamarpc.com']
 optimism = ['https://optimism.llamarpc.com', 'https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org']
 soneium = ['https://rpc.soneium.org']
