@@ -1,7 +1,7 @@
 import time
 import csv
 import inquirer
-from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet
+from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet
 from config.config import NUM_THREADS
 from colorama import Fore, init
 from tqdm import tqdm
@@ -28,7 +28,8 @@ rpc_urls = {
     '🚀 Binance Smart Chain': Binance_Smart_Chain,
     '🚀 Avalanche': Avalanche,
     '🚀 Fantom': Fantom,
-    '🚀 Gravity Alpha Mainnet': Gravity_Alpha_Mainnet
+    '🚀 Gravity Alpha Mainnet': Gravity_Alpha_Mainnet,
+    '🚀 Monad Testnet': monad_testnet
 }
 
 def main_menu():
