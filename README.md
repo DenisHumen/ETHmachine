@@ -51,6 +51,8 @@
 - 🚀 Avalanche
 - 🚀 Fantom
 - 🚀 Gravity Alpha Mainnet
+- 🚀 Monad Testnet (native token MON)
+- 🚀 Sahara Testnet (SAH)
 
 #### Настройка потоков и прокси
 
