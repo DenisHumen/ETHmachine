@@ -10,6 +10,7 @@ Binance_Smart_Chain = ['https://binance.llamarpc.com', 'https://bsc.blockrazor.x
 Avalanche = ['https://avax-pokt.nodies.app/ext/bc/C/rpc', 'https://avax.meowrpc.com', 'https://1rpc.io/avax/c']
 Fantom = ['https://fantom.drpc.org', 'https://fantom-pokt.nodies.app', 'https://rpcapi.fantom.network']
 Gravity_Alpha_Mainnet = ['https://rpc.gravity.xyz', 'https://rpc.ankr.com/gravity']
+zora = ['https://rpc.zora.energy']
 
 # Testnets
 monad_testnet = ['https://testnet-rpc.monad.xyz']

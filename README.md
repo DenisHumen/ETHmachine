@@ -46,6 +46,7 @@
 - 🚀 Arbitrum One
 - 🚀 Optimism
 - 🚀 Soneium
+- 🚀 Zora
 - 🚀 Polygon
 - 🚀 Binance Smart Chain
 - 🚀 Avalanche
@@ -53,6 +54,7 @@
 - 🚀 Gravity Alpha Mainnet
 - 🚀 Monad Testnet (native token MON)
 - 🚀 Sahara Testnet (SAH)
+
 
 #### Настройка потоков и прокси
 
