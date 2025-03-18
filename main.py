@@ -128,24 +128,25 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         else:
             print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
 
+        results = {}
+
+        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+            future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+            for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
+                address = future_to_address[future]
+                try:
+                    balance = future.result()
+                    results[address.strip()] = balance if balance is not None else 'N/A'
+                except Exception as e:
+                    print(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
+                    results[address.strip()] = 'N/A'
+
         with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'balance', 'network']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-
-            with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-                future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
-                for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
-                    address = future_to_address[future]
-                    try:
-                        balance = future.result()
-                        if balance is not None:
-                            writer.writerow({'address': address.strip(), 'balance': balance, 'network': network})
-                        else:
-                            writer.writerow({'address': address.strip(), 'balance': 'N/A', 'network': network})
-                    except Exception as e:
-                        print(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
-                        writer.writerow({'address': address.strip(), 'balance': 'N/A', 'network': network})
+            for address in wallet_addresses:
+                writer.writerow({'address': address.strip(), 'balance': results[address.strip()], 'network': network})
 
         print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
     except Exception as e:
