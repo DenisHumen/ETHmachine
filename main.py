@@ -128,7 +128,7 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         else:
             print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
 
-        results = {}
+        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
@@ -139,7 +139,6 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
                     results[address.strip()] = balance if balance is not None else 'N/A'
                 except Exception as e:
                     print(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
-                    results[address.strip()] = 'N/A'
 
         with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'balance', 'network']
@@ -154,6 +153,8 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
 
 def check_balances_slow(wallet_addresses, network, rpc_url):
     try:
+        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
+
         with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'balance', 'network']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -163,7 +164,10 @@ def check_balances_slow(wallet_addresses, network, rpc_url):
                 address = address.strip()
                 balance = get_wallet_balance(address, rpc_url)
                 time.sleep(1)
-                writer.writerow({'address': address, 'balance': balance, 'network': network})
+                results[address] = balance
+
+            for address in wallet_addresses:
+                writer.writerow({'address': address.strip(), 'balance': results[address.strip()], 'network': network})
 
         print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
     except Exception as e:
