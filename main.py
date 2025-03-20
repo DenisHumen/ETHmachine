@@ -130,6 +130,22 @@ def check_balances_menu(network, network_type):
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
+def get_with_retry(func, address, rpc_url, proxies):
+    while True:
+        try:
+            return func(address, rpc_url, proxies)
+        except Exception as e:
+            if '429 Client Error: Too Many Requests' in str(e):
+                if proxies:
+                    proxy = random.choice(proxies)
+                    proxies.remove(proxy)
+                    #print(Fore.YELLOW + f"Retrying with new proxy for {address}")
+                else:
+                    print(Fore.RED + f"No more proxies available for {address}")
+                    return 'N/A'
+            else:
+                raise e
+
 def check_balances_fast(wallet_addresses, network, rpc_url):
     try:
         with open('proxy.csv', 'r', encoding='utf-8') as file:
@@ -146,7 +162,7 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         results = {addr.strip(): 'N/A' for addr in wallet_addresses}
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            future_to_address = {executor.submit(get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+            future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
             for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
                 address = future_to_address[future]
                 try:
@@ -201,21 +217,81 @@ def check_gas_price_menu(network, network_type):
 
 def check_transaction_count_menu(network, network_type):
     try:
+        mode = select(
+            "Select mode:",
+            choices=[
+                Choice('🚀 Fast (requires proxies)', 'fast'),
+                Choice('🐢 Slow (no proxies)', 'slow')
+            ],
+            qmark='🛠️',
+            pointer='👉'
+        ).ask()
+
         with open('walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
+
+        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
+
+        if mode == 'fast':
+            check_transaction_count_fast(wallet_addresses, network, random.choice(rpc_urls[network]))
+        else:
+            check_transaction_count_slow(wallet_addresses, network, random.choice(rpc_urls[network]))
+    except Exception as e:
+        print(Fore.RED + f"Error: {e}")
+
+def check_transaction_count_fast(wallet_addresses, network, rpc_url):
+    try:
+        with open('proxy.csv', 'r', encoding='utf-8') as file:
+            proxies = file.readlines()[1:]
+
+        if len(proxies) == 0:
+            print(Fore.RED + "ERROR: No proxies found in proxy.csv")
+            return
+        elif len(proxies) < len(wallet_addresses):
+            print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")
+        else:
+            print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
+
+        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
+
+        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+            future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+            for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking transaction counts", unit="wallet"):
+                address = future_to_address[future]
+                try:
+                    count = future.result()
+                    results[address.strip()] = count if count is not None else 'N/A'
+                except Exception as e:
+                    print(Fore.RED + f"Error checking transaction count for {address.strip()}: {e}")
+
+        with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['address', 'transaction_count', 'network']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for address in wallet_addresses:
+                writer.writerow({'address': address.strip(), 'transaction_count': results[address.strip()], 'network': network})
+
+        print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in result/transaction_count_result.csv for {network} network\n")
+    except Exception as e:
+        print(Fore.RED + f"Error: {e}")
+
+def check_transaction_count_slow(wallet_addresses, network, rpc_url):
+    try:
+        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
 
         with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'transaction_count', 'network']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
-
             for address in tqdm(wallet_addresses, desc="Checking transaction counts", unit="wallet"):
                 address = address.strip()
-                count = get_transaction_count(address, random.choice(rpc_urls[network]))
+                count = get_transaction_count(address, rpc_url)
                 time.sleep(1)
-                writer.writerow({'address': address, 'transaction_count': count, 'network': network})
+                results[address] = count
+
+            for address in wallet_addresses:
+                writer.writerow({'address': address.strip(), 'transaction_count': results[address.strip()], 'network': network})
 
         print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in result/transaction_count_result.csv for {network} network\n")
     except Exception as e:
