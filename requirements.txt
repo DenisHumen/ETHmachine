@@ -3,3 +3,4 @@ web3
 inquirer
 colorama
 tqdm
+questionary

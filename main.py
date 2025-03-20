@@ -1,12 +1,12 @@
 import time
 import csv
-import inquirer
 from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora
 from config.config import NUM_THREADS
 from colorama import Fore, init
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
+from questionary import Choice, select
 
 # импорт функций из модулей
 from modules.get_wallet_balance import get_wallet_balance
@@ -40,75 +40,90 @@ testnet_rpc_urls = {
 def main_menu():
     try:
         while True:
-            questions = [
-                inquirer.List('action',
-                              message="What do you want to do?",
-                              choices=['💲 Check Balances', '💰 Sum Balances', '⛽ Check Gas Price', '🔢 Check Transaction Count', '❌ Exit'],
-                             ),
-            ]
-            answers = inquirer.prompt(questions)
-            action = answers['action']
+            action = select(
+                "What do you want to do?",
+                choices=[
+                    Choice('💲 Check Balances', 'check_balances'),
+                    Choice('💰 Sum Balances', 'sum_balances'),
+                    Choice('⛽ Check Gas Price', 'check_gas_price'),
+                    Choice('🔢 Check Transaction Count', 'check_transaction_count'),
+                    Choice('❌ Exit', 'exit')
+                ],
+                qmark='🛠️',
+                pointer='👉'
+            ).ask()
 
-            if action == '❌ Exit':
+            if action == 'exit':
                 break
 
-            questions = [
-                inquirer.List('network_type',
-                              message="Select network type:",
-                              choices=['🌐 Mainnet', '🔧 Testnet', '🔙 Back'],
-                             ),
-            ]
-            network_type_answer = inquirer.prompt(questions)
-            network_type = network_type_answer['network_type']
-
-            if network_type == '🔙 Back':
+            if action == 'sum_balances':
+                print(Fore.GREEN + "Summing balances from result/result.csv...")
+                try:
+                    with open('result/result.csv', 'r', encoding='utf-8') as csvfile:
+                        reader = csv.reader(csvfile)
+                        data = list(reader)
+                        if len(data) <= 1:
+                            print(Fore.RED + "Error: result/result.csv is empty. Please run balance check first.")
+                        else:
+                            sum_balances('result/result.csv')
+                except FileNotFoundError:
+                    print(Fore.RED + "Error: result/result.csv not found. Please run balance check first.")
+                except Exception as e:
+                    print(Fore.RED + f"Error: {e}")
                 continue
 
-            if network_type == '🌐 Mainnet':
-                network_choices = list(mainnet_rpc_urls.keys())
-            else:
-                network_choices = list(testnet_rpc_urls.keys())
+            network_type = select(
+                "Select network type:",
+                choices=[
+                    Choice('🌐 Mainnet', 'mainnet'),
+                    Choice('🔧 Testnet', 'testnet'),
+                    Choice('🔙 Back', 'back')
+                ],
+                qmark='🛠️',
+                pointer='👉'
+            ).ask()
 
-            questions = [
-                inquirer.List('network',
-                              message="Which network do you want to check?",
-                              choices=network_choices + ['🔙 Back'],
-                             ),
-            ]
-            network_answer = inquirer.prompt(questions)
-            network = network_answer['network']
-
-            if network == '🔙 Back':
+            if network_type == 'back':
                 continue
 
-            if action == '💰 Sum Balances':
-                sum_balances('result/result.csv')
-            elif action == '💲 Check Balances':
+            network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
+            network = select(
+                "Which network do you want to check?",
+                choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
+                qmark='🛠️',
+                pointer='👉'
+            ).ask()
+
+            if network == 'back':
+                continue
+
+            if action == 'check_balances':
                 check_balances_menu(network, network_type)
-            elif action == '⛽ Check Gas Price':
+            elif action == 'check_gas_price':
                 check_gas_price_menu(network, network_type)
-            elif action == '🔢 Check Transaction Count':
+            elif action == 'check_transaction_count':
                 check_transaction_count_menu(network, network_type)
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
 def check_balances_menu(network, network_type):
     try:
-        questions = [
-            inquirer.List('mode',
-                          message="Select mode:",
-                          choices=['🚀 Fast (requires proxies)', '🐢 Slow (no proxies)'],
-                         ),
-        ]
-        answers = inquirer.prompt(questions)
-        mode = answers['mode']
+        mode = select(
+            "Select mode:",
+            choices=[
+                Choice('🚀 Fast (requires proxies)', 'fast'),
+                Choice('🐢 Slow (no proxies)', 'slow')
+            ],
+            qmark='🛠️',
+            pointer='👉'
+        ).ask()
 
         with open('walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
 
-        rpc_urls = mainnet_rpc_urls if network_type == '🌐 Mainnet' else testnet_rpc_urls
+        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
 
-        if mode == '🚀 Fast (requires proxies)':
+        if mode == 'fast':
             check_balances_fast(wallet_addresses, network, random.choice(rpc_urls[network]))
         else:
             check_balances_slow(wallet_addresses, network, random.choice(rpc_urls[network]))
@@ -175,7 +190,7 @@ def check_balances_slow(wallet_addresses, network, rpc_url):
 
 def check_gas_price_menu(network, network_type):
     try:
-        rpc_urls = mainnet_rpc_urls if network_type == '🌐 Mainnet' else testnet_rpc_urls
+        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
         gas_price = get_gas_price(random.choice(rpc_urls[network]))
         if gas_price is not None:
             print(Fore.GREEN + f"\n\n\n⛽ Current gas price on {network}: {gas_price} Gwei\n")
@@ -194,7 +209,7 @@ def check_transaction_count_menu(network, network_type):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            rpc_urls = mainnet_rpc_urls if network_type == '🌐 Mainnet' else testnet_rpc_urls
+            rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
 
             for address in tqdm(wallet_addresses, desc="Checking transaction counts", unit="wallet"):
                 address = address.strip()
