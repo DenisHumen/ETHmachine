@@ -1,2 +1,4 @@
 main.spec
-result/
+result/*
+proxy.csv
+walletss.txt
