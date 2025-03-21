@@ -15,3 +15,4 @@ zora = ['https://rpc.zora.energy']
 # Testnets
 monad_testnet = ['https://testnet-rpc.monad.xyz']
 sahara_testnet = ['https://testnet.saharalabs.ai']
+somnia_testnet = ['https://rpc.ankr.com/somnia_testnet/6e3fd81558cf77b928b06b38e9409b4677b637118114e83364486294d5ff4811']

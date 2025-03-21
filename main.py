@@ -1,6 +1,6 @@
 import time
 import csv
-from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora
+from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet
 from config.config import NUM_THREADS
 from colorama import Fore, init
 from tqdm import tqdm
@@ -31,13 +31,14 @@ mainnet_rpc_urls = {
     '🚀 Avalanche': Avalanche,
     '🚀 Fantom': Fantom,
     '🚀 Gravity Alpha Mainnet': Gravity_Alpha_Mainnet,
-    '🚀 Zora': zora
+    '🚀 Zora': zora,
 }
 
 testnet_rpc_urls = {
     '🚀 Sepolia': sepolia,
     '🚀 Monad Testnet (native token MON)': monad_testnet,
-    '🚀 Sahara testnet': sahara_testnet
+    '🚀 Sahara testnet': sahara_testnet,
+    '🚀 Somnia Testnet': somnia_testnet,
 }
 
 def check_and_create_files():
