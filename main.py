@@ -4,6 +4,7 @@ from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
 from config.config import NUM_THREADS
 from colorama import Fore, init
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 from questionary import Choice, select
@@ -133,16 +134,24 @@ def check_balances_menu(network, network_type):
 def get_with_retry(func, address, rpc_url, proxies):
     while True:
         try:
-            return func(address, rpc_url, proxies)
+            if func == get_wallet_balance_fast:
+                return func(address, rpc_url, proxies)
+            else:
+                return func(address, rpc_url)
         except Exception as e:
-            if '429 Client Error: Too Many Requests' in str(e):
+            if '429 Client Error: Too Many Requests' in str(e) or 'ProxyError' in str(e) or '407 Proxy Authentication Required' in str(e):
                 if proxies:
                     proxy = random.choice(proxies)
                     proxies.remove(proxy)
-                    #print(Fore.YELLOW + f"Retrying with new proxy for {address}")
+                    # Continue retrying with new proxy without printing the error
                 else:
-                    print(Fore.RED + f"No more proxies available for {address}")
                     return 'N/A'
+            elif 'Failed to parse' in str(e):
+                tqdm.write(Fore.RED + f"Error with proxy: {e}")
+                tqdm.set_description("Error occurred", refresh=True)
+                tqdm.colour = "red"
+                input(Fore.RED + "Press Enter to continue...")
+                return 'N/A'
             else:
                 raise e
 
@@ -162,14 +171,19 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
         results = {addr.strip(): 'N/A' for addr in wallet_addresses}
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
-            for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet"):
-                address = future_to_address[future]
-                try:
-                    balance = future.result()
-                    results[address.strip()] = balance if balance is not None else 'N/A'
-                except Exception as e:
-                    print(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
+            with logging_redirect_tqdm():
+                future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+                for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet", colour="green"):
+                    address = future_to_address[future]
+                    try:
+                        balance = future.result()
+                        results[address.strip()] = balance if balance is not None else 'N/A'
+                    except Exception as e:
+                        tqdm.write(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
+                        tqdm.set_description("Error occurred", refresh=True)
+                        tqdm.colour = "red"
+                        input(Fore.RED + "Press Enter to continue...")
+                        return
 
         with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'balance', 'network']
@@ -255,14 +269,19 @@ def check_transaction_count_fast(wallet_addresses, network, rpc_url):
         results = {addr.strip(): 'N/A' for addr in wallet_addresses}
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
-            for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking transaction counts", unit="wallet"):
-                address = future_to_address[future]
-                try:
-                    count = future.result()
-                    results[address.strip()] = count if count is not None else 'N/A'
-                except Exception as e:
-                    print(Fore.RED + f"Error checking transaction count for {address.strip()}: {e}")
+            with logging_redirect_tqdm():
+                future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+                for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking transaction counts", unit="wallet", colour="green"):
+                    address = future_to_address[future]
+                    try:
+                        count = future.result()
+                        results[address.strip()] = count if count is not None else 'N/A'
+                    except Exception as e:
+                        tqdm.write(Fore.RED + f"Error checking transaction count for {address.strip()}: {e}")
+                        tqdm.set_description("Error occurred", refresh=True)
+                        tqdm.colour = "red"
+                        input(Fore.RED + "Press Enter to continue...")
+                        return
 
         with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['address', 'transaction_count', 'network']
