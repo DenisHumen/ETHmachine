@@ -8,6 +8,8 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 from questionary import Choice, select
+import os
+import platform
 
 # импорт функций из модулей
 from modules.get_wallet_balance import get_wallet_balance
@@ -38,7 +40,31 @@ testnet_rpc_urls = {
     '🚀 Sahara testnet': sahara_testnet
 }
 
+def check_and_create_files():
+    required_files = [
+        'result/result.csv',
+        'result/transaction_count_result.csv',
+        'proxy.csv',
+        'walletss.txt'
+    ]
+    required_directories = ['result']
+
+    for directory in required_directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(Fore.GREEN + f"Directory created: {directory}")
+
+    for file in required_files:
+        if not os.path.exists(file):
+            with open(file, 'w', encoding='utf-8') as f:
+                if 'result.csv' in file:
+                    f.write('address,balance,network\n')
+                elif 'transaction_count_result.csv' in file:
+                    f.write('address,transaction_count,network\n')
+            print(Fore.GREEN + f"File created: {file}")
+
 def main_menu():
+    check_and_create_files()
     try:
         while True:
             action = select(

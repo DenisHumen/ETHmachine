@@ -2,3 +2,5 @@ main.spec
 result/*
 proxy.csv
 walletss.txt
+modules/__pycache__/
+config/__pycache__/
