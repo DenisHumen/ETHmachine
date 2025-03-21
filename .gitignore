@@ -4,3 +4,5 @@ proxy.csv
 walletss.txt
 modules/__pycache__/
 config/__pycache__/
+build
+dist
