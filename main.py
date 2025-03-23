@@ -158,11 +158,16 @@ def check_balances_menu(network, network_type):
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
+def format_proxy(proxy):
+    if not proxy.startswith('http://'):
+        return 'http://' + proxy
+    return proxy
+
 def get_with_retry(func, address, rpc_url, proxies):
     while True:
         try:
             if func == get_wallet_balance_fast:
-                return func(address, rpc_url, proxies)
+                return func(address, rpc_url, [format_proxy(proxy) for proxy in proxies])
             else:
                 return func(address, rpc_url)
         except Exception as e:
@@ -199,7 +204,7 @@ def check_balances_fast(wallet_addresses, network, rpc_url):
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             with logging_redirect_tqdm():
-                future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+                future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, [format_proxy(proxy) for proxy in proxies.copy()]): addr for addr in wallet_addresses}
                 for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet", colour="green"):
                     address = future_to_address[future]
                     try:
@@ -297,7 +302,7 @@ def check_transaction_count_fast(wallet_addresses, network, rpc_url):
 
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             with logging_redirect_tqdm():
-                future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, proxies.copy()): addr for addr in wallet_addresses}
+                future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, [format_proxy(proxy) for proxy in proxies.copy()]): addr for addr in wallet_addresses}
                 for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking transaction counts", unit="wallet", colour="green"):
                     address = future_to_address[future]
                     try:
