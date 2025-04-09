@@ -17,6 +17,7 @@ from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
+from modules.check_all_balances import check_all_balances
 
 init(autoreset=True)
 
@@ -76,6 +77,7 @@ def main_menu():
                     Choice('💰 Sum Balances', 'sum_balances'),
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count', 'check_transaction_count'),
+                    Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',
@@ -97,6 +99,17 @@ def main_menu():
                             sum_balances('result/result.csv')
                 except FileNotFoundError:
                     print(Fore.RED + "Error: result/result.csv not found. Please run balance check first.")
+                except Exception as e:
+                    print(Fore.RED + f"Error: {e}")
+                continue
+
+            if action == 'check_all_balances':  # New action
+                try:
+                    with open('walletss.txt', 'r', encoding='utf-8') as file:
+                        wallet_addresses = file.readlines()
+                    check_all_balances(wallet_addresses)
+                except FileNotFoundError:
+                    print(Fore.RED + "Error: walletss.txt not found. Please add wallet addresses.")
                 except Exception as e:
                     print(Fore.RED + f"Error: {e}")
                 continue
