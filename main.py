@@ -1,6 +1,6 @@
 import time
 import csv
-from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth
+from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth, Abstract
 from config.config import NUM_THREADS
 from colorama import Fore, init
 from tqdm import tqdm
@@ -33,6 +33,7 @@ mainnet_rpc_urls = {
     '🚀 Fantom': Fantom,
     '🚀 Gravity Alpha Mainnet': Gravity_Alpha_Mainnet,
     '🚀 Zora': zora,
+    '🚀 Abstract': Abstract,
 }
 
 testnet_rpc_urls = {
