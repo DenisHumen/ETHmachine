@@ -1,6 +1,6 @@
 # Mainnet
 L1 = ["https://eth.merkle.io"]
-base = ["https://base.llamarpc.com"]
+base = ["https://base.llamarpc.com", 'https://base-rpc.publicnode.com', 'https://1rpc.io/base', 'https://base-pokt.nodies.app']
 sepolia = ['https://1rpc.io/sepolia']
 arbitrum = ['https://arbitrum.llamarpc.com']
 optimism = ['https://optimism.llamarpc.com', 'https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org']
