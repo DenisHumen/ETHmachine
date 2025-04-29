@@ -1,8 +1,9 @@
 main.spec
 result/*
-proxy.csv
-walletss.txt
+data/proxy.csv
+data/walletss.txt
 modules/__pycache__/
 config/__pycache__/
 build
 dist
+venv

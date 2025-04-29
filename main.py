@@ -47,8 +47,8 @@ def check_and_create_files():
     required_files = [
         'result/result.csv',
         'result/transaction_count_result.csv',
-        'proxy.csv',
-        'walletss.txt'
+        'data/proxy.csv',
+        'data/walletss.txt'
     ]
     required_directories = ['result']
 
@@ -76,8 +76,8 @@ def main_menu():
                     Choice('💲 Check Balances', 'check_balances'),
                     Choice('💰 Sum Balances', 'sum_balances'),
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
-                    Choice('🔢 Check Transaction Count', 'check_transaction_count'),
-                    Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
+                    Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
+                    #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',
@@ -105,11 +105,11 @@ def main_menu():
 
             if action == 'check_all_balances':  # New action
                 try:
-                    with open('walletss.txt', 'r', encoding='utf-8') as file:
+                    with open('data/walletss.txt', 'r', encoding='utf-8') as file:
                         wallet_addresses = file.readlines()
                     check_all_balances(wallet_addresses)
                 except FileNotFoundError:
-                    print(Fore.RED + "Error: walletss.txt not found. Please add wallet addresses.")
+                    print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
                 except Exception as e:
                     print(Fore.RED + f"Error: {e}")
                 continue
@@ -160,7 +160,7 @@ def check_balances_menu(network, network_type):
             pointer='👉'
         ).ask()
 
-        with open('walletss.txt', 'r', encoding='utf-8') as file:
+        with open('data/walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
 
         rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
@@ -203,11 +203,11 @@ def get_with_retry(func, address, rpc_url, proxies):
 
 def check_balances_fast(wallet_addresses, network, rpc_url):
     try:
-        with open('proxy.csv', 'r', encoding='utf-8') as file:
+        with open('data/proxy.csv', 'r', encoding='utf-8') as file:
             proxies = file.readlines()[1:]
 
         if len(proxies) == 0:
-            print(Fore.RED + "ERROR: No proxies found in proxy.csv")
+            print(Fore.RED + "ERROR: No proxies found in data/proxy.csv")
             return
         elif len(proxies) < len(wallet_addresses):
             print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")
@@ -287,7 +287,7 @@ def check_transaction_count_menu(network, network_type):
             pointer='👉'
         ).ask()
 
-        with open('walletss.txt', 'r', encoding='utf-8') as file:
+        with open('data/walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
 
         rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
@@ -301,11 +301,11 @@ def check_transaction_count_menu(network, network_type):
 
 def check_transaction_count_fast(wallet_addresses, network, rpc_url):
     try:
-        with open('proxy.csv', 'r', encoding='utf-8') as file:
+        with open('data/proxy.csv', 'r', encoding='utf-8') as file:
             proxies = file.readlines()[1:]
 
         if len(proxies) == 0:
-            print(Fore.RED + "ERROR: No proxies found in proxy.csv")
+            print(Fore.RED + "ERROR: No proxies found in data/proxy.csv")
             return
         elif len(proxies) < len(wallet_addresses):
             print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")

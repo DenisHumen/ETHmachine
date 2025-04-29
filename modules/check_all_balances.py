@@ -15,13 +15,13 @@ init(autoreset=True)
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] | %(levelname)-8s | %(message)s', datefmt='%H:%M:%S')
 
-def load_proxies(proxy_file='proxy.csv'):
+def load_proxies(proxy_file='data/proxy.csv'):
     try:
         with open(proxy_file, 'r', encoding='utf-8') as file:
             proxies = [line.strip() for line in file.readlines() if line.strip()]
         return proxies
     except FileNotFoundError:
-        print(Fore.RED + "Error: proxy.csv not found. Please add proxies.")
+        print(Fore.RED + "Error: data/proxy.csv not found. Please add proxies.")
         return []
 
 def format_proxy(proxy):
@@ -59,7 +59,7 @@ def check_all_balances(wallet_addresses):
     proxies = load_proxies()
 
     if not proxies:
-        print(Fore.RED + "Error: No proxies available. Please add proxies to proxy.csv.")
+        print(Fore.RED + "Error: No proxies available. Please add proxies to data/proxy.csv.")
         return
 
     results = {wallet.strip(): {network: 'N/A' for network in networks.keys()} for wallet in wallet_addresses}
