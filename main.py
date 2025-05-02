@@ -17,7 +17,7 @@ from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
-from modules.check_all_balances import check_all_balances
+#from modules.check_all_balances import check_all_balances
 
 init(autoreset=True)
 
