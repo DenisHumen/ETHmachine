@@ -1,7 +1,6 @@
 # check_balance_eth
 
-### Пожертвование ``` TRC20 - TRWzXZE16bgJg3eHa9n8q4ioZjMgKHwF9a ```
-<img src="data/project/usdt.jpg" alt="Donation" width="150"/>
+### Пожертвование ``` TRC20 - TJ9KCpi3hHdsgaLuLvzDq35bMkJAuPVMKS ```
 
 ## 📖 О проекте
 
