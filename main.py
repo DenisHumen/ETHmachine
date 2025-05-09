@@ -91,7 +91,7 @@ def main_menu():
                     Choice('💰 Sum Balances', 'sum_balances'),
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
-                    Choice('🪙 Generate Wallets', 'generate_wallets'),
+                    Choice('🪙  Generate Wallets', 'generate_wallets'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
@@ -107,19 +107,30 @@ def main_menu():
                 num_wallets = select(
                     "How many wallets do you want to generate?",
                     choices=[
-                        Choice('1', 1),
-                        Choice('10', 10),
-                        Choice('100', 100),
-                        Choice('1000', 1000),
-                        Choice('5000', 5000),
-                        Choice('10000', 10000),
+                        Choice('▶️  1', 1),
+                        Choice('▶️  10', 10),
+                        Choice('▶️  100', 100),
+                        Choice('▶️  1000', 1000),
+                        Choice('▶️  5000', 5000),
+                        Choice('▶️  10000', 10000),
+                        Choice('✏️ Enter manually', 'manual'),
                         Choice('🔙 Back', 'back')
                     ],
                     qmark='🛠️',
                     pointer='👉'
                 ).ask()
 
-                if num_wallets:
+                if num_wallets == 'manual':
+                    try:
+                        num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
+                        if num_wallets <= 0:
+                            print(Fore.RED + "Please enter a positive number.")
+                            continue
+                    except ValueError:
+                        print(Fore.RED + "Invalid input. Please enter a valid number.")
+                        continue
+
+                if num_wallets and num_wallets != 'back':
                     from modules.wallet_generator import generate_wallets
                     generate_wallets(num_wallets)
                     print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")

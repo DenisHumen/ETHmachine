@@ -96,6 +96,11 @@ def generate_wallets(num_wallets):
     bar_length = 30  # Length of the progress bar
     completed_wallets = 0
 
+    # Clear the file and write the header
+    with open('result/result.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
+
     with open('result/result.csv', mode='a', newline='') as file:
         writer = csv.writer(file)
         for i in range(num_wallets):

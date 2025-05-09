@@ -102,8 +102,9 @@ def check_version(repo_name: str):
     """
     github_api_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits/main"
 
+    os.system('cls' if os.name == 'nt' else 'clear')  # Clear the console
     print(
-        f"📥 My GitHub: \033]8;;https://github.com/DenisHumen\033\\https://github.com/DenisHumen\033]8;;\033\\\n"
+        f"\t📥 My GitHub: \033]8;;https://github.com/DenisHumen\033\\https://github.com/DenisHumen\033]8;;\033\\\n"
     )
 
     local_hash, local_date = get_local_commit_info()
