@@ -1,7 +1,6 @@
 import random
 import time
 from okx import Trade
-from data import cex_settings as cfg
 
 # Допустимые комбинации токенов и сетей
 ALLOWED_CHAINS = {
@@ -10,21 +9,26 @@ ALLOWED_CHAINS = {
     "G": ["GRAVITY"]
 }
 
-def withdraw_from_okx():
+def withdraw_from_okx(api_key, api_secret, passphrase, token, sum_range, address, network, random_sleep, eu_type):
     """
-    Производит вывод криптовалюты с учётом параметров из settings.
+    Производит вывод криптовалюты с учётом переданных параметров.
+
+    Args:
+        api_key (str): OKX API key.
+        api_secret (str): OKX API secret.
+        passphrase (str): OKX API passphrase.
+        token (str): Токен для вывода.
+        sum_range (list): Диапазон суммы для вывода [min, max].
+        address (str): Адрес для вывода.
+        network (str): Сеть для вывода.
+        random_sleep (list): Диапазон случайной задержки [min, max].
+        eu_type (int): Тип аккаунта (0 или 1).
+
+    Returns:
+        dict: Результат операции вывода.
     """
-    # Проверка на заполненные значения
-    required_fields = [
-        cfg.OKX_API_KEY, cfg.OKX_API_SECRET, cfg.OKX_API_PASSPHRAS,
-        cfg.TOKEN_OUT, cfg.SUM, cfg.WITHDRAW_ADDRESS, cfg.WITHDRAW_NETWORK
-    ]
-
-    if not all(required_fields):
-        raise ValueError("Не все параметры настроек заполнены. Проверьте cex_settings.py")
-
-    token = cfg.TOKEN_OUT.upper()
-    network = cfg.WITHDRAW_NETWORK.upper()
+    token = token.upper()
+    network = network.upper()
 
     # Проверка допустимости комбинации токена и сети
     if token not in ALLOWED_CHAINS or network not in ALLOWED_CHAINS[token]:
@@ -35,17 +39,17 @@ def withdraw_from_okx():
 
     # Подключение к OKX
     trade = Trade(
-        api_key=cfg.OKX_API_KEY,
-        api_secret_key=cfg.OKX_API_SECRET,
-        passphrase=cfg.OKX_API_PASSPHRAS,
+        api_key=api_key,
+        api_secret_key=api_secret,
+        passphrase=passphrase,
         use_server_time=False,
-        flag=cfg.OKX_EU_TYPE
+        flag=eu_type
     )
 
-    if len(cfg.SUM) != 2:
-        raise ValueError("Параметр SUM должен содержать только два значения: [min, max]")
+    if len(sum_range) != 2:
+        raise ValueError("Параметр sum_range должен содержать только два значения: [min, max]")
 
-    amount = str(round(random.uniform(cfg.SUM[0], cfg.SUM[1]), 6))  # до 6 знаков после запятой
+    amount = str(round(random.uniform(sum_range[0], sum_range[1]), 6))  # до 6 знаков после запятой
 
     # Уникальный ID
     client_id = f"wd_{int(time.time())}"
@@ -55,20 +59,20 @@ def withdraw_from_okx():
         "ccy": token,
         "amt": amount,
         "dest": "3",  # внешний адрес
-        "toAddr": cfg.WITHDRAW_ADDRESS,
+        "toAddr": address,
         "chain": chain_param,
         "fee": "0",  # можно обновить на нужное значение
         "clientId": client_id
     }
 
-    print(f"Отправка {amount} {token} через {chain_param} на {cfg.WITHDRAW_ADDRESS}")
+    print(f"Отправка {amount} {token} через {chain_param} на {address}")
     try:
         result = trade.withdrawal(withdrawal_params)
         print("✅ Ответ OKX:", result)
 
         # Случайная задержка между операциями
-        if cfg.RANDON_SLEEP:
-            sleep_time = random.randint(cfg.RANDON_SLEEP[0], cfg.RANDON_SLEEP[1])
+        if random_sleep:
+            sleep_time = random.randint(random_sleep[0], random_sleep[1])
             print(f"⏳ Задержка {sleep_time} сек...")
             time.sleep(sleep_time)
 
