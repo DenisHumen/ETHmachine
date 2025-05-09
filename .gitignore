@@ -2,6 +2,7 @@ main.spec
 result/*
 data/proxy.csv
 data/walletss.txt
+data/cex_settings.py
 modules/__pycache__/
 config/__pycache__/
 build

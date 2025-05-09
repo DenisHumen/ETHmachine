@@ -44,14 +44,18 @@ testnet_rpc_urls = {
     '🚀 Mega ETH': mega_eth,
 }
 
+import os
+from colorama import Fore
+
 def check_and_create_files():
     required_files = [
         'result/result.csv',
         'result/transaction_count_result.csv',
         'data/proxy.csv',
-        'data/walletss.txt'
+        'data/walletss.txt',
+        'data/cex_settings.py'
     ]
-    required_directories = ['result']
+    required_directories = ['result', 'data']
 
     for directory in required_directories:
         if not os.path.exists(directory):
@@ -65,6 +69,14 @@ def check_and_create_files():
                     f.write('address,balance,network\n')
                 elif 'transaction_count_result.csv' in file:
                     f.write('address,transaction_count,network\n')
+                elif 'cex_settings.py' in file:
+                    f.write(
+                        '# https://www.okx.com/ru/account/my-api\n'
+                        'OKX_API_KEY = ""\n'
+                        'OKX_API_SECRET = ""\n'
+                        'OKX_API_PASSPHRAS = ""\n'
+                        'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
+                    )
             print(Fore.GREEN + f"File created: {file}")
 
 def main_menu():

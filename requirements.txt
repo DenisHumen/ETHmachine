@@ -4,3 +4,6 @@ inquirer
 colorama
 tqdm
 questionary
+python-okx
+
+
