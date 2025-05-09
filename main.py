@@ -18,6 +18,7 @@ from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
 from modules.cex.okx_withdraw import withdraw_from_okx
+from modules.GitHub.check_version import check_version
 
 init(autoreset=True)
 
@@ -90,6 +91,8 @@ def main_menu():
                     Choice('💰 Sum Balances', 'sum_balances'),
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
+                    Choice('🪙 Generate Wallets', 'generate_wallets'),
+                    #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
                 ],
@@ -99,6 +102,29 @@ def main_menu():
 
             if action == 'exit':
                 break
+            
+            if action == 'generate_wallets':
+                num_wallets = select(
+                    "How many wallets do you want to generate?",
+                    choices=[
+                        Choice('1', 1),
+                        Choice('10', 10),
+                        Choice('100', 100),
+                        Choice('1000', 1000),
+                        Choice('5000', 5000),
+                        Choice('10000', 10000),
+                        Choice('🔙 Back', 'back')
+                    ],
+                    qmark='🛠️',
+                    pointer='👉'
+                ).ask()
+
+                if num_wallets:
+                    from modules.wallet_generator import generate_wallets
+                    generate_wallets(num_wallets)
+                    print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
+                    continue
+                continue
 
             if action == 'sum_balances':
                 print(Fore.GREEN + "Summing balances from result/result.csv...")
@@ -376,5 +402,6 @@ def check_transaction_count_slow(wallet_addresses, network, rpc_url):
         print(Fore.RED + f"Error: {e}")
 
 if __name__ == "__main__":
+    check_version("ETHmachine")
     main_menu()
 
