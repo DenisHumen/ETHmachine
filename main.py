@@ -17,7 +17,7 @@ from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
-from modules.cex.okx_withdraw import withdraw_from_okx
+from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 
 init(autoreset=True)
@@ -92,8 +92,7 @@ def main_menu():
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
-                    #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
-                    #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
+                    Choice('🏦 CEX', 'CEX_menu():'),
                     Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',
@@ -102,6 +101,10 @@ def main_menu():
 
             if action == 'exit':
                 break
+            
+            if action == 'CEX_menu():':
+                CEX_menu()
+                continue
             
             if action == 'generate_wallets':
                 num_wallets = select(
@@ -153,16 +156,16 @@ def main_menu():
                     print(Fore.RED + f"Error: {e}")
                 continue
 
-            if action == 'check_all_balances':  # New action
-                try:
-                    with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-                        wallet_addresses = file.readlines()
-                    check_all_balances(wallet_addresses)
-                except FileNotFoundError:
-                    print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
-                except Exception as e:
-                    print(Fore.RED + f"Error: {e}")
-                continue
+            # if action == 'check_all_balances':  # New action
+            #     try:
+            #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
+            #             wallet_addresses = file.readlines()
+            #         check_all_balances(wallet_addresses)
+            #     except FileNotFoundError:
+            #         print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
+            #     except Exception as e:
+            #         print(Fore.RED + f"Error: {e}")
+            #     continue
 
             network_type = select(
                 "Select network type:",
@@ -195,6 +198,75 @@ def main_menu():
                 check_gas_price_menu(network, network_type)
             elif action == 'check_transaction_count':
                 check_transaction_count_menu(network, network_type)
+    except Exception as e:
+        print(Fore.RED + f"Error: {e}")
+
+def CEX_menu():
+    try:
+        with open('data/cex_settings.py', 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+            api_key = lines[1].strip().split('=')[1].strip().replace('"', '')
+            api_secret = lines[2].strip().split('=')[1].strip().replace('"', '')
+            passphrase = lines[3].strip().split('=')[1].strip().replace('"', '')
+            eu_type = int(lines[4].strip().split('=')[1].split('#')[0].strip())
+            if eu_type not in [0, 1]:
+                raise ValueError("Invalid value for eu_type. Expected 0 or 1.")
+            print(eu_type)
+    except FileNotFoundError:
+        print(Fore.RED + "CEX settings file not found. Please create data/cex_settings.py.")
+        return
+    except ValueError as ve:
+        print(Fore.RED + f"Error: {ve}")
+        return
+    except Exception as e:
+        print(Fore.RED + f"Error reading CEX settings: {e}")
+        return
+
+    try:
+        action = select(
+            "What do you want to do?",
+            choices=[
+                Choice('💰 Withdraw from OKX', 'withdraw_okx'),
+                Choice('💲 Check balances on OKX', 'check_balances_okx'),
+                Choice('🔙 Back', 'back')
+            ],
+            qmark='🛠️',
+            pointer='👉'
+        ).ask()
+
+        if action == 'back':
+            return
+
+        if action == 'withdraw_okx':
+            print(Fore.BLUE + f"\n\n\n\nВывод временно не работает\n")
+            return
+            # address = input(Fore.YELLOW + "Enter the address to withdraw to: ")
+            # token = select(
+            #     "Select token:",
+            #     choices=[
+            #         Choice('ETH', 'ETH'),
+            #         Choice('USDT', 'USDT'),
+            #         Choice('BTC', 'BTC')
+            #     ],
+            #     qmark='🛠️',
+            #     pointer='👉'
+            # ).ask()
+
+            # network = select(
+            #     "Select network:",
+            #     choices=[
+            #         Choice('Ethereum Mainnet', 'Ethereum Mainnet'),
+            #         Choice('Polygon', 'Polygon'),
+            #         Choice('Arbitrum One', 'Arbitrum One')
+            #     ],
+            #     qmark='🛠️',
+            #     pointer='👉'
+            # ).ask()
+
+            # sum_range = [0.01, 0.1]  
+            # withdraw_from_okx(api_key, api_secret, passphrase, eu_type, address, token, network, sum_range)
+        elif action == 'check_balances_okx':
+            balances = get_balances_okx(api_key, api_secret, passphrase)
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
