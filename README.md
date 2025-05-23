@@ -1,7 +1,7 @@
 # ETHmachine: Проверка балансов Ethereum кошельков
 
 ### Пожертвование
-```TRC20 - TJ9KCpi3hHdsgaLuLvzDq35bMkJAuPVMKS```
+```ETH - 0xa24fbbd57720ec580395aedba3ad37f6a6067727```
 
 ![Пожертвование](data/project/usdt.jpg)
 
