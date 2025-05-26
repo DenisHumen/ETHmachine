@@ -9,3 +9,4 @@ build
 dist
 venv
 *.pyc
+data/transfer_token.csv

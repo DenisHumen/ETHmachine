@@ -86,7 +86,7 @@ def compare_versions(
             f"⚠️⚠️⚠️ Update available!\n"
             f"📅 Latest update released: {formatted_date}\n"
             f"ℹ️ To update, use: `git pull`\n"
-            f"📥 Or download from: \033]8;;{download_link}\033\\{download_link}\033]8;;\033\\",
+            f"📥 Or download from: \033]8;;{download_link}\033\\{download_link}\033]8;;\033\\\n",
         )
 
     except Exception as e:

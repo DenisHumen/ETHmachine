@@ -19,6 +19,8 @@ from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
 from modules.cex.okx_withdraw import withdraw_from_okx
 from modules.GitHub.check_version import check_version
+from modules.wallet_generator import generate_wallets
+from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets
 
 init(autoreset=True)
 
@@ -54,7 +56,8 @@ def check_and_create_files():
         'result/transaction_count_result.csv',
         'data/proxy.csv',
         'data/walletss.txt',
-        'data/cex_settings.py'
+        'data/cex_settings.py',
+        'data/transfer_token.csv',
     ]
     required_directories = ['result', 'data']
 
@@ -78,6 +81,8 @@ def check_and_create_files():
                         'OKX_API_PASSPHRAS = ""\n'
                         'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
                     )
+                elif 'transfer_token.csv' in file:
+                    f.write('from_wallet,to_wallet,intermediary,amount\n')
             print(Fore.GREEN + f"File created: {file}")
 
 def main_menu():
@@ -85,13 +90,14 @@ def main_menu():
     try:
         while True:
             action = select(
-                "What do you want to do?",
+                f"What do you want to do?",
                 choices=[
                     Choice('💲 Check Balances', 'check_balances'),
                     Choice('💰 Sum Balances', 'sum_balances'),
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
+                    Choice('🔄 Transfer Wallets to Wallets | отправляет токены через между кошельками, через третий кошелек (from,intermediary,to)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
@@ -131,7 +137,6 @@ def main_menu():
                         continue
 
                 if num_wallets and num_wallets != 'back':
-                    from modules.wallet_generator import generate_wallets
                     generate_wallets(num_wallets)
                     print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
                     continue
@@ -153,15 +158,68 @@ def main_menu():
                     print(Fore.RED + f"Error: {e}")
                 continue
 
-            if action == 'check_all_balances':  # New action
+            # if action == 'check_all_balances':  # New action
+            #     try:
+            #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
+            #             wallet_addresses = file.readlines()
+            #         check_all_balances(wallet_addresses)
+            #     except FileNotFoundError:
+            #         print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
+            #     except Exception as e:
+            #         print(Fore.RED + f"Error: {e}")
+            #     continue
+
+            if action == 'transefer_wallets_to_wallets_call':
+                # выбор сети
+                network_type = select(
+                    "Select network type:",
+                    choices=[
+                        Choice('🌐 Mainnet', 'mainnet'),
+                        Choice('🔧 Testnet', 'testnet'),
+                        Choice('🔙 Back', 'back')
+                    ],
+                    qmark='🛠️',
+                    pointer='👉'
+                ).ask()
+                if network_type == 'back':
+                    continue
+
+                network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
+                network = select(
+                    "Which network do you want to use for transfer?",
+                    choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
+                    qmark='🛠️',
+                    pointer='👉'
+                ).ask()
+                if network == 'back':
+                    continue
+
+                # читаем данные из transfer_token.csv
+                import csv
+                transfer_data = []
                 try:
-                    with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-                        wallet_addresses = file.readlines()
-                    check_all_balances(wallet_addresses)
-                except FileNotFoundError:
-                    print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
+                    with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
+                                transfer_data.append(row)
                 except Exception as e:
-                    print(Fore.RED + f"Error: {e}")
+                    print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
+                    continue
+
+                if not transfer_data:
+                    print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv")
+                    continue
+
+                # вызываем функцию для каждой строки
+                for row in transfer_data:
+                    transefer_wallets_to_wallets(
+                        row['from_wallet'],
+                        row['intermediary'],
+                        row['to_wallet'],
+                        network,
+                        row['amount']
+                    )
                 continue
 
             network_type = select(
@@ -197,6 +255,8 @@ def main_menu():
                 check_transaction_count_menu(network, network_type)
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
+
+
 
 def check_balances_menu(network, network_type):
     try:
