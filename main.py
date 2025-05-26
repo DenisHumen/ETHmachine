@@ -17,7 +17,7 @@ from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
-from modules.cex.okx_withdraw import withdraw_from_okx
+from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 from modules.wallet_generator import generate_wallets
 from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets
@@ -97,6 +97,7 @@ def main_menu():
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
+                    Choice('🏦 CEX', 'CEX_menu():'),
                     Choice('🔄 Transfer Wallets to Wallets | отправляет токены через между кошельками, через третий кошелек (from,intermediary,to)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
@@ -108,6 +109,10 @@ def main_menu():
 
             if action == 'exit':
                 break
+            
+            if action == 'CEX_menu():':
+                CEX_menu()
+                continue
             
             if action == 'generate_wallets':
                 num_wallets = select(
@@ -158,6 +163,16 @@ def main_menu():
                     print(Fore.RED + f"Error: {e}")
                 continue
 
+            # if action == 'check_all_balances':  # New action
+            #     try:
+            #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
+            #             wallet_addresses = file.readlines()
+            #         check_all_balances(wallet_addresses)
+            #     except FileNotFoundError:
+            #         print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
+            #     except Exception as e:
+            #         print(Fore.RED + f"Error: {e}")
+            #     continue
             # if action == 'check_all_balances':  # New action
             #     try:
             #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
@@ -255,8 +270,6 @@ def main_menu():
                 check_transaction_count_menu(network, network_type)
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
-
-
 
 def check_balances_menu(network, network_type):
     try:
