@@ -1,7 +1,7 @@
 import time
 import csv
 from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth, Abstract
-from config.config import NUM_THREADS
+from config.config import NUM_THREADS, expected_completion_time
 from colorama import Fore, init
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -20,7 +20,9 @@ from modules.get_transaction_count import get_transaction_count
 from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 from modules.wallet_generator import generate_wallets
-from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets
+from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
+from questionary import confirm
+import json
 
 init(autoreset=True)
 
@@ -97,7 +99,7 @@ def main_menu():
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
-                    Choice('🏦 CEX', 'CEX_menu():'),
+                    #Choice('🏦 CEX', 'CEX_menu():'),
                     Choice('🔄 Transfer Wallets to Wallets | отправляет токены через между кошельками, через третий кошелек (from,intermediary,to)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
@@ -110,9 +112,9 @@ def main_menu():
             if action == 'exit':
                 break
             
-            if action == 'CEX_menu():':
-                CEX_menu()
-                continue
+            # if action == 'CEX_menu():':
+            #     CEX_menu()
+            #     continue
             
             if action == 'generate_wallets':
                 num_wallets = select(
@@ -226,15 +228,59 @@ def main_menu():
                     print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv")
                     continue
 
-                # вызываем функцию для каждой строки
-                for row in transfer_data:
-                    transefer_wallets_to_wallets(
-                        row['from_wallet'],
-                        row['intermediary'],
-                        row['to_wallet'],
-                        network,
-                        row['amount']
-                    )
+                # --- Работа с прогресс-баром и прогресс-файлом ---
+                db_dir = "db"
+                if not os.path.exists(db_dir):
+                    os.makedirs(db_dir)
+                progress_file = os.path.join(db_dir, "transfer_progress.json")
+
+                # Определяем прогресс
+                start_idx = 0
+                completed_txs = 0
+                resume = None
+                if os.path.exists(progress_file):
+                    with open(progress_file, "r", encoding="utf-8") as pf:
+                        try:
+                            progress_data = json.load(pf)
+                            start_idx = progress_data.get("last_idx", 0)
+                            completed_txs = progress_data.get("completed_txs", 0)
+                        except Exception:
+                            start_idx = 0
+                            completed_txs = 0
+                    resume = select(
+                        "Обнаружен файл прогресса. Продолжить с места остановки или начать сначала?",
+                        choices=[
+                            Choice("Продолжить", "resume"),
+                            Choice("Начать сначала", "restart"),
+                            Choice("Отмена", "cancel")
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+                    if resume == "cancel":
+                        continue
+                    elif resume == "restart":
+                        start_idx = 0
+                        completed_txs = 0
+                        # Удаляем старый прогресс-файл
+                        try:
+                            os.remove(progress_file)
+                        except Exception:
+                            pass
+                else:
+                    # Если файла нет, создать пустой прогресс-файл (для явности)
+                    with open(progress_file, "w", encoding="utf-8") as pf:
+                        json.dump({"last_idx": 0, "completed_txs": 0}, pf)
+
+                proxies = get_proxy_list()
+                total_tx = len(transfer_data) * 2
+                total_seconds = expected_completion_time
+                delay_between = total_seconds / (total_tx - 1) if total_tx > 1 else 0
+
+                process_wallets_transfer(
+                    transfer_data, proxies, network, delay_between, total_tx,
+                    progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
+                )
                 continue
 
             network_type = select(
