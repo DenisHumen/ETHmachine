@@ -60,8 +60,9 @@ def check_and_create_files():
         'data/walletss.txt',
         'data/cex_settings.py',
         'data/transfer_token.csv',
+        'db/transfer_progress.json'
     ]
-    required_directories = ['result', 'data']
+    required_directories = ['result', 'data', 'db']
 
     for directory in required_directories:
         if not os.path.exists(directory):
@@ -100,7 +101,7 @@ def main_menu():
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
                     #Choice('🏦 CEX', 'CEX_menu():'),
-                    Choice('🔄 Transfer Wallets to Wallets | Отправляет токены между кошельками, через третий кошелек (from,intermediary,to,amount)', 'transefer_wallets_to_wallets_call'),
+                    Choice('🔄 Transfer Wallets to Wallets | Отправляет токены между кошельками, через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')

@@ -188,6 +188,39 @@ def countdown_timer(seconds, message_prefix="Пауза"):
         time.sleep(1)
     print("\r" + " " * 80 + "\r", end="")  # Очистить строку
 
+def get_eth_balance_safe(w3, address, max_attempts=TX_SEND_ATTEMPTS, sleep_sec=2):
+    for attempt in range(max_attempts):
+        try:
+            return w3.eth.get_balance(address)
+        except Exception as e:
+            print(Fore.YELLOW + f"[{address}] Ошибка получения баланса (попытка {attempt+1}/{max_attempts}): {e}")
+            time.sleep(sleep_sec)
+    print(Fore.RED + f"[{address}] Не удалось получить баланс после {max_attempts} попыток.")
+    return 0
+
+def get_nonce_safe(w3, address, max_attempts=TX_SEND_ATTEMPTS, sleep_sec=2):
+    for attempt in range(max_attempts):
+        try:
+            return w3.eth.get_transaction_count(address)
+        except Exception as e:
+            print(Fore.YELLOW + f"[{address}] Ошибка получения nonce (попытка {attempt+1}/{max_attempts}): {e}")
+            time.sleep(sleep_sec)
+    print(Fore.RED + f"[{address}] Не удалось получить nonce после {max_attempts} попыток.")
+    return None
+
+def estimate_gas_with_margin_safe(w3, tx, max_attempts=TX_SEND_ATTEMPTS, sleep_sec=2):
+    for attempt in range(max_attempts):
+        try:
+            gas = w3.eth.estimate_gas(tx)
+            return int(gas * 1.2)  # +20%
+        except KeyboardInterrupt:
+            print(Fore.RED + "\nОперация прервана пользователем (Ctrl+C). Завершение работы.")
+            raise
+        except Exception as e:
+            print(Fore.YELLOW + f"Не удалось оценить газ (попытка {attempt+1}/{max_attempts}), используем 21000: {e}")
+            time.sleep(sleep_sec)
+    return int(21000 * 1.2)
+
 def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
     dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -227,10 +260,15 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         print(Fore.RED + f"Ошибка создания аккаунта: {e}")
         return
 
-    # Получаем баланс отправителя
-    balance = get_eth_balance(w3, from_acc.address)
-    if balance == 0:
-        print(Fore.RED + f"Баланс {from_acc.address} = 0, пропуск")
+    # Получаем баланс отправителя (safe)
+    for attempt in range(TX_SEND_ATTEMPTS):
+        balance = get_eth_balance_safe(w3, from_acc.address)
+        if balance > 0:
+            break
+        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
+        time.sleep(3)
+    else:
+        print(Fore.RED + f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск")
         return
 
     # Получаем процент для отправки
@@ -245,17 +283,22 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
         gas_price = int(w3.to_wei('30', 'gwei'))  # fallback
 
-    # Оцениваем газ для простой отправки
+    # Получаем nonce (safe)
+    nonce_from = get_nonce_safe(w3, from_acc.address)
+    if nonce_from is None:
+        print(Fore.RED + f"Не удалось получить nonce для {from_acc.address} после {TX_SEND_ATTEMPTS} попыток, пропуск")
+        return
+
     tx = {
         'from': from_acc.address,
         'to': intermediary_acc.address,
         'value': 0,  # позже подставим
         'gas': 21000,
         'gasPrice': gas_price,
-        'nonce': w3.eth.get_transaction_count(from_acc.address),
+        'nonce': nonce_from,
         'chainId': w3.eth.chain_id
     }
-    gas_limit = estimate_gas_with_margin(w3, tx)
+    gas_limit = estimate_gas_with_margin_safe(w3, tx)
     total_gas_fee = gas_limit * gas_price
 
     # --- Ограничение: на стартовом кошельке должно остаться не меньше MIN_FROM_BALANCE ---
@@ -306,85 +349,75 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
     tx_counter += 1
 
     # Теперь отправляем с intermediary -> to
-    interm_balance = 0
-    for _ in range(20):
-        interm_balance = get_eth_balance(w3, intermediary_acc.address)
+    print(Fore.CYAN + f"Ожидание поступления баланса на intermediary ({intermediary_acc.address})...")
+    for attempt in range(TX_SEND_ATTEMPTS):
+        interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
         if interm_balance > 0:
             break
+        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс intermediary = 0, ждем 3 сек...")
         time.sleep(3)
     else:
-        print(Fore.RED + f"Баланс intermediary не пополнен, пропуск. Текущий баланс: {w3.from_wei(interm_balance, 'ether')}")
-        print(Fore.MAGENTA + "="*60)
+        interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
+        if interm_balance == 0:
+            print(Fore.RED + f"Баланс intermediary не пополнен после {TX_SEND_ATTEMPTS} попыток, но продолжаем попытку отправки всей суммы (0.000001 ETH).")
+            interm_balance = w3.to_wei('0.000001', 'ether')  # минимально возможная сумма
+
+    nonce = get_nonce_safe(w3, intermediary_acc.address)
+    if nonce is None:
+        print(Fore.RED + f"Не удалось получить nonce для intermediary после {TX_SEND_ATTEMPTS} попыток, пропуск")
         return
 
-    nonce = w3.eth.get_transaction_count(intermediary_acc.address)
     min_value_wei = w3.to_wei('0.000001', 'ether')
     value_to_send = interm_balance
 
-    while value_to_send > min_value_wei:
-        try:
-            tx2_gas_limit = w3.eth.estimate_gas({
-                'from': intermediary_acc.address,
-                'to': to_acc.address,
-                'value': value_to_send,
-                'gasPrice': gas_price,
-                'nonce': nonce,
-                'chainId': w3.eth.chain_id
-            })
-            tx2_total_gas_fee = tx2_gas_limit * gas_price
-            if value_to_send + tx2_total_gas_fee <= interm_balance:
-                break
-            else:
+    sent = False
+    for try_any in range(10):  # максимум 10 попыток подобрать сумму
+        if value_to_send < min_value_wei:
+            value_to_send = min_value_wei
+        if value_to_send <= 0:
+            print(Fore.RED + f"Невозможно отправить: value_to_send <= 0. Пропуск.")
+            break
+
+        # --- Всегда используем минимальный газ (21000) и не делаем estimate_gas ---
+        tx2_gas_limit = 21000
+        tx2_total_gas_fee = tx2_gas_limit * gas_price
+
+        # Если не хватает на комиссию, пробуем отправить только комиссию
+        if value_to_send + tx2_total_gas_fee > interm_balance:
+            if interm_balance > tx2_total_gas_fee:
                 value_to_send = interm_balance - tx2_total_gas_fee
-        except Exception:
-            value_to_send -= w3.to_wei('0.000001', 'ether')
-    else:
-        print(Fore.RED + f"Недостаточно баланса intermediary для покрытия комиссии. Баланс: {w3.from_wei(interm_balance, 'ether')}")
-        print(Fore.MAGENTA + "="*60)
-        return
+            else:
+                print(Fore.RED + f"Недостаточно средств даже на комиссию. Пропуск.")
+                break
 
-    if value_to_send < min_value_wei:
-        print(Fore.RED + f"Слишком маленькая сумма для отправки: {w3.from_wei(value_to_send, 'ether')} ETH")
-        print(Fore.MAGENTA + "="*60)
-        return
-
-    try:
-        tx2_gas_limit = w3.eth.estimate_gas({
+        tx2 = {
             'from': intermediary_acc.address,
             'to': to_acc.address,
             'value': value_to_send,
+            'gas': tx2_gas_limit,
             'gasPrice': gas_price,
             'nonce': nonce,
             'chainId': w3.eth.chain_id
-        })
-    except Exception as e:
-        print(Fore.RED + f"Не удалось оценить газ для второй транзакции: {e}")
-        print(Fore.MAGENTA + "="*60)
-        return
-
-    tx2 = {
-        'from': intermediary_acc.address,
-        'to': to_acc.address,
-        'value': value_to_send,
-        'gas': tx2_gas_limit,
-        'gasPrice': gas_price,
-        'nonce': nonce,
-        'chainId': w3.eth.chain_id
-    }
-    try:
-        signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
-        print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to...")
-        success2, tx_hash2_hex = send_with_retry(w3, signed_tx2, explorer_url)
-        if not success2:
-            print(Fore.RED + "❌ Не удалось выполнить вторую транзакцию.")
-            print(Fore.MAGENTA + "="*60)
-            return
-        else:
-            print(Fore.GREEN + f"✅ Успешно отправлено intermediary -> to.")
-            amount_sent_wei = value_to_send
-            amount_sent_eth = w3.from_wei(value_to_send, 'ether')
-    except Exception as e:
-        print(Fore.RED + f"Ошибка отправки intermediary -> to: {e}")
+        }
+        try:
+            signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
+            print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to (value: {w3.from_wei(value_to_send, 'ether')} ETH)...")
+            success2, tx_hash2_hex = send_with_retry(w3, signed_tx2, explorer_url)
+            if not success2:
+                print(Fore.RED + "❌ Не удалось выполнить вторую транзакцию.")
+                print(Fore.MAGENTA + "="*60)
+                return
+            else:
+                print(Fore.GREEN + f"✅ Успешно отправлено intermediary -> to.")
+                amount_sent_wei = value_to_send
+                amount_sent_eth = w3.from_wei(value_to_send, 'ether')
+                sent = True
+                break
+        except Exception as e:
+            print(Fore.RED + f"Ошибка отправки intermediary -> to: {e}")
+            value_to_send -= w3.to_wei('0.000001', 'ether')
+    if not sent:
+        print(Fore.RED + f"Не удалось отправить даже минимальную сумму с intermediary ({intermediary_acc.address}) после всех попыток.")
         print(Fore.MAGENTA + "="*60)
         return
 
