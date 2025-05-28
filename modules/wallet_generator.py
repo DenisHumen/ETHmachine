@@ -87,20 +87,20 @@ def mnemonic_to_private_key(mnemonic, str_derivation_path, passphrase=""):
 def generate_wallets(num_wallets):
     """
     Generate Ethereum wallets and save them to a CSV file with a progress bar.
-
-    Args:
-        num_wallets (int): Number of wallets to generate.
+    Then verify that mnemonic/private key import gives the same address.
     """
     mnemo = Mnemonic("english")
     spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
     bar_length = 30  # Length of the progress bar
-    completed_wallets = 0
 
     # Clear the file and write the header
     with open('result/result.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
+    # Stage 1: Generation
+    completed_wallets = 0
+    wallets = []
     with open('result/result.csv', mode='a', newline='') as file:
         writer = csv.writer(file)
         for i in range(num_wallets):
@@ -108,21 +108,59 @@ def generate_wallets(num_wallets):
                 mnemonic = mnemo.generate()
                 private_key = mnemonic_to_private_key(mnemonic, str_derivation_path=f'{ETH_DERIVATION_PATH}/0')
                 public_key = PublicKey(private_key)
-                writer.writerow([mnemonic, public_key.address(), binascii.hexlify(bytes(private_key)).decode("utf-8")])
+                address = public_key.address()
+                priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
+                writer.writerow([mnemonic, address, priv_hex])
+                wallets.append((mnemonic, address, priv_hex))
 
                 # Update progress bar
                 completed_wallets += 1
                 progress = int((completed_wallets / num_wallets) * bar_length)
                 bar = "█" * progress + "░" * (bar_length - progress)
-                spinner_frame = next(spinner_cycle)  # Get the next frame of the spinner
+                spinner_frame = next(spinner_cycle)
                 print(
-                    f"\r[{bar}] {completed_wallets}/{num_wallets} | {spinner_frame} Generating wallets...",
+                    f"\r[GEN] [{bar}] {completed_wallets}/{num_wallets} | {spinner_frame} Generating wallets...",
                     end="",
                     flush=True,
                 )
             except Exception as e:
                 print(f"\n❌ Error generating wallet {i + 1}: {str(e)}", file=sys.stderr)
-
     print()  # Move to the next line after the progress bar is complete
+
+    # Stage 2: Verification
+    completed_checks = 0
+    spinner_cycle_check = cycle(["|", "/", "-", "\\"])
+    bar_length_check = 30
+    results = []
+    for i, (mnemonic, orig_address, priv_hex) in enumerate(wallets):
+        # Проверка по мнемонике
+        check_priv = mnemonic_to_private_key(mnemonic, str_derivation_path=f'{ETH_DERIVATION_PATH}/0')
+        check_addr_mnemonic = PublicKey(check_priv).address()
+        # Проверка по приватнику
+        check_addr_priv = PublicKey(binascii.unhexlify(priv_hex)).address()
+        # Сравнение
+        mark = ""
+        if check_addr_mnemonic != orig_address or check_addr_priv != orig_address:
+            mark = " ⚠️⚠️⚠️"
+        results.append((mnemonic, orig_address, priv_hex, mark))
+
+        # Update verification progress bar
+        completed_checks += 1
+        progress = int((completed_checks / num_wallets) * bar_length_check)
+        bar = "█" * progress + "░" * (bar_length_check - progress)
+        spinner_frame = next(spinner_cycle_check)
+        print(
+            f"\r[CHK] [{bar}] {completed_checks}/{num_wallets} | {spinner_frame} Verifying wallets...",
+            end="",
+            flush=True,
+        )
+    print()  # Move to the next line after the progress bar is complete
+
+    # Перезаписываем файл с отметками
+    with open('result/result.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["mnemonic", "wallet_address", "private_key", "check"])
+        for row in results:
+            writer.writerow(row)
 
 #generate_wallets(10000)  # Example usage

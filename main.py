@@ -100,7 +100,7 @@ def main_menu():
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
                     #Choice('🏦 CEX', 'CEX_menu():'),
-                    Choice('🔄 Transfer Wallets to Wallets | отправляет токены через между кошельками, через третий кошелек (from,intermediary,to)', 'transefer_wallets_to_wallets_call'),
+                    Choice('🔄 Transfer Wallets to Wallets | Отправляет токены между кошельками, через третий кошелек (from,intermediary,to,amount)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
                     Choice('❌ Exit', 'exit')
@@ -188,6 +188,9 @@ def main_menu():
 
             if action == 'transefer_wallets_to_wallets_call':
                 # выбор сети
+                print(Fore.GREEN + "Формат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
+                print(Fore.YELLOW + f"Пример: Приватник откуда, Приватник конечный получатель, Приватник посредник, количество в процентах от баланса (например 10-15 для рандомного выбора между 10% и 15% от баланса)\n")
+                print(Fore.YELLOW + "C посредника будет отправленно 100% от баланса")
                 network_type = select(
                     "Select network type:",
                     choices=[
@@ -250,9 +253,9 @@ def main_menu():
                     resume = select(
                         "Обнаружен файл прогресса. Продолжить с места остановки или начать сначала?",
                         choices=[
-                            Choice("Продолжить", "resume"),
-                            Choice("Начать сначала", "restart"),
-                            Choice("Отмена", "cancel")
+                            Choice("▶️ Продолжить", "resume"),
+                            Choice("🔄 Начать сначала", "restart"),
+                            Choice("❌ Отмена", "cancel")
                         ],
                         qmark='🛠️',
                         pointer='👉'

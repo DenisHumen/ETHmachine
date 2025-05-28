@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 import csv
 from config.config import TX_SEND_ATTEMPTS
+from config.config import MIN_FROM_BALANCE
 from itertools import cycle
 from colorama import Style
 import json
@@ -257,10 +258,22 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
     gas_limit = estimate_gas_with_margin(w3, tx)
     total_gas_fee = gas_limit * gas_price
 
-    # Считаем сумму для отправки
-    send_amount = int((balance - total_gas_fee) * percent / 100)
+    # --- Ограничение: на стартовом кошельке должно остаться не меньше MIN_FROM_BALANCE ---
+    min_from_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
+    max_sendable = balance - total_gas_fee - min_from_balance_wei
+    if max_sendable <= 0:
+        print(Fore.YELLOW + f"⚠️ Перевод невозможен: после перевода и оплаты комиссии на кошельке {from_acc.address} останется меньше минимального ({MIN_FROM_BALANCE} ETH). Пропуск." + Style.RESET_ALL)
+        print(Fore.MAGENTA + "="*60)
+        return
+
+    # Считаем сумму для отправки с учетом ограничения
+    requested_send_amount = int((balance - total_gas_fee) * percent / 100)
+    send_amount = min(requested_send_amount, max_sendable)
+    if send_amount < requested_send_amount:
+        print(Fore.YELLOW + f"⚠️ Сумма перевода уменьшена: исходно {w3.from_wei(requested_send_amount, 'ether')} ETH, теперь {w3.from_wei(send_amount, 'ether')} ETH, чтобы на кошельке осталось не меньше {MIN_FROM_BALANCE} ETH." + Style.RESET_ALL)
+
     if send_amount <= 0:
-        print(Fore.RED + f"Недостаточно баланса для покрытия комиссии. Баланс: {w3.from_wei(balance, 'ether')}, комиссия: {w3.from_wei(total_gas_fee, 'ether')}")
+        print(Fore.RED + f"Недостаточно баланса для покрытия комиссии и минимального остатка. Баланс: {w3.from_wei(balance, 'ether')}, комиссия: {w3.from_wei(total_gas_fee, 'ether')}, мин. остаток: {MIN_FROM_BALANCE}")
         return
 
     explorer_url = get_explorer_url(network)
