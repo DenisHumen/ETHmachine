@@ -23,6 +23,8 @@ from modules.wallet_generator import generate_wallets
 from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
 from questionary import confirm
 import json
+import os
+from colorama import Fore
 
 init(autoreset=True)
 
@@ -48,9 +50,6 @@ testnet_rpc_urls = {
     '🚀 Somnia Testnet': somnia_testnet,
     '🚀 Mega ETH': mega_eth,
 }
-
-import os
-from colorama import Fore
 
 def check_and_create_files():
     required_files = [
@@ -100,7 +99,7 @@ def main_menu():
                     Choice('⛽ Check Gas Price', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets', 'generate_wallets'),
-                    #Choice('🏦 CEX', 'CEX_menu():'),
+                    Choice('🏦 CEX', 'CEX_menu():'),
                     Choice('🔄 Transfer Wallets to Wallets | Отправляет токены между кошельками, через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
                     #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
@@ -113,9 +112,10 @@ def main_menu():
             if action == 'exit':
                 break
             
-            # if action == 'CEX_menu():':
-            #     CEX_menu()
-            #     continue
+            if action == 'CEX_menu():':
+                print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                time.sleep(3)
+                continue
             
             if action == 'generate_wallets':
                 num_wallets = select(
@@ -138,7 +138,7 @@ def main_menu():
                     try:
                         num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
                         if num_wallets <= 0:
-                            print(Fore.RED + "Please enter a positive number.")
+                            print(Fore.RED + "Please enter a positive number: ")
                             continue
                     except ValueError:
                         print(Fore.RED + "Invalid input. Please enter a valid number.")
