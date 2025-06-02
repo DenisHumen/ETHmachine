@@ -173,7 +173,7 @@ def get_explorer_url(network):
         '🚀 Sepolia': "https://sepolia.etherscan.io/tx/",
         '🚀 Monad Testnet (native token MON)': "https://testnet.monvision.io/tx/",
         '🚀 Sahara testnet': "https://testnet-explorer.saharalabs.ai/tx/",
-        '🚀 Somnia Testnet': None,
+        '🚀 Somnia Testnet': "https://shannon-explorer.somnia.network/tx/",
         '🚀 Mega ETH': "https://www.oklink.com/ru/megaeth-testnet/tx/",
     }
     return explorers.get(network, "https://www.megaexplorer.xyz/tx/")
