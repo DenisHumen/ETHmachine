@@ -20,15 +20,6 @@ def get_local_commit_info() -> Tuple[str, str]:
         return None, None
 
 def get_github_commit_info(github_api_url: str) -> Tuple[str, str, str]:
-    """
-    Fetch the latest commit information from the GitHub repository.
-
-    Args:
-        github_api_url (str): The GitHub API URL for the repository.
-
-    Returns:
-        Tuple[str, str, str]: Commit hash, commit date, and commit message.
-    """
     try:
         response = requests.get(github_api_url, timeout=10)  # Add a timeout to prevent hanging
         response.raise_for_status()
@@ -55,20 +46,7 @@ def compare_versions(
     commit_message: str,
     repo_name: str,
 ) -> Tuple[bool, str]:
-    """
-    Compare local and GitHub versions and generate a message.
 
-    Args:
-        local_date (str): Local commit date.
-        github_date (str): GitHub commit date.
-        local_hash (str): Local commit hash.
-        github_hash (str): GitHub commit hash.
-        commit_message (str): GitHub commit message.
-        repo_name (str): The name of the GitHub repository.
-
-    Returns:
-        Tuple[bool, str]: Whether the local version is the latest and the message.
-    """
     try:
         github_dt = datetime.fromisoformat(github_date.replace("Z", "+00:00"))
         formatted_date = github_dt.strftime("%d.%m.%Y %H:%M UTC")
@@ -94,12 +72,6 @@ def compare_versions(
         return False, "Error comparing versions"
 
 def check_version(repo_name: str):
-    """
-    Check the local version against the latest version on GitHub.
-
-    Args:
-        repo_name (str): The name of the GitHub repository.
-    """
     github_api_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits/main"
 
     os.system('cls' if os.name == 'nt' else 'clear')  # Clear the console

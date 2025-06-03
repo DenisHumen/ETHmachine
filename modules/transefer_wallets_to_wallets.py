@@ -175,6 +175,7 @@ def get_explorer_url(network):
         '🚀 Sahara testnet': "https://testnet-explorer.saharalabs.ai/tx/",
         '🚀 Somnia Testnet': "https://shannon-explorer.somnia.network/tx/",
         '🚀 Mega ETH': "https://www.oklink.com/ru/megaeth-testnet/tx/",
+        '🚀 Pharos': "https://testnet.pharosscan.xyz/tx/",
     }
     return explorers.get(network, "https://www.megaexplorer.xyz/tx/")
 
