@@ -95,16 +95,16 @@ def main_menu():
             action = select(
                 f"What do you want to do?",
                 choices=[
-                    Choice('💲 Check Balances', 'check_balances'),
-                    Choice('💰 Sum Balances', 'sum_balances'),
-                    Choice('⛽ Check Gas Price', 'check_gas_price'),
-                    Choice('🔢 Check Transaction Count - Количество транзакций в выбранной сети', 'check_transaction_count'),
-                    Choice('🪙  Generate Wallets', 'generate_wallets'),
-                    Choice('🏦 CEX', 'CEX_menu():'),
-                    Choice('🔄 Transfer Wallets to Wallets | Отправляет токены между кошельками, через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
-                    #Choice('🏦 Withdraw from OKX', 'withdraw_okx'),
-                    #Choice('🌐 Check All Balances Across Networks', 'check_all_balances'),  # New option
-                    Choice('❌ Exit', 'exit')
+                    Choice('💲 Check Balances | Проверить балансы', 'check_balances'),
+                    Choice('💰 Sum Balances | Суммировать балансы', 'sum_balances'),
+                    Choice('⛽ Check Gas Price | Проверить цену газа', 'check_gas_price'),
+                    Choice('🔢 Check Transaction Count | Количество транзакций в выбранной сети', 'check_transaction_count'),
+                    Choice('🪙 Generate Wallets | Генерация кошельков', 'generate_wallets'),
+                    Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
+                    Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
+                    Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ', 'mnemonic_to_priv_key'),
+                    #Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
+                    Choice('❌ Exit | Выход', 'exit')
                 ],
                 qmark='🛠️',
                 pointer='👉'
@@ -113,7 +113,12 @@ def main_menu():
             if action == 'exit':
                 break
             
-            if action == 'CEX_menu():':
+            if action == 'CEX_menu':
+                print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                time.sleep(3)
+                continue
+
+            if action == 'mnemonic_to_priv_key':
                 print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
                 time.sleep(3)
                 continue
@@ -190,7 +195,7 @@ def main_menu():
 
             if action == 'transefer_wallets_to_wallets_call':
                 # выбор сети
-                print(Fore.GREEN + "Формат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
+                print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
                 print(Fore.YELLOW + f"Пример: Приватник откуда, Приватник конечный получатель, Приватник посредник, количество в процентах от баланса (например 10-15 для рандомного выбора между 10% и 15% от баланса)\n")
                 print(Fore.YELLOW + "C посредника будет отправленно 100% от баланса")
                 network_type = select(
