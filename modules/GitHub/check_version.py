@@ -50,9 +50,11 @@ def compare_versions(
     try:
         github_dt = datetime.fromisoformat(github_date.replace("Z", "+00:00"))
         formatted_date = github_dt.strftime("%d.%m.%Y")
-        version = github_dt.strftime("%-m.%d.%y")  # Пример: 5.28.25
-        # Попробуем взять только первую строку коммита для краткого описания
-        short_message = commit_message.split('\n')[0] if commit_message else ""
+        # Кроссплатформенно: без %-m (Windows не поддерживает %-m)
+        version = github_dt.strftime("%#m.%d.%y") if os.name == "nt" else github_dt.strftime("%-m.%d.%y")
+        # Если не сработало, fallback на обычный формат
+        if not version or version.startswith("%"):
+            version = github_dt.strftime("%m.%d.%y").lstrip("0")
         if local_hash == github_hash:
             return (
                 True,
@@ -60,7 +62,6 @@ def compare_versions(
                 "",
                 ""
             )
-        download_link = f"https://github.com/DenisHumen/{repo_name}"
         return (
             False,
             version,
@@ -97,13 +98,12 @@ def check_version(repo_name: str):
     print("+---------+---------------+------------------------------------------------+")
     print("| Version |  Release Date |                    Changes                     |")
     print("+---------+---------------+------------------------------------------------+")
-    # Форматируем многострочный коммит
-    changes = [line.strip() for line in commit_message.split('\n') if line.strip()]
+    changes = [line.strip() for line in (commit_message or "").split('\n') if line.strip()]
     if not changes:
         changes = ["No description"]
     for idx, line in enumerate(changes):
         if idx == 0:
-            print(f"| {version:<7} | 📅 {formatted_date:<11} | {line:<46} |")
+            print(f"| {version or '':<7} | 📅 {formatted_date or '':<11} | {line:<46} |")
         else:
             print(f"| {'':<7} | {'':<13} | {line:<46} |")
     print("+---------+---------------+------------------------------------------------+")

@@ -101,7 +101,7 @@ def main_menu():
                     Choice('💰 Sum Balances | Суммировать балансы', 'sum_balances'),
                     Choice('⛽ Check Gas Price | Проверить цену газа', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count | Количество транзакций в выбранной сети', 'check_transaction_count'),
-                    Choice('🪙 Generate Wallets | Генерация кошельков', 'generate_wallets'),
+                    Choice('🪙  Generate Wallets | Генерация кошельков', 'generate_wallets'),
                     Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ и адрес кошелька', 'mnemonic_to_priv_key'),
