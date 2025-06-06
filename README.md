@@ -5,7 +5,7 @@
 Спасибо за поддержку!
 
 ```ETH - 0xa24fbbd57720ec580395aedba3ad37f6a6067727```
-test
+
 ![Пожертвование](data/project/usdt.jpg)
 
 ---
