@@ -74,6 +74,9 @@ def compare_versions_and_collect_updates(local_hash: str, commits: list):
     updates = []
     found_local = False
     for c in commits:
+        if c["sha"] == local_hash:
+            found_local = True
+            break
         github_dt = datetime.fromisoformat(c["date"].replace("Z", "+00:00"))
         formatted_date = github_dt.strftime("%d.%m.%Y")
         version = github_dt.strftime("%#m.%d.%y") if os.name == "nt" else github_dt.strftime("%-m.%d.%y")
@@ -85,10 +88,7 @@ def compare_versions_and_collect_updates(local_hash: str, commits: list):
             "date": formatted_date,
             "message": c["message"]
         })
-        if c["sha"] == local_hash:
-            found_local = True
-            break
-    is_latest = (len(updates) == 0) or (updates[0]["sha"] == local_hash)
+    is_latest = (len(updates) == 0)
     return is_latest, updates
 
 def wrap_text(text, width):
