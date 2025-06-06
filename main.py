@@ -21,6 +21,7 @@ from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 from modules.wallet_generator import generate_wallets
 from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
+from modules.mnemonic_to_privkey import process_mnemonics
 from questionary import confirm
 import json
 import os
@@ -60,6 +61,7 @@ def check_and_create_files():
         'data/walletss.txt',
         'data/cex_settings.py',
         'data/transfer_token.csv',
+        'data/mnemonic.txt',
         'db/transfer_progress.json'
     ]
     required_directories = ['result', 'data', 'db']
@@ -102,7 +104,7 @@ def main_menu():
                     Choice('🪙 Generate Wallets | Генерация кошельков', 'generate_wallets'),
                     Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
-                    Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ', 'mnemonic_to_priv_key'),
+                    Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ и адрес кошелька', 'mnemonic_to_priv_key'),
                     #Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
                     Choice('❌ Exit | Выход', 'exit')
                 ],
@@ -119,8 +121,8 @@ def main_menu():
                 continue
 
             if action == 'mnemonic_to_priv_key':
-                print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
-                time.sleep(3)
+                process_mnemonics()
+                time.sleep(2)
                 continue
             
             if action == 'generate_wallets':

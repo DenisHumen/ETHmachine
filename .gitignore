@@ -12,3 +12,4 @@ venv
 data/transfer_token.csv
 .DS_Store
 db/transfer_progress.json
+data/mnemonic.txt

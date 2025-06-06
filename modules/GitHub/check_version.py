@@ -3,6 +3,7 @@ import subprocess
 import requests
 from datetime import datetime
 from typing import Tuple
+from questionary import select, Choice
 
 def get_local_commit_info() -> Tuple[str, str]:
     try:
@@ -45,39 +46,36 @@ def compare_versions(
     github_hash: str,
     commit_message: str,
     repo_name: str,
-) -> Tuple[bool, str]:
-
+) -> Tuple[bool, str, str, str]:
     try:
         github_dt = datetime.fromisoformat(github_date.replace("Z", "+00:00"))
-        formatted_date = github_dt.strftime("%d.%m.%Y %H:%M UTC")
-
+        formatted_date = github_dt.strftime("%d.%m.%Y")
+        version = github_dt.strftime("%-m.%d.%y")  # Пример: 5.28.25
+        # Попробуем взять только первую строку коммита для краткого описания
+        short_message = commit_message.split('\n')[0] if commit_message else ""
         if local_hash == github_hash:
             return (
                 True,
-                f'\n✅ You are using the latest version!\n'
-                f'\n\n📅 Last update:** {formatted_date}\n'
+                f'\n✅ You are using the latest version!\n\n📅 Last update: {formatted_date}\n',
+                "",
+                ""
             )
-
         download_link = f"https://github.com/DenisHumen/{repo_name}"
         return (
             False,
-            f"⚠️⚠️⚠️ Update available!\n"
-            f"📅 Latest update released: {formatted_date}\n"
-            f"ℹ️ To update, use: `git pull`\n"
-            f"📥 Or download from: \033]8;;{download_link}\033\\{download_link}\033]8;;\033\\\n",
+            version,
+            formatted_date,
+            commit_message
         )
-
     except Exception as e:
         print(f"❌ **Error comparing versions:** {e}")
-        return False, "Error comparing versions"
+        return False, "", "", ""
 
 def check_version(repo_name: str):
     github_api_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits/main"
 
     os.system('cls' if os.name == 'nt' else 'clear')  # Clear the console
-    print(
-        f"\t📥 My GitHub: \033]8;;https://github.com/DenisHumen\033\\https://github.com/DenisHumen\033]8;;\033\\\n"
-    )
+    print("🔍 Checking for updates...")
 
     local_hash, local_date = get_local_commit_info()
     github_hash, github_date, commit_message = get_github_commit_info(github_api_url)
@@ -86,5 +84,44 @@ def check_version(repo_name: str):
         print("❌ **Unable to check version. Missing data.**")
         return
 
-    is_latest, message = compare_versions(local_date, github_date, local_hash, github_hash, commit_message, repo_name)
-    print(message)
+    is_latest, version, formatted_date, commit_message = compare_versions(
+        local_date, github_date, local_hash, github_hash, commit_message, repo_name
+    )
+
+    if is_latest:
+        print(version)
+        return
+
+    # Формируем таблицу изменений
+    print(f"🔋 New version {version} available")
+    print("+---------+---------------+------------------------------------------------+")
+    print("| Version |  Release Date |                    Changes                     |")
+    print("+---------+---------------+------------------------------------------------+")
+    # Форматируем многострочный коммит
+    changes = [line.strip() for line in commit_message.split('\n') if line.strip()]
+    if not changes:
+        changes = ["No description"]
+    for idx, line in enumerate(changes):
+        if idx == 0:
+            print(f"| {version:<7} | 📅 {formatted_date:<11} | {line:<46} |")
+        else:
+            print(f"| {'':<7} | {'':<13} | {line:<46} |")
+    print("+---------+---------------+------------------------------------------------+")
+
+    answer = select(
+        "🛠️ Do you want to update?",
+        choices=[
+            Choice("⚠️ No, continue without updating", "no"),
+            Choice("🆙 Yes, update to the latest version", "yes"),
+        ],
+        qmark="🛠️",
+        pointer="👉"
+    ).ask()
+
+    if answer == "yes":
+        print("🆙 Running: git pull")
+        os.system("git pull")
+        print("✅ Update complete. Please restart the script.")
+        exit(0)
+    else:
+        print("⚠️ Continuing without updating.")

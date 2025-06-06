@@ -7,3 +7,5 @@ questionary
 python-okx
 mnemonic
 ecdsa
+cytoolz
+eth-utils
