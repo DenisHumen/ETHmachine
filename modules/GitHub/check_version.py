@@ -133,7 +133,7 @@ def check_version(repo_name: str):
     # Получаем локальную версию из файла db/version (если есть)
     local_version_file = get_local_version_from_file()
     if local_version_file:
-        print(f"📦 Local version from db/version: {local_version_file}")
+        print(f"📦 Local version: {local_version_file}")
 
     commits = get_github_commit_info(github_api_commits_url)
     if not commits:
