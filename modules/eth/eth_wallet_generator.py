@@ -84,7 +84,7 @@ def mnemonic_to_private_key(mnemonic, str_derivation_path, passphrase=""):
         private_key, chain_code = derive_bip32childkey(private_key, chain_code, i)
     return private_key
 
-def generate_wallets(num_wallets):
+def eth_generate_wallets(num_wallets):
     """
     Generate Ethereum wallets and save them to a CSV file with a progress bar.
     Then verify that mnemonic/private key import gives the same address.

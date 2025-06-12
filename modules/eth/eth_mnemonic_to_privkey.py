@@ -3,7 +3,7 @@ import csv
 from itertools import cycle
 from colorama import Fore, Style
 import sys
-from modules.wallet_generator import (
+from .eth_wallet_generator import (
     mnemonic_to_private_key,
     PublicKey,
     ETH_DERIVATION_PATH,

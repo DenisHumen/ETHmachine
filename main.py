@@ -19,9 +19,9 @@ from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
 from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
-from modules.wallet_generator import generate_wallets
+from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
-from modules.mnemonic_to_privkey import process_mnemonics
+from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from questionary import confirm
 import json
 import os
@@ -153,10 +153,28 @@ def main_menu():
                         continue
 
                 if num_wallets and num_wallets != 'back':
-                    generate_wallets(num_wallets)
-                    print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
-                    continue
-                continue
+                    action = select(
+                        f"Для какой сети?",
+                        choices=[
+                            Choice('💲 ETH', 'ETH'),
+                            Choice('💲 SOL', 'SOL'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+                    if action == 'ETH':
+                        eth_generate_wallets(num_wallets)
+                        print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
+                        continue
+                    elif action == 'SOL':
+                        print(Fore.RED + "Генератор SOL кошельков еще в работе, скоро будет доступен!")
+                        # sol_generate_wallets(num_wallets)
+                        # print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
+                        continue
+                    elif action == 'back':
+                        continue
+                #continue
 
             if action == 'sum_balances':
                 print(Fore.GREEN + "Summing balances from result/result.csv...")
