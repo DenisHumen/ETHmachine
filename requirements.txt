@@ -12,3 +12,4 @@ eth-utils
 solders
 bip-utils
 base58
+torch 

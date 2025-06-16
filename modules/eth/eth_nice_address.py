@@ -7,8 +7,16 @@ from ecdsa.curves import SECP256k1
 from eth_utils import to_checksum_address, keccak as eth_utils_keccak
 import csv
 from itertools import cycle
+from config.config import (
+    NICE_ADDRESS_WORDS, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
+    REPEATED_CHAR_COUNT_enable, display_the_address_search_process
+)
 import re
 import sys
+from colorama import Fore  # Добавляем импорт Fore
+from eth_account import Account  # Добавляем импорт Account
+import random
+import time
 
 BIP39_PBKDF2_ROUNDS = 2048
 BIP39_SALT_MODIFIER = "mnemonic"
@@ -94,10 +102,14 @@ def is_nice_address(address):
     address = address.lower().replace('0x', '')
 
     # Слова
-    words = ['krokosha']
+    words = NICE_ADDRESS_WORDS
+
+    if display_the_address_search_process == True:
+        print(Fore.YELLOW + f"Checking address: {address}")
+
     if any(word in address for word in words):
         # Повторяющиеся символы
-        if re.search(r'(.)\1{0,}', address):
+        if re.search(r'(.)\1{' + str(REPEATED_CHAR_COUNT - 1) + r',}', address):
             return True
     return False
 
@@ -142,5 +154,27 @@ def eth_generate_nice_wallets(num_wallets):
                 print(f"\n❌ Error generating wallet: {str(e)}", file=sys.stderr)
     print()  # Move to the next line after the progress bar is complete
 
-if __name__ == "__main__":
-    eth_generate_nice_wallets(1000)  # Example usage
+def find_nice_addresses(search_word=None):
+    words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS
+
+    print(Fore.GREEN + "Начинаем поиск адресов...")
+
+    attempts = 0
+    found_addresses = []
+
+    while True:
+        attempts += 1
+        account = Account.create(random.randint(0, 2**256 - 1))
+        address = account.address.lower()
+
+        # Проверяем на наличие слов или повторяющихся символов
+        match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in words_to_search)
+        match_repeated = REPEATED_CHAR_COUNT_enable and re.search(rf'([a-f0-9])\1{{{REPEATED_CHAR_COUNT - 1}}}', address)
+
+        if match_word or match_repeated:
+            found_addresses.append({
+                "address": account.address,
+                "private_key": account.key.hex()
+            })
+            print(Fore.CYAN + f"Найден адрес: {account.address} | Приватный ключ: {account.key.hex()}")
+

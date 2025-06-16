@@ -1,7 +1,7 @@
 import time
 import csv
 from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth, Abstract, pharos
-from config.config import NUM_THREADS, expected_completion_time
+from config.config import NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
 from colorama import Fore, init
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -208,9 +208,14 @@ def main_menu():
                             print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
                             continue
                         if addr_type == 'nice':
-                            eth_generate_nice_wallets(num_wallets)
-                            print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
-                            continue
+                            if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
+                                print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
+                                print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
+                                continue
+                            if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
+                                eth_generate_nice_wallets(num_wallets)
+                                print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
+                                continue
 
 
                     elif action == 'SOL':
