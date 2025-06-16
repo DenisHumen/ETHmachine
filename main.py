@@ -20,8 +20,11 @@ from modules.get_transaction_count import get_transaction_count
 from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 from modules.eth.eth_wallet_generator import eth_generate_wallets
+from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
+#from modules.sol.sol_wallet_generator import sol_generate_wallets
+from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
 from questionary import confirm
 import json
 import os
@@ -134,8 +137,8 @@ def main_menu():
                 if acction == 'back':
                     continue
                 if acction == 'SOL':
-                    print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
-                    # sol_process_mnemonics()
+                    #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
+                    sol_process_mnemonics()
                     time.sleep(2)
                     continue
                 if acction == 'ETH':
@@ -189,9 +192,27 @@ def main_menu():
                         pointer='👉'
                     ).ask()
                     if action == 'ETH':
-                        eth_generate_wallets(num_wallets)
-                        print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
-                        continue
+
+                        addr_type = select(
+                            f"Какие адреса генерировать ?",
+                            choices=[
+                                Choice('💲 Normal | Обычные', 'normal'),
+                                Choice('💲 Nice | Красивые', 'nice'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        if addr_type == 'normal':
+                            eth_generate_wallets(num_wallets)
+                            print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
+                            continue
+                        if addr_type == 'nice':
+                            eth_generate_nice_wallets(num_wallets)
+                            print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
+                            continue
+
+
                     elif action == 'SOL':
                         print(Fore.RED + "Генератор SOL кошельков еще в работе, скоро будет доступен!")
                         # sol_generate_wallets(num_wallets)

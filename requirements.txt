@@ -9,3 +9,5 @@ mnemonic
 ecdsa
 cytoolz
 eth-utils
+solders
+bip-utils
