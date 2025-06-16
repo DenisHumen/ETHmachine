@@ -121,7 +121,32 @@ def main_menu():
                 continue
 
             if action == 'mnemonic_to_priv_key':
-                process_mnemonics()
+                acction = select(
+                    'Sol или ETH?',
+                    choices=[
+                        Choice('💲 ETH', 'ETH'),
+                        Choice('💲 SOL', 'SOL'),
+                        Choice('🔙 Back', 'back')
+                    ],
+                    qmark='🛠️',
+                    pointer='👉'
+                ).ask()
+                if acction == 'back':
+                    continue
+                if acction == 'SOL':
+                    print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
+                    # sol_process_mnemonics()
+                    time.sleep(2)
+                    continue
+                if acction == 'ETH':
+                    if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
+                        print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
+                        time.sleep(2)
+                        continue
+                    print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
+                    process_mnemonics()
+                    continue
+                
                 time.sleep(2)
                 continue
             
