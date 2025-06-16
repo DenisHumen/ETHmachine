@@ -11,3 +11,4 @@ cytoolz
 eth-utils
 solders
 bip-utils
+base58

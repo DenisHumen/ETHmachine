@@ -97,7 +97,7 @@ def is_nice_address(address):
     words = ['krokosha']
     if any(word in address for word in words):
         # Повторяющиеся символы
-        if re.search(r'(.)\1{6,}', address):
+        if re.search(r'(.)\1{0,}', address):
             return True
     return False
 
