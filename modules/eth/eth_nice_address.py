@@ -92,7 +92,7 @@ def mnemonic_to_private_key(mnemonic, str_derivation_path, passphrase=""):
         private_key, chain_code = derive_bip32childkey(private_key, chain_code, i)
     return private_key
 
-def is_nice_address(address):
+def is_nice_address(address, attempt=None):
     """
     Проверяет, является ли адрес "красивым".
     Критерии:
@@ -104,8 +104,9 @@ def is_nice_address(address):
     # Слова
     words = NICE_ADDRESS_WORDS
 
-    if display_the_address_search_process == True:
-        print(Fore.YELLOW + f"Checking address: {address}")
+    if display_the_address_search_process:
+        attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
+        print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
     if any(word in address for word in words):
         # Повторяющиеся символы
@@ -127,9 +128,11 @@ def eth_generate_nice_wallets(num_wallets):
         writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
     completed_wallets = 0
+    attempt = 0
     with open('result/result.csv', mode='a', newline='') as file:
         writer = csv.writer(file)
         while completed_wallets < num_wallets:
+            attempt += 1
             try:
                 mnemonic = mnemo.generate()
                 private_key = mnemonic_to_private_key(mnemonic, str_derivation_path=f'{ETH_DERIVATION_PATH}/0')
@@ -137,7 +140,7 @@ def eth_generate_nice_wallets(num_wallets):
                 address = public_key.address()
                 priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
 
-                if is_nice_address(address):
+                if is_nice_address(address, attempt=attempt):
                     writer.writerow([mnemonic, address, priv_hex])
                     completed_wallets += 1
 

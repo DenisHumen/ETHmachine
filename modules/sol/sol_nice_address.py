@@ -32,7 +32,7 @@ def mnemonic_to_private_key(mnemonic):
     keypair = Keypair.from_bytes(full_keypair_bytes)
     return base58.b58encode(full_keypair_bytes).decode(), str(keypair.pubkey())
 
-def is_nice_address(address):
+def is_nice_address(address, attempt=None):
     """
     Проверяет, является ли адрес "красивым".
     Критерии:
@@ -42,7 +42,8 @@ def is_nice_address(address):
     address = address.lower()
 
     if display_the_address_search_process:
-        print(Fore.YELLOW + f"Checking address: {address}")
+        attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
+        print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
     # Проверка на наличие слов из NICE_ADDRESS_WORDS
     if NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS):
@@ -67,15 +68,17 @@ def sol_generate_nice_wallets(num_wallets):
         writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
     completed_wallets = 0
+    attempt = 0
     with open('result/result.csv', mode='a', newline='', encoding="utf-8") as file:
         writer = csv.writer(file)
         while completed_wallets < num_wallets:
+            attempt += 1
             try:
                 # Генерация мнемоники
                 mnemonic = Bip39MnemonicGenerator().FromWordsNumber(12)
                 priv_key, pub_key = mnemonic_to_private_key(mnemonic)
 
-                if is_nice_address(pub_key):
+                if is_nice_address(pub_key, attempt=attempt):
                     writer.writerow([mnemonic, pub_key, priv_key])
                     completed_wallets += 1
 
