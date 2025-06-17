@@ -56,9 +56,6 @@ def is_nice_address(address, attempt=None):
     return False
 
 def sol_generate_nice_wallets(num_wallets):
-    """
-    Генерирует только "красивые" Solana-кошельки и сохраняет их в CSV-файл.
-    """
     spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
     bar_length = 30  # Length of the progress bar
 
