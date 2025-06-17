@@ -1,34 +1,47 @@
-import time
+import os
 import csv
-from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth, Abstract, pharos
-from config.config import NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
+import time
+import json
+import random
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from colorama import Fore, init
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import random
-from questionary import Choice, select
-import os
-import platform
 
-# импорт функций из модулей
+from questionary import Choice, select
+
+from config.rpc import (
+    L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
+    Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora,
+    somnia_testnet, mega_eth, Abstract, pharos
+)
+from config.config import (
+    NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
+)
+
+# Импорт функций из модулей
 from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
+
 from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
+
 from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.eth.eth_nice_address import eth_generate_nice_wallets
-from modules.transefer_wallets_to_wallets import transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
-#from modules.sol.sol_wallet_generator import sol_generate_wallets
+
+from modules.sol.sol_wallet_generator import sol_generate_wallets
+from modules.sol.sol_nice_address import sol_generate_nice_wallets
 from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
-from questionary import confirm
-import json
-import os
-from colorama import Fore
+
+from modules.transefer_wallets_to_wallets import (
+    transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
+)
 
 init(autoreset=True)
 
@@ -219,10 +232,31 @@ def main_menu():
 
 
                     elif action == 'SOL':
-                        print(Fore.RED + "Генератор SOL кошельков еще в работе, скоро будет доступен!")
-                        # sol_generate_wallets(num_wallets)
-                        # print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
-                        continue
+                        addr_type = select(
+                            f"Какие адреса генерировать ?",
+                            choices=[
+                                Choice('💲 Normal | Обычные', 'normal'),
+                                Choice('💲 Nice | Красивые', 'nice'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        if addr_type == 'normal':
+                            sol_generate_wallets(num_wallets)
+                            print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
+                            continue
+                        elif addr_type == 'nice':
+                            if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
+                                print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
+                                print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
+                                continue
+                            if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
+                                sol_generate_nice_wallets(num_wallets)
+                                print(Fore.GREEN + f"\nGenerated {num_wallets} nice SOL wallets and saved to result/result.csv\n")
+                                continue
+
+
                     elif action == 'back':
                         continue
                 #continue
