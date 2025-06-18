@@ -69,7 +69,7 @@ def estimate_gas_with_margin(w3, tx):
         return int(gas * 1.2)  # +20%
     except Exception as e:
         print(Fore.YELLOW + f"Не удалось оценить газ, используем 21000: {e}")
-        #return int(21000 * 1.2)
+        return int(21000 * 1.2)
 
 def send_with_retry(w3, signed_tx, explorer_url, max_attempts=None):
     if max_attempts is None:
@@ -213,15 +213,14 @@ def estimate_gas_with_margin_safe(w3, tx, max_attempts=TX_SEND_ATTEMPTS, sleep_s
     for attempt in range(max_attempts):
         try:
             gas = w3.eth.estimate_gas(tx)
-            print(Fore.CYAN + f"Оценка газа для транзакции: {gas} (без увеличения)")
-            return int(gas * 1.2)  # Увеличиваем на 20%
+            return int(gas * 1.2)  # +20%
         except KeyboardInterrupt:
             print(Fore.RED + "\nОперация прервана пользователем (Ctrl+C). Завершение работы.")
             raise
         except Exception as e:
-            print(Fore.YELLOW + f"Не удалось оценить газ (попытка {attempt+1}/{max_attempts}): {e}")
+            print(Fore.YELLOW + f"Не удалось оценить газ (попытка {attempt+1}/{max_attempts}), используем 21000: {e}")
             time.sleep(sleep_sec)
-    raise Exception("Не удалось оценить газ после нескольких попыток.")
+    return int(21000 * 1.2)
 
 def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
     dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -291,34 +290,17 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         print(Fore.RED + f"Не удалось получить nonce для {from_acc.address} после {TX_SEND_ATTEMPTS} попыток, пропуск")
         return
 
-    # --- Ограничение: на стартовом кошельке должно остаться не меньше MIN_FROM_BALANCE ---
-    min_from_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
-    max_sendable = balance - min_from_balance_wei
-
-    # Считаем сумму для отправки с учетом ограничения
-    requested_send_amount = int((balance - min_from_balance_wei) * percent / 100)
-    send_amount = min(requested_send_amount, max_sendable)
-    if send_amount <= 0:
-        print(Fore.RED + f"Недостаточно баланса для покрытия комиссии и минимального остатка. Баланс: {w3.from_wei(balance, 'ether')}, мин. остаток: {MIN_FROM_BALANCE}")
-        return
-
     tx = {
         'from': from_acc.address,
         'to': intermediary_acc.address,
-        'value': send_amount,
+        'value': 0,  # позже подставим
+        'gas': 21000,
         'gasPrice': gas_price,
         'nonce': nonce_from,
         'chainId': w3.eth.chain_id
     }
-    # Оцениваем лимит газа динамически
-    try:
-        gas_limit = estimate_gas_with_margin_safe(w3, tx)
-        tx['gas'] = gas_limit  # Устанавливаем рассчитанный лимит газа
-        print(Fore.CYAN + f"Установленный лимит газа для from -> intermediary: {gas_limit}")
-    except Exception as e:
-        print(Fore.YELLOW + f"Ошибка оценки газа для from -> intermediary: {e}")
-        return
-    total_gas_fee = tx['gas'] * gas_price
+    gas_limit = estimate_gas_with_margin_safe(w3, tx)
+    total_gas_fee = gas_limit * gas_price
 
     # --- Ограничение: на стартовом кошельке должно остаться не меньше MIN_FROM_BALANCE ---
     min_from_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
@@ -397,24 +379,9 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
             print(Fore.RED + f"Невозможно отправить: value_to_send <= 0. Пропуск.")
             break
 
-        # --- Всегда используем динамическую оценку газа ---
-        tx2 = {
-            'from': intermediary_acc.address,
-            'to': to_acc.address,
-            'value': value_to_send,
-            'gasPrice': gas_price,
-            'nonce': nonce,
-            'chainId': w3.eth.chain_id
-        }
-        # Оцениваем лимит газа динамически
-        try:
-            tx2_gas_limit = estimate_gas_with_margin_safe(w3, tx2)
-            tx2['gas'] = tx2_gas_limit  # Устанавливаем рассчитанный лимит газа
-            print(Fore.CYAN + f"Установленный лимит газа для intermediary -> to: {tx2_gas_limit}")
-        except Exception as e:
-            print(Fore.YELLOW + f"Ошибка оценки газа для intermediary -> to: {e}")
-            return
-        tx2_total_gas_fee = tx2['gas'] * gas_price
+        # --- Всегда используем минимальный газ (21000) и не делаем estimate_gas ---
+        tx2_gas_limit = 21000
+        tx2_total_gas_fee = tx2_gas_limit * gas_price
 
         # Если не хватает на комиссию, пробуем отправить только комиссию
         if value_to_send + tx2_total_gas_fee > interm_balance:
@@ -424,6 +391,15 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
                 print(Fore.RED + f"Недостаточно средств даже на комиссию. Пропуск.")
                 break
 
+        tx2 = {
+            'from': intermediary_acc.address,
+            'to': to_acc.address,
+            'value': value_to_send,
+            'gas': tx2_gas_limit,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': w3.eth.chain_id
+        }
         try:
             signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
             print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to (value: {w3.from_wei(value_to_send, 'ether')} ETH)...")
