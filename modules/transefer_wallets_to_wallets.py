@@ -355,8 +355,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
         if interm_balance > 0:
             break
-        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс intermediary = 0, ждем 3 сек...")
-        time.sleep(3)
+        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс intermediary = 0, ждем 10 сек...")
+        time.sleep(10)
     else:
         interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
         if interm_balance == 0:
@@ -379,11 +379,9 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
             print(Fore.RED + f"Невозможно отправить: value_to_send <= 0. Пропуск.")
             break
 
-        # --- Всегда используем минимальный газ (21000) и не делаем estimate_gas ---
         tx2_gas_limit = 21000
         tx2_total_gas_fee = tx2_gas_limit * gas_price
 
-        # Если не хватает на комиссию, пробуем отправить только комиссию
         if value_to_send + tx2_total_gas_fee > interm_balance:
             if interm_balance > tx2_total_gas_fee:
                 value_to_send = interm_balance - tx2_total_gas_fee
@@ -422,11 +420,9 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         print(Fore.MAGENTA + "="*60)
         return
 
-    # Пауза между транзакциями (если это не последняя транзакция)
     if delay_between > 0 and tx_counter < total_tx - 1:
         countdown_timer(int(delay_between))
 
-    # Запись результата
     append_result_csv({
         "datetime": dt_str,
         "from_wallet": from_priv,
@@ -450,16 +446,6 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
     print(Fore.MAGENTA + "="*60)
 
 def process_wallets_transfer(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
-    """
-    transfer_data: список словарей с ключами from_wallet, intermediary, to_wallet, amount
-    proxies: список прокси (или None)
-    network: выбранная сеть
-    delay_between: пауза между транзакциями (сек)
-    total_tx: общее количество транзакций (from->intermediary + intermediary->to)
-    progress_file: путь к файлу прогресса
-    start_idx: с какого индекса начинать
-    completed_txs: сколько транзакций уже завершено
-    """
     spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
     bar_length = 40
     total_wallets = len(transfer_data)
@@ -496,17 +482,15 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
             end="",
             flush=True,
         )
-        # Сохраняем прогресс после каждой цепочки
+
         if progress_file:
             try:
                 with open(progress_file, "w", encoding="utf-8") as pf:
                     json.dump({"last_idx": idx + 1, "completed_txs": completed_txs}, pf)
             except Exception as e:
                 log_error(f"Ошибка сохранения прогресса: {e}")
-        # Добавлено: задержка между цепочками (кроме последней)
         if delay_between > 0 and idx < total_wallets - 1:
             countdown_timer(int(delay_between))
-    print()  # Перевод строки после прогресса
-    # Удаляем прогресс-файл после завершения
+    print() 
     if progress_file and os.path.exists(progress_file):
         os.remove(progress_file)
