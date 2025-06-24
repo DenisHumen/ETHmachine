@@ -69,6 +69,8 @@ testnet_rpc_urls = {
     '🚀 Pharos': pharos,
 }
 
+# менюшку позимствовал у askaer, покупайте его скрипты :)
+
 def check_and_create_files():
     required_files = [
         'result/result.csv',
@@ -182,7 +184,8 @@ def main_menu():
                     qmark='🛠️',
                     pointer='👉'
                 ).ask()
-
+                if num_wallets == 'back':
+                    continue
                 if num_wallets == 'manual':
                     try:
                         num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
@@ -398,6 +401,7 @@ def main_menu():
                 )
                 continue
 
+            # вынести эту хуйню куда-то в функцию. А то пиздец
             network_type = select(
                 "Select network type:",
                 choices=[

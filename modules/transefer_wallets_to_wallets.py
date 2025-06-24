@@ -1,13 +1,13 @@
 import random
-from decimal import Decimal
+# from decimal import Decimal  # Not used
 from web3 import Web3
 from eth_account import Account
 from colorama import Fore
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import csv
-from config.config import TX_SEND_ATTEMPTS
-from config.config import MIN_FROM_BALANCE
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE
+# from config.config import MIN_FROM_BALANCE  # Not used
 from itertools import cycle
 from colorama import Style
 import json
@@ -76,7 +76,7 @@ def send_with_retry(w3, signed_tx, explorer_url, max_attempts=None):
         max_attempts = TX_SEND_ATTEMPTS
     for attempt in range(1, max_attempts + 1):
         try:
-            tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash_hex = w3.to_hex(tx_hash)
             #print(Fore.GREEN + f"Попытка {attempt}: Транзакция отправлена: {tx_hash_hex}")
             print(Fore.LIGHTBLUE_EX + Style.BRIGHT + f"🔗 Посмотреть транзакцию: {explorer_url}{tx_hash_hex}" + Style.RESET_ALL)
@@ -136,8 +136,8 @@ def get_proxy_list():
 
 def get_web3_with_proxy(rpc_url, proxy_url):
     from web3 import HTTPProvider
-    import requests
-    from web3.middleware import geth_poa_middleware
+    # import requests  # Not used
+    #from web3.middleware import geth_poa_middleware
 
     # Для web3==5.31.4: используем environment переменные для прокси (гарантированно работает)
     import os
@@ -146,7 +146,7 @@ def get_web3_with_proxy(rpc_url, proxy_url):
 
     provider = HTTPProvider(rpc_url)
     w3 = Web3(provider)
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    #w3.middleware_onion.inject(geth_poa_middleware, layer=0)
     # Проверка: пробуем сделать запрос и вывести IP (опционально)
     try:
         # Проверяем, что web3 работает (например, получаем chain_id)
@@ -182,17 +182,32 @@ def get_explorer_url(network):
 def countdown_timer(seconds, message_prefix="Пауза"):
     for remaining in range(seconds, 0, -1):
         print(
-            f"\r{Fore.YELLOW}{message_prefix} {remaining} сек до следующей транзакции для равномерного распределения...{Style.RESET_ALL} ",
+            f"\r{Fore.YELLOW}{message_prefix} {remaining} сек до следующей транзакции...{Style.RESET_ALL} ",
             end="",
             flush=True,
         )
         time.sleep(1)
     print("\r" + " " * 80 + "\r", end="")  # Очистить строку
 
+def countdown_timer_with_expected_time(total_tx, completed_txs):
+    remaining_tx = total_tx - completed_txs
+    if remaining_tx > 0:
+        delay = expected_completion_time / total_tx
+        for remaining in range(int(delay), 0, -1):
+            print(
+                f"\r{Fore.YELLOW}Ожидание {remaining} сек до следующей транзакции...{Style.RESET_ALL} ",
+                end="",
+                flush=True,
+            )
+            time.sleep(1)
+        print("\r" + " " * 60 + "\r", end="")  # Очистить строку
+
 def get_eth_balance_safe(w3, address, max_attempts=TX_SEND_ATTEMPTS, sleep_sec=2):
     for attempt in range(max_attempts):
         try:
-            return w3.eth.get_balance(address)
+            balance = w3.eth.get_balance(address)
+            if balance >= 0:  # Убедимся, что баланс корректно получен (>= 0)
+                return balance
         except Exception as e:
             print(Fore.YELLOW + f"[{address}] Ошибка получения баланса (попытка {attempt+1}/{max_attempts}): {e}")
             time.sleep(sleep_sec)
@@ -223,231 +238,276 @@ def estimate_gas_with_margin_safe(w3, tx, max_attempts=TX_SEND_ATTEMPTS, sleep_s
     return int(21000 * 1.2)
 
 def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
-    dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Получаем RPC для выбранной сети
-    rpc_url = get_network_rpc(network)
-    proxies = get_proxy_list()
-    use_proxy = None
-    if proxy:
-        use_proxy = proxy
-    elif proxies:
-        use_proxy = random.choice(proxies)
-
-    print(Fore.MAGENTA + "\n" + "="*60)
-    print(Fore.YELLOW + f"[{dt_str}] Запуск цепочки перевода:")
-    print(Fore.CYAN + f"  FROM:        {from_priv[:10]}... ")
-    print(Fore.CYAN + f"  INTERMEDIARY:{intermediary_priv[:10]}... ")
-    print(Fore.CYAN + f"  TO:          {to_priv[:10]}... ")
-    print(Fore.CYAN + f"  Сеть:        {network}")
-    print(Fore.CYAN + f"  Процент:     {amount}%")
-    if use_proxy:
-        print(Fore.CYAN + f"  Используется прокси: {use_proxy}")
-    else:
-        print(Fore.RED + "  Нет доступных прокси! Работа невозможна.")
-        input(Fore.YELLOW + "Добавьте прокси в файл data/proxy.csv и нажмите Enter для продолжения, либо Ctrl+C для выхода...")
-        return
-    print(Fore.MAGENTA + "-"*60)
-
-    # --- Web3 только через прокси ---
-    w3 = get_web3_with_proxy(rpc_url, use_proxy)
-
-    # Получаем аккаунты
     try:
-        from_acc = Account.from_key(from_priv)
-        intermediary_acc = Account.from_key(intermediary_priv)
-        to_acc = Account.from_key(to_priv)
-    except Exception as e:
-        print(Fore.RED + f"Ошибка создания аккаунта: {e}")
-        return
+        start_time = time.time()
+        dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Получаем баланс отправителя (safe)
-    for attempt in range(TX_SEND_ATTEMPTS):
-        balance = get_eth_balance_safe(w3, from_acc.address)
-        if balance > 0:
-            break
-        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
-        time.sleep(3)
-    else:
-        print(Fore.RED + f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск")
-        return
+        # Получаем RPC для выбранной сети
+        rpc_url = get_network_rpc(network)
+        proxies = get_proxy_list()
+        use_proxy = None
+        if proxy:
+            use_proxy = proxy
+        elif proxies:
+            use_proxy = random.choice(proxies)
 
-    # Получаем процент для отправки
-    percent_from, percent_to = parse_percent_range(amount)
-    percent = random.randint(percent_from, percent_to)
-
-    # Получаем текущую цену газа
-    try:
-        gas_price = w3.eth.gas_price
-        gas_price = int(gas_price * 1.2)  # +20% для ускорения
-    except Exception as e:
-        print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
-        gas_price = int(w3.to_wei('30', 'gwei'))  # fallback
-
-    # Получаем nonce (safe)
-    nonce_from = get_nonce_safe(w3, from_acc.address)
-    if nonce_from is None:
-        print(Fore.RED + f"Не удалось получить nonce для {from_acc.address} после {TX_SEND_ATTEMPTS} попыток, пропуск")
-        return
-
-    tx = {
-        'from': from_acc.address,
-        'to': intermediary_acc.address,
-        'value': 0,  # позже подставим
-        'gas': 21000,
-        'gasPrice': gas_price,
-        'nonce': nonce_from,
-        'chainId': w3.eth.chain_id
-    }
-    gas_limit = estimate_gas_with_margin_safe(w3, tx)
-    total_gas_fee = gas_limit * gas_price
-
-    # --- Ограничение: на стартовом кошельке должно остаться не меньше MIN_FROM_BALANCE ---
-    min_from_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
-    max_sendable = balance - total_gas_fee - min_from_balance_wei
-    if max_sendable <= 0:
-        print(Fore.YELLOW + f"⚠️ Перевод невозможен: после перевода и оплаты комиссии на кошельке {from_acc.address} останется меньше минимального ({MIN_FROM_BALANCE} ETH). Пропуск." + Style.RESET_ALL)
-        print(Fore.MAGENTA + "="*60)
-        return
-
-    # Считаем сумму для отправки с учетом ограничения
-    requested_send_amount = int((balance - total_gas_fee) * percent / 100)
-    send_amount = min(requested_send_amount, max_sendable)
-    if send_amount < requested_send_amount:
-        print(Fore.YELLOW + f"⚠️ Сумма перевода уменьшена: исходно {w3.from_wei(requested_send_amount, 'ether')} ETH, теперь {w3.from_wei(send_amount, 'ether')} ETH, чтобы на кошельке осталось не меньше {MIN_FROM_BALANCE} ETH." + Style.RESET_ALL)
-
-    if send_amount <= 0:
-        print(Fore.RED + f"Недостаточно баланса для покрытия комиссии и минимального остатка. Баланс: {w3.from_wei(balance, 'ether')}, комиссия: {w3.from_wei(total_gas_fee, 'ether')}, мин. остаток: {MIN_FROM_BALANCE}")
-        return
-
-    explorer_url = get_explorer_url(network)
-    tx_hash_hex = None
-    tx_hash2_hex = None
-    amount_sent_wei = 0
-    amount_sent_eth = 0
-
-    # Формируем и отправляем транзакцию from -> intermediary
-    tx['value'] = send_amount
-    tx['gas'] = gas_limit
-    try:
-        signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
-        print(Fore.BLUE + f"[{dt_str}] Отправка from -> intermediary...")
-        success, tx_hash_hex = send_with_retry(w3, signed_tx, explorer_url)
-        if not success:
-            print(Fore.RED + "❌ Не удалось выполнить первую транзакцию. Пропуск.")
-            print(Fore.MAGENTA + "="*60)
-            return
+        print(Fore.MAGENTA + "\n" + "="*60)
+        print(Fore.YELLOW + f"[{dt_str}] Запуск цепочки перевода:")
+        print(Fore.CYAN + f"  FROM:        {from_priv[:10]}... ")
+        print(Fore.CYAN + f"  INTERMEDIARY:{intermediary_priv[:10]}... ")
+        print(Fore.CYAN + f"  TO:          {to_priv[:10]}... ")
+        print(Fore.CYAN + f"  Сеть:        {network}")
+        print(Fore.CYAN + f"  Процент:     {amount}%")
+        if use_proxy:
+            print(Fore.CYAN + f"  Используется прокси: {use_proxy}")
         else:
-            print(Fore.GREEN + f"✅ Успешно отправлено from -> intermediary.")
-    except Exception as e:
-        print(Fore.RED + f"Ошибка отправки from -> intermediary: {e}")
-        print(Fore.MAGENTA + "="*60)
-        return
+            print(Fore.RED + "  Нет доступных прокси! Работа невозможна.")
+            input(Fore.YELLOW + "Добавьте прокси в файл data/proxy.csv и нажмите Enter для продолжения, либо Ctrl+C для выхода...")
+            return
+        print(Fore.MAGENTA + "-"*60)
 
-    # Пауза между транзакциями (если это не последняя транзакция)
-    if delay_between > 0 and tx_counter < total_tx - 1:
-        countdown_timer(int(delay_between))
-    tx_counter += 1
+        # --- Web3 только через прокси ---
+        w3 = get_web3_with_proxy(rpc_url, use_proxy)
 
-    # Теперь отправляем с intermediary -> to
-    print(Fore.CYAN + f"Ожидание поступления баланса на intermediary ({intermediary_acc.address})...")
-    for attempt in range(TX_SEND_ATTEMPTS):
-        interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
-        if interm_balance > 0:
-            break
-        print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс intermediary = 0, ждем 10 сек...")
-        time.sleep(10)
-    else:
-        interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
-        if interm_balance == 0:
-            print(Fore.RED + f"Баланс intermediary не пополнен после {TX_SEND_ATTEMPTS} попыток, но продолжаем попытку отправки всей суммы (0.000001 ETH).")
-            interm_balance = w3.to_wei('0.000001', 'ether')  # минимально возможная сумма
+        # Получаем explorer url
+        explorer_url = get_explorer_url(network)
 
-    nonce = get_nonce_safe(w3, intermediary_acc.address)
-    if nonce is None:
-        print(Fore.RED + f"Не удалось получить nonce для intermediary после {TX_SEND_ATTEMPTS} попыток, пропуск")
-        return
+        # Получаем аккаунты
+        try:
+            from_acc = Account.from_key(from_priv)
+            intermediary_acc = Account.from_key(intermediary_priv)
+            to_acc = Account.from_key(to_priv)
+        except Exception as e:
+            print(Fore.RED + f"Ошибка создания аккаунта: {e}")
+            return
 
-    min_value_wei = w3.to_wei('0.000001', 'ether')
-    value_to_send = interm_balance
-
-    sent = False
-    for try_any in range(10):  # максимум 10 попыток подобрать сумму
-        if value_to_send < min_value_wei:
-            value_to_send = min_value_wei
-        if value_to_send <= 0:
-            print(Fore.RED + f"Невозможно отправить: value_to_send <= 0. Пропуск.")
-            break
-
-        tx2_gas_limit = 21000
-        tx2_total_gas_fee = tx2_gas_limit * gas_price
-
-        if value_to_send + tx2_total_gas_fee > interm_balance:
-            if interm_balance > tx2_total_gas_fee:
-                value_to_send = interm_balance - tx2_total_gas_fee
-            else:
-                print(Fore.RED + f"Недостаточно средств даже на комиссию. Пропуск.")
+        # Получаем баланс отправителя (safe)
+        for attempt in range(TX_SEND_ATTEMPTS):
+            balance = get_eth_balance_safe(w3, from_acc.address)
+            if balance > 0:
                 break
+            print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
+            time.sleep(3)
+        else:
+            print(Fore.RED + f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск")
+            return
+
+        # Получаем процент для отправки
+        percent_from, percent_to = parse_percent_range(amount)
+        percent = random.randint(percent_from, percent_to)
+
+        # Получаем текущую цену газа
+        try:
+            gas_price = w3.eth.gas_price
+        except Exception as e:
+            print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
+            gas_price = int(w3.to_wei('30', 'gwei'))  # fallback
+
+        # Получаем nonce для отправителя
+        nonce_from = get_nonce_safe(w3, from_acc.address)
+        if nonce_from is None:
+            print(Fore.RED + f"Не удалось получить nonce для {from_acc.address}, пропуск")
+            return
+
+        # Считаем сумму для отправки (percent% от баланса минус комиссия)
+        # Сначала считаем максимально возможную сумму с учетом комиссии и MIN_FROM_BALANCE
+        def get_send_amount(balance, percent, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
+            # Вычисляем сумму для отправки с учетом процента, комиссии и MIN_FROM_BALANCE
+            value = int(balance * percent / 100)
+            # Формируем tx для оценки газа
+            tx = {
+                'type': 0x2,
+                'from': Web3.to_checksum_address(from_addr),
+                'to': Web3.to_checksum_address(to_addr),
+                'value': value,
+                'gas': 1000000,
+                'nonce': nonce_from,
+                'chainId': chain_id,
+                'maxFeePerGas': int(gas_price * 1.2),
+                'maxPriorityFeePerGas': 0
+            }
+            estimated_gas = w3.eth.estimate_gas(tx)
+            gas = int(estimated_gas * 1.2)
+            fee = gas * int(gas_price * 1.2)
+            # Проверяем, хватает ли баланса с учетом MIN_FROM_BALANCE
+            min_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
+            if value + fee > balance - min_balance_wei:
+                value = balance - fee - min_balance_wei
+            if value < 0:
+                value = 0
+            return value, gas
+
+        send_amount, gas = get_send_amount(balance, percent, w3, from_acc.address, intermediary_acc.address, gas_price, w3.eth.chain_id, from_priv)
+
+        # Формируем транзакцию from -> intermediary (с учетом новой схемы)
+        tx = {
+            'type': 0x2,
+            'from': Web3.to_checksum_address(from_acc.address),
+            'to': Web3.to_checksum_address(intermediary_acc.address),
+            'value': send_amount,
+            'gas': gas,
+            'nonce': nonce_from,
+            'chainId': w3.eth.chain_id,
+            'maxFeePerGas': int(gas_price * 1.2),
+            'maxPriorityFeePerGas': 0
+        }
+
+        # Отправка транзакции from -> intermediary
+        tx_hash = None
+        for attempt in range(TX_SEND_ATTEMPTS):
+            try:
+                signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
+                print(Fore.BLUE + f"[{dt_str}] Отправка from -> intermediary...")
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                print(Fore.YELLOW + f"✅ Успешно отправлено from -> intermediary. Tx hash: {w3.to_hex(tx_hash)}")
+                break
+            except Exception as e:
+                print(Fore.RED + f"❌ Ошибка отправки from -> intermediary (попытка {attempt+1}): {e}")
+                tx['nonce'] += 1
+                time.sleep(3)
+        else:
+            print(Fore.RED + "❌ Не удалось отправить транзакцию from -> intermediary после нескольких попыток.")
+
+        # Ожидание подтверждения транзакции from -> intermediary
+        print(Fore.BLUE + "Ожидание подтверждения транзакции from -> intermediary...")
+        time.sleep(WHAITE_TRANSACTION_PENDING)  # Пауза перед первой проверкой
+        for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
+            try:
+                receipt = w3.eth.get_transaction_receipt(tx_hash)
+                if receipt and receipt.status == 1:
+                    print(Fore.GREEN + f"✅ Транзакция подтверждена. Tx hash: {w3.to_hex(tx_hash)}")
+                    break
+                elif receipt and receipt.status == 0:
+                    print(Fore.RED + f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash)}")
+                    break
+            except Exception as e:
+                print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
+            time.sleep(WHAITE_TRANSACTION_PENDING)
+        else:
+            print(Fore.RED + f"❌ Транзакция from -> intermediary остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
+
+        # Проверка баланса intermediary
+        interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
+        if interm_balance <= 0:
+            print(Fore.RED + f"Баланс {intermediary_acc.address} = {interm_balance}, пропуск транзакции intermediary -> to.")
+            return
+
+        # Получаем nonce для intermediary
+        nonce_intermediary = get_nonce_safe(w3, intermediary_acc.address)
+        if nonce_intermediary is None:
+            print(Fore.RED + f"Не удалось получить nonce для {intermediary_acc.address}, пропуск")
+            return
+
+        # Формируем транзакцию intermediary -> to (100% баланса минус комиссия)
+        def get_send_amount2(balance, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
+            value = balance
+            tx = {
+                'type': 0x2,
+                'from': Web3.to_checksum_address(from_addr),
+                'to': Web3.to_checksum_address(to_addr),
+                'value': value,
+                'gas': 1000000,
+                'nonce': nonce_intermediary,
+                'chainId': chain_id,
+                'maxFeePerGas': int(gas_price * 1.2),
+                'maxPriorityFeePerGas': 0
+            }
+            estimated_gas = w3.eth.estimate_gas(tx)
+            gas = int(estimated_gas * 1.2)
+            fee = gas * int(gas_price * 1.2)
+            if value > balance - fee:
+                value = balance - fee
+            if value < 0:
+                value = 0
+            return value, gas
+
+        send_amount2, gas2 = get_send_amount2(interm_balance, w3, intermediary_acc.address, to_acc.address, gas_price, w3.eth.chain_id, intermediary_priv)
 
         tx2 = {
-            'from': intermediary_acc.address,
-            'to': to_acc.address,
-            'value': value_to_send,
-            'gas': tx2_gas_limit,
-            'gasPrice': gas_price,
-            'nonce': nonce,
-            'chainId': w3.eth.chain_id
+            'type': 0x2,
+            'from': Web3.to_checksum_address(intermediary_acc.address),
+            'to': Web3.to_checksum_address(to_acc.address),
+            'value': send_amount2,
+            'gas': gas2,
+            'nonce': nonce_intermediary,
+            'chainId': w3.eth.chain_id,
+            'maxFeePerGas': int(gas_price * 1.2),
+            'maxPriorityFeePerGas': 0
         }
-        try:
-            signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
-            print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to (value: {w3.from_wei(value_to_send, 'ether')} ETH)...")
-            success2, tx_hash2_hex = send_with_retry(w3, signed_tx2, explorer_url)
-            if not success2:
-                print(Fore.RED + "❌ Не удалось выполнить вторую транзакцию.")
-                print(Fore.MAGENTA + "="*60)
-                return
-            else:
-                print(Fore.GREEN + f"✅ Успешно отправлено intermediary -> to.")
-                amount_sent_wei = value_to_send
-                amount_sent_eth = w3.from_wei(value_to_send, 'ether')
-                sent = True
+
+        tx_hash2 = None
+        for attempt in range(TX_SEND_ATTEMPTS):
+            try:
+                signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
+                print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to...")
+                tx_hash2 = w3.eth.send_raw_transaction(signed_tx2.rawTransaction)
+                print(Fore.YELLOW + f"✅ Успешно отправлено intermediary -> to. Tx hash: {w3.to_hex(tx_hash2)}")
                 break
-        except Exception as e:
-            print(Fore.RED + f"Ошибка отправки intermediary -> to: {e}")
-            value_to_send -= w3.to_wei('0.000001', 'ether')
-    if not sent:
-        print(Fore.RED + f"Не удалось отправить даже минимальную сумму с intermediary ({intermediary_acc.address}) после всех попыток.")
-        print(Fore.MAGENTA + "="*60)
-        return
+            except Exception as e:
+                print(Fore.RED + f"❌ Ошибка отправки intermediary -> to (попытка {attempt+1}): {e}")
+                tx2['nonce'] += 1
+                time.sleep(3)
+        else:
+            print(Fore.RED + "❌ Не удалось отправить транзакцию intermediary -> to после нескольких попытов.")
 
-    if delay_between > 0 and tx_counter < total_tx - 1:
-        countdown_timer(int(delay_between))
+        # Ожидание подтверждения транзакции intermediary -> to
+        print(Fore.BLUE + "Ожидание подтверждения транзакции intermediary -> to...")
+        time.sleep(WHAITE_TRANSACTION_PENDING)  # Пауза перед первой проверкой
+        for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
+            try:
+                receipt = w3.eth.get_transaction_receipt(tx_hash2)
+                if receipt and receipt.status == 1:
+                    print(Fore.GREEN + f"✅ Транзакция подтверждена. Tx hash: {w3.to_hex(tx_hash2)}")
+                    break
+                elif receipt and receipt.status == 0:
+                    print(Fore.RED + f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash2)}")
+                    break
+            except Exception as e:
+                print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
+            time.sleep(WHAITE_TRANSACTION_PENDING)
+        else:
+            print(Fore.RED + f"❌ Транзакция intermediary -> to остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
 
-    append_result_csv({
-        "datetime": dt_str,
-        "from_wallet": from_priv,
-        "from_address": from_acc.address,
-        "intermediary_wallet": intermediary_priv,
-        "intermediary_address": intermediary_acc.address,
-        "to_wallet": to_priv,
-        "to_address": to_acc.address,
-        "amount_sent_wei": amount_sent_wei,
-        "amount_sent_eth": amount_sent_eth,
-        "tx_hash_1": tx_hash_hex,
-        "tx_hash_2": tx_hash2_hex,
-        "explorer_link_1": f"{explorer_url}{tx_hash_hex}" if tx_hash_hex and explorer_url else "",
-        "explorer_link_2": f"{explorer_url}{tx_hash2_hex}" if tx_hash2_hex and explorer_url else "",
-    })
+        # Запись результата
+        append_result_csv({
+            "datetime": dt_str,
+            "from_wallet": from_priv,
+            "from_address": from_acc.address,
+            "intermediary_wallet": intermediary_priv,
+            "intermediary_address": intermediary_acc.address,
+            "to_wallet": to_priv,
+            "to_address": to_acc.address,
+            "amount_sent_wei": send_amount,
+            "amount_sent_eth": w3.from_wei(send_amount, 'ether'),
+            "tx_hash_1": w3.to_hex(tx_hash),
+            "tx_hash_2": w3.to_hex(tx_hash2),
+            "explorer_link_1": f"{explorer_url}{w3.to_hex(tx_hash)}",
+            "explorer_link_2": f"{explorer_url}{w3.to_hex(tx_hash2)}",
+        })
 
-    print(Fore.GREEN + f"\n[{dt_str}] ✅ Операция завершена успешно.")
-    print(Fore.YELLOW + f"  Отправлено: {amount_sent_eth} ETH ({amount_sent_wei} wei)")
-    print(Fore.YELLOW + f"  TX1: {tx_hash_hex} | {explorer_url}{tx_hash_hex if tx_hash_hex and explorer_url else ''}")
-    print(Fore.YELLOW + f"  TX2: {tx_hash2_hex} | {explorer_url}{tx_hash2_hex if tx_hash2_hex and explorer_url else ''}")
-    print(Fore.MAGENTA + "="*60)
+        elapsed_time = time.time() - start_time
+        print(Fore.GREEN + "\n" + "=" * 60)
+        print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash)}")
+        print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash2)}")
+        print(Fore.GREEN + "=" * 60 + "\n")
+
+    except Exception as e:
+        print(Fore.RED + f"Error: {e}")
+        print(Fore.YELLOW + "Переход к следующей паре кошельков...")
 
 def process_wallets_transfer(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
+    """
+    transfer_data: список словарей с ключами from_wallet, intermediary, to_wallet, amount
+    proxies: список прокси (или None)
+    network: выбранная сеть
+    delay_between: пауза между транзакциями (сек)
+    total_tx: общее количество транзакций (from->intermediary + intermediary->to)
+    progress_file: путь к файлу прогресса
+    start_idx: с какого индекса начинать
+    completed_txs: сколько транзакций уже завершено
+    """
     spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-    bar_length = 40
+    bar_length = 80  # Увеличена ширина прогресс-бара
     total_wallets = len(transfer_data)
 
     def log_error(msg):
@@ -477,20 +537,25 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
         progress = int((completed_txs / total_tx) * bar_length)
         bar = "█" * progress + "░" * (bar_length - progress)
         spinner_frame = next(spinner_cycle)
+
+        # Рассчитываем примерное время завершения
+        remaining_tx = total_tx - completed_txs
+        remaining_wallets = total_wallets - idx - 1
+        estimated_time = remaining_tx * delay_between
+        completion_time = datetime.now() + timedelta(seconds=estimated_time)
+        completion_time_str = completion_time.strftime("%H:%M:%S")
+
+        # Вывод прогресс-бара
         print(
-            f"\r[{bar}] {completed_txs}/{total_tx} | {spinner_frame} | {Fore.CYAN}Последний: {row['from_wallet'][:8]}...{Style.RESET_ALL}",
+            f"\r[{bar}] {completed_txs}/{total_tx} транзакций | Осталось пар: {remaining_wallets} | {spinner_frame} | {Fore.CYAN}Последний: {row['from_wallet'][:8]}... | Завершение: {completion_time_str}{Style.RESET_ALL}",
             end="",
             flush=True,
         )
 
-        if progress_file:
-            try:
-                with open(progress_file, "w", encoding="utf-8") as pf:
-                    json.dump({"last_idx": idx + 1, "completed_txs": completed_txs}, pf)
-            except Exception as e:
-                log_error(f"Ошибка сохранения прогресса: {e}")
+        # Ожидание между транзакциями
         if delay_between > 0 and idx < total_wallets - 1:
             countdown_timer(int(delay_between))
-    print() 
+    print()  # Перевод строки после прогресса
+    # Удаляем прогресс-файл после завершения
     if progress_file and os.path.exists(progress_file):
         os.remove(progress_file)

@@ -6,6 +6,7 @@ from typing import Tuple
 from questionary import select, Choice
 import textwrap
 
+
 def get_local_commit_info() -> Tuple[str, str]:
     try:
         commit_hash = subprocess.check_output(
@@ -123,11 +124,11 @@ def check_version(repo_name: str):
     github_api_commits_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits"
 
     os.system('cls' if os.name == 'nt' else 'clear')  # Clear the console
-    print("🔍 Checking for updates...")
+    print("🔍 Checking for updates...\n")
 
     local_hash, local_date = get_local_commit_info()
     if not local_hash:
-        print("❌ **Unable to check version. Missing local commit data.**")
+        print("❌ **Unable to check version. Missing local commit data.**\n")
         return
 
     # Получаем локальную версию из файла db/version (если есть)
@@ -137,7 +138,7 @@ def check_version(repo_name: str):
 
     commits = get_github_commit_info(github_api_commits_url)
     if not commits:
-        print("❌ **Unable to check version. No commit data from GitHub.**")
+        print("❌ **Unable to check version. No commit data from GitHub.**\n")
         return
 
     is_latest, updates = compare_versions_and_collect_updates(local_hash, commits)
@@ -146,8 +147,9 @@ def check_version(repo_name: str):
     frame_width, version_col, date_col, changes_col = calc_table_width(updates, min_width=78)
 
     if is_latest:
-        print('\n✅ You are using the latest version!\n\n📅 Last update: {}\n'
-              .format(updates[0]["date"] if updates else ""))
+        last_update_date = commits[0]["date"] if commits else "Unknown"
+        print('✅ You are using the latest version!\n📅 Last update: {}\n\n'
+              .format(last_update_date))
         return
 
     print(f"🔋 New version {updates[0]['version']} available")
