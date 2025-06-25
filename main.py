@@ -70,6 +70,7 @@ testnet_rpc_urls = {
 }
 
 # менюшку позимствовал у askaer, покупайте его скрипты :)
+# позже шайтан код переделайю на case вместо if-elif, а то пиздец
 
 def check_and_create_files():
     required_files = [
@@ -123,82 +124,34 @@ def main_menu():
                     Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ и адрес кошелька', 'mnemonic_to_priv_key'),
-                    #Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
+                    Choice('🔍 Check Proxy | Проверить прокси', 'check_proxy'),
+                    Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
                     Choice('❌ Exit | Выход', 'exit')
                 ],
                 qmark='🛠️',
                 pointer='👉'
             ).ask()
 
-            if action == 'exit':
-                break
-            
-            if action == 'CEX_menu':
-                print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
-                time.sleep(3)
-                continue
+            match action:
 
-            if action == 'mnemonic_to_priv_key':
-                acction = select(
-                    'Sol или ETH?',
-                    choices=[
-                        Choice('💲 ETH', 'ETH'),
-                        Choice('💲 SOL', 'SOL'),
-                        Choice('🔙 Back', 'back')
-                    ],
-                    qmark='🛠️',
-                    pointer='👉'
-                ).ask()
-                if acction == 'back':
+
+
+                case 'check_proxy':
+                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                    time.sleep(3)
                     continue
-                if acction == 'SOL':
-                    #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
-                    sol_process_mnemonics()
-                    time.sleep(2)
-                    continue
-                if acction == 'ETH':
-                    if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
-                        print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
-                        time.sleep(2)
-                        continue
-                    print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
-                    process_mnemonics()
-                    continue
+
+                case 'exit':
+                    break
                 
-                time.sleep(2)
-                continue
-            
-            if action == 'generate_wallets':
-                num_wallets = select(
-                    "How many wallets do you want to generate?",
-                    choices=[
-                        Choice('▶️  1', 1),
-                        Choice('▶️  10', 10),
-                        Choice('▶️  100', 100),
-                        Choice('▶️  1000', 1000),
-                        Choice('▶️  5000', 5000),
-                        Choice('▶️  10000', 10000),
-                        Choice('✏️ Enter manually', 'manual'),
-                        Choice('🔙 Back', 'back')
-                    ],
-                    qmark='🛠️',
-                    pointer='👉'
-                ).ask()
-                if num_wallets == 'back':
+                case 'CEX_menu':
+                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                    time.sleep(3)
                     continue
-                if num_wallets == 'manual':
-                    try:
-                        num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
-                        if num_wallets <= 0:
-                            print(Fore.RED + "Please enter a positive number: ")
-                            continue
-                    except ValueError:
-                        print(Fore.RED + "Invalid input. Please enter a valid number.")
-                        continue
 
-                if num_wallets and num_wallets != 'back':
-                    action = select(
-                        f"Для какой сети?",
+                case 'mnemonic_to_priv_key':
+                    acction = select(
+                        'Sol или ETH?',
                         choices=[
                             Choice('💲 ETH', 'ETH'),
                             Choice('💲 SOL', 'SOL'),
@@ -207,232 +160,278 @@ def main_menu():
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
-                    if action == 'ETH':
-
-                        addr_type = select(
-                            f"Какие адреса генерировать ?",
-                            choices=[
-                                Choice('💲 Normal | Обычные', 'normal'),
-                                Choice('💲 Nice | Красивые', 'nice'),
-                                Choice('🔙 Back', 'back')
-                            ],
-                            qmark='🛠️',
-                            pointer='👉'
-                        ).ask()
-                        if addr_type == 'normal':
-                            eth_generate_wallets(num_wallets)
-                            print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
-                            continue
-                        if addr_type == 'nice':
-                            if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
-                                print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
-                                print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
-                                continue
-                            if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
-                                eth_generate_nice_wallets(num_wallets)
-                                print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
-                                continue
-
-
-                    elif action == 'SOL':
-                        addr_type = select(
-                            f"Какие адреса генерировать ?",
-                            choices=[
-                                Choice('💲 Normal | Обычные', 'normal'),
-                                Choice('💲 Nice | Красивые', 'nice'),
-                                Choice('🔙 Back', 'back')
-                            ],
-                            qmark='🛠️',
-                            pointer='👉'
-                        ).ask()
-                        if addr_type == 'normal':
-                            sol_generate_wallets(num_wallets)
-                            print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
-                            continue
-                        elif addr_type == 'nice':
-                            if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
-                                print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
-                                print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
-                                continue
-                            if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
-                                sol_generate_nice_wallets(num_wallets)
-                                print(Fore.GREEN + f"\nGenerated {num_wallets} nice SOL wallets and saved to result/result.csv\n")
-                                continue
-
-
-                    elif action == 'back':
+                    if acction == 'back':
                         continue
-                #continue
-
-            if action == 'sum_balances':
-                print(Fore.GREEN + "Summing balances from result/result.csv...")
-                try:
-                    with open('result/result.csv', 'r', encoding='utf-8') as csvfile:
-                        reader = csv.reader(csvfile)
-                        data = list(reader)
-                        if len(data) <= 1:
-                            print(Fore.RED + "Error: result/result.csv is empty. Please run balance check first.")
-                        else:
-                            sum_balances('result/result.csv')
-                except FileNotFoundError:
-                    print(Fore.RED + "Error: result/result.csv not found. Please run balance check first.")
-                except Exception as e:
-                    print(Fore.RED + f"Error: {e}")
-                continue
-
-            # if action == 'check_all_balances':  # New action
-            #     try:
-            #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-            #             wallet_addresses = file.readlines()
-            #         check_all_balances(wallet_addresses)
-            #     except FileNotFoundError:
-            #         print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
-            #     except Exception as e:
-            #         print(Fore.RED + f"Error: {e}")
-            #     continue
-            # if action == 'check_all_balances':  # New action
-            #     try:
-            #         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-            #             wallet_addresses = file.readlines()
-            #         check_all_balances(wallet_addresses)
-            #     except FileNotFoundError:
-            #         print(Fore.RED + "Error: data/walletss.txt not found. Please add wallet addresses.")
-            #     except Exception as e:
-            #         print(Fore.RED + f"Error: {e}")
-            #     continue
-
-            if action == 'transefer_wallets_to_wallets_call':
-                # выбор сети
-                print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
-                print(Fore.YELLOW + f"Пример: Приватник откуда, Приватник конечный получатель, Приватник посредник, количество в процентах от баланса (например 10-15 для рандомного выбора между 10% и 15% от баланса)\n")
-                print(Fore.YELLOW + "C посредника будет отправленно 100% от баланса")
-                network_type = select(
-                    "Select network type:",
-                    choices=[
-                        Choice('🌐 Mainnet', 'mainnet'),
-                        Choice('🔧 Testnet', 'testnet'),
-                        Choice('🔙 Back', 'back')
-                    ],
-                    qmark='🛠️',
-                    pointer='👉'
-                ).ask()
-                if network_type == 'back':
+                    if acction == 'SOL':
+                        #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
+                        sol_process_mnemonics()
+                        time.sleep(2)
+                        continue
+                    if acction == 'ETH':
+                        if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
+                            print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
+                            time.sleep(2)
+                            continue
+                        print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
+                        process_mnemonics()
+                        continue
+                    
+                    time.sleep(2)
                     continue
-
-                network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
-                network = select(
-                    "Which network do you want to use for transfer?",
-                    choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
-                    qmark='🛠️',
-                    pointer='👉'
-                ).ask()
-                if network == 'back':
-                    continue
-
-                # читаем данные из transfer_token.csv
-                import csv
-                transfer_data = []
-                try:
-                    with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
-                                transfer_data.append(row)
-                except Exception as e:
-                    print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
-                    continue
-
-                if not transfer_data:
-                    print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv")
-                    continue
-
-                # --- Работа с прогресс-баром и прогресс-файлом ---
-                db_dir = "db"
-                if not os.path.exists(db_dir):
-                    os.makedirs(db_dir)
-                progress_file = os.path.join(db_dir, "transfer_progress.json")
-
-                # Определяем прогресс
-                start_idx = 0
-                completed_txs = 0
-                resume = None
-                if os.path.exists(progress_file):
-                    with open(progress_file, "r", encoding="utf-8") as pf:
-                        try:
-                            progress_data = json.load(pf)
-                            start_idx = progress_data.get("last_idx", 0)
-                            completed_txs = progress_data.get("completed_txs", 0)
-                        except Exception:
-                            start_idx = 0
-                            completed_txs = 0
-                    resume = select(
-                        "Обнаружен файл прогресса. Продолжить с места остановки или начать сначала?",
+                
+                case 'generate_wallets':
+                    num_wallets = select(
+                        "How many wallets do you want to generate?",
                         choices=[
-                            Choice("▶️ Продолжить", "resume"),
-                            Choice("🔄 Начать сначала", "restart"),
-                            Choice("❌ Отмена", "cancel")
+                            Choice('▶️  1', 1),
+                            Choice('▶️  10', 10),
+                            Choice('▶️  100', 100),
+                            Choice('▶️  1000', 1000),
+                            Choice('▶️  5000', 5000),
+                            Choice('▶️  10000', 10000),
+                            Choice('✏️ Enter manually', 'manual'),
+                            Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
-                    if resume == "cancel":
+                    if num_wallets == 'back':
                         continue
-                    elif resume == "restart":
-                        start_idx = 0
-                        completed_txs = 0
-                        # Удаляем старый прогресс-файл
+                    if num_wallets == 'manual':
                         try:
-                            os.remove(progress_file)
-                        except Exception:
-                            pass
-                else:
-                    # Если файла нет, создать пустой прогресс-файл (для явности)
-                    with open(progress_file, "w", encoding="utf-8") as pf:
-                        json.dump({"last_idx": 0, "completed_txs": 0}, pf)
+                            num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
+                            if num_wallets <= 0:
+                                print(Fore.RED + "Please enter a positive number: ")
+                                continue
+                        except ValueError:
+                            print(Fore.RED + "Invalid input. Please enter a valid number.")
+                            continue
 
-                proxies = get_proxy_list()
-                total_tx = len(transfer_data) * 2
-                total_seconds = expected_completion_time
-                delay_between = total_seconds / (total_tx - 1) if total_tx > 1 else 0
+                    if num_wallets and num_wallets != 'back':
+                        action = select(
+                            f"Для какой сети?",
+                            choices=[
+                                Choice('💲 ETH', 'ETH'),
+                                Choice('💲 SOL', 'SOL'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        if action == 'ETH':
 
-                process_wallets_transfer(
-                    transfer_data, proxies, network, delay_between, total_tx,
-                    progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
-                )
-                continue
+                            addr_type = select(
+                                f"Какие адреса генерировать ?",
+                                choices=[
+                                    Choice('💲 Normal | Обычные', 'normal'),
+                                    Choice('💲 Nice | Красивые', 'nice'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+                            if addr_type == 'normal':
+                                eth_generate_wallets(num_wallets)
+                                print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
+                                continue
+                            if addr_type == 'nice':
+                                if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
+                                    print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
+                                    print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
+                                    continue
+                                if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
+                                    eth_generate_nice_wallets(num_wallets)
+                                    print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
+                                    continue
 
-            # вынести эту хуйню куда-то в функцию. А то пиздец
-            network_type = select(
-                "Select network type:",
-                choices=[
-                    Choice('🌐 Mainnet', 'mainnet'),
-                    Choice('🔧 Testnet', 'testnet'),
-                    Choice('🔙 Back', 'back')
-                ],
-                qmark='🛠️',
-                pointer='👉'
-            ).ask()
 
-            if network_type == 'back':
-                continue
+                        elif action == 'SOL':
+                            addr_type = select(
+                                f"Какие адреса генерировать ?",
+                                choices=[
+                                    Choice('💲 Normal | Обычные', 'normal'),
+                                    Choice('💲 Nice | Красивые', 'nice'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+                            if addr_type == 'normal':
+                                sol_generate_wallets(num_wallets)
+                                print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
+                                continue
+                            elif addr_type == 'nice':
+                                if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
+                                    print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
+                                    print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
+                                    continue
+                                if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
+                                    sol_generate_nice_wallets(num_wallets)
+                                    print(Fore.GREEN + f"\nGenerated {num_wallets} nice SOL wallets and saved to result/result.csv\n")
+                                    continue
 
-            network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
-            network = select(
-                "Which network do you want to check?",
-                choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
-                qmark='🛠️',
-                pointer='👉'
-            ).ask()
 
-            if network == 'back':
-                continue
+                        elif action == 'back':
+                            continue
+                    #continue
 
-            if action == 'check_balances':
-                check_balances_menu(network, network_type)
-            elif action == 'check_gas_price':
-                check_gas_price_menu(network, network_type)
-            elif action == 'check_transaction_count':
-                check_transaction_count_menu(network, network_type)
+                case 'sum_balances':
+                    print(Fore.GREEN + "Summing balances from result/result.csv...")
+                    try:
+                        with open('result/result.csv', 'r', encoding='utf-8') as csvfile:
+                            reader = csv.reader(csvfile)
+                            data = list(reader)
+                            if len(data) <= 1:
+                                print(Fore.RED + "Error: result/result.csv is empty. Please run balance check first.")
+                            else:
+                                sum_balances('result/result.csv')
+                    except FileNotFoundError:
+                        print(Fore.RED + "Error: result/result.csv not found. Please run balance check first.")
+                    except Exception as e:
+                        print(Fore.RED + f"Error: {e}")
+                    continue
+
+                case 'check_all_balances': 
+                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                    time.sleep(3)
+                    continue
+
+                case 'transefer_wallets_to_wallets_call':
+                    # выбор сети
+                    print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
+                    print(Fore.YELLOW + f"Пример: Приватник откуда, Приватник конечный получатель, Приватник посредник, количество в процентах от баланса (например 10-15 для рандомного выбора между 10% и 15% от баланса)\n")
+                    print(Fore.YELLOW + "C посредника будет отправленно 100% от баланса")
+                    network_type = select(
+                        "Select network type:",
+                        choices=[
+                            Choice('🌐 Mainnet', 'mainnet'),
+                            Choice('🔧 Testnet', 'testnet'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+                    if network_type == 'back':
+                        continue
+
+                    network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
+                    network = select(
+                        "Which network do you want to use for transfer?",
+                        choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+                    if network == 'back':
+                        continue
+
+                    # читаем данные из transfer_token.csv
+                    import csv
+                    transfer_data = []
+                    try:
+                        with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
+                                    transfer_data.append(row)
+                    except Exception as e:
+                        print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
+                        continue
+
+                    if not transfer_data:
+                        print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv")
+                        continue
+
+                    # --- Работа с прогресс-баром и прогресс-файлом ---
+                    db_dir = "db"
+                    if not os.path.exists(db_dir):
+                        os.makedirs(db_dir)
+                    progress_file = os.path.join(db_dir, "transfer_progress.json")
+
+                    # Определяем прогресс
+                    start_idx = 0
+                    completed_txs = 0
+                    resume = None
+                    if os.path.exists(progress_file):
+                        with open(progress_file, "r", encoding="utf-8") as pf:
+                            try:
+                                progress_data = json.load(pf)
+                                start_idx = progress_data.get("last_idx", 0)
+                                completed_txs = progress_data.get("completed_txs", 0)
+                            except Exception:
+                                start_idx = 0
+                                completed_txs = 0
+                        resume = select(
+                            "Обнаружен файл прогресса. Продолжить с места остановки или начать сначала?",
+                            choices=[
+                                Choice("▶️ Продолжить", "resume"),
+                                Choice("🔄 Начать сначала", "restart"),
+                                Choice("❌ Отмена", "cancel")
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        if resume == "cancel":
+                            continue
+                        elif resume == "restart":
+                            start_idx = 0
+                            completed_txs = 0
+                            # Удаляем старый прогресс-файл
+                            try:
+                                os.remove(progress_file)
+                            except Exception:
+                                pass
+                    else:
+                        # Если файла нет, создать пустой прогресс-файл (для явности)
+                        with open(progress_file, "w", encoding="utf-8") as pf:
+                            json.dump({"last_idx": 0, "completed_txs": 0}, pf)
+
+                    proxies = get_proxy_list()
+                    total_tx = len(transfer_data) * 2
+                    total_seconds = expected_completion_time
+                    delay_between = total_seconds / (total_tx - 1) if total_tx > 1 else 0
+
+                    process_wallets_transfer(
+                        transfer_data, proxies, network, delay_between, total_tx,
+                        progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
+                    )
+                    continue
+
+                case'back':
+                    continue
+
+                case 'check_balances' | 'check_gas_price' | 'check_transaction_count':
+                    menu_funcs = {
+                        'check_balances': check_balances_menu,
+                        'check_gas_price': check_gas_price_menu,
+                        'check_transaction_count': check_transaction_count_menu
+                    }
+                    network_type = select(
+                        "Select network type:",
+                        choices=[
+                            Choice('🌐 Mainnet', 'mainnet'),
+                            Choice('🔧 Testnet', 'testnet'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    if network_type == 'back':
+                        continue
+                    if network_type in ['mainnet', 'testnet']:
+                        network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
+                        network = select(
+                            "Which network do you want to check?",
+                            choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+
+                        if network == 'back':
+                            continue
+
+                        menu_funcs[action](network, network_type)
+
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
@@ -442,11 +441,15 @@ def check_balances_menu(network, network_type):
             "Select mode:",
             choices=[
                 Choice('🚀 Fast (requires proxies)', 'fast'),
-                Choice('🐢 Slow (no proxies)', 'slow')
+                Choice('🐢 Slow (no proxies)', 'slow'),
+                Choice('🔙 Back', 'back')
             ],
             qmark='🛠️',
             pointer='👉'
         ).ask()
+
+        if mode == 'back':
+            return
 
         with open('data/walletss.txt', 'r', encoding='utf-8') as file:
             wallet_addresses = file.readlines()
