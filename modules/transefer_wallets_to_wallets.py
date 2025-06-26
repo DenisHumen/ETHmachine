@@ -302,6 +302,11 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
                 'maxFeePerGas': int(gas_price * 1.2),
                 'maxPriorityFeePerGas': 0
             }
+
+            if MIN_FROM_BALANCE == None:
+                print(Fore.YELLOW + "ВНИМАНИЕ: MIN_FROM_BALANCE не задан, используем значение по умолчанию 0 ETH")
+                MIN_FROM_BALANCE = 0
+
             estimated_gas = w3.eth.estimate_gas(tx)
             gas = int(estimated_gas * 1.2)
             fee = gas * int(gas_price * 1.2)

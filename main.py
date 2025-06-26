@@ -142,6 +142,20 @@ def main_menu():
                     continue
 
                 case 'exit':
+                    animation = [
+                        "👋",
+                        "👋🙂",
+                        "👋🙂🚀",
+                        "👋🙂🚀💸",
+                        "👋🙂🚀💸✨",
+                        "👋🙂🚀💸✨🦾",
+                        "👋🙂🚀💸✨🦾\n"
+                    ]
+                    for frame in animation:
+                        print(Fore.GREEN + f"\r{frame}", end='', flush=True)
+                        time.sleep(0.1)
+                    print(Fore.GREEN + "\n\tСпасибо за использование ETHmachine! \n \tЕсли есть вопросы и предложения то в тг https://t.me/DenisHumen!\n\n")
+                    time.sleep(3)
                     break
                 
                 case 'CEX_menu':
