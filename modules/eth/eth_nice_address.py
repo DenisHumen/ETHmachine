@@ -96,23 +96,23 @@ def is_nice_address(address, attempt=None):
     """
     Проверяет, является ли адрес "красивым".
     Критерии:
-    - Адрес содержит слово из массива `words`.
-    - Адрес содержит 7 или более одинаковых символов подряд.
+
+        - Адрес содержит слово из массива `NICE_ADDRESS_WORDS`.
+    - Адрес содержит повторяющиеся символы в количестве, указанном в `REPEATED_CHAR_COUNT`.
     """
     address = address.lower().replace('0x', '')
-
-    # Слова
-    words = NICE_ADDRESS_WORDS
 
     if display_the_address_search_process:
         attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
         print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
-    if any(word in address for word in words):
-        # Повторяющиеся символы
-        if re.search(r'(.)\1{' + str(REPEATED_CHAR_COUNT - 1) + r',}', address):
-            return True
-    return False
+    # Проверка на наличие слов
+    match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS)
+
+    # Проверка на повторяющиеся символы
+    match_repeated = REPEATED_CHAR_COUNT_enable and re.search(rf'([a-f0-9])\1{{{REPEATED_CHAR_COUNT - 1}}}', address)
+
+    return match_word or match_repeated
 
 def eth_generate_nice_wallets(num_wallets):
     """
@@ -141,7 +141,7 @@ def eth_generate_nice_wallets(num_wallets):
                 priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
 
                 if is_nice_address(address, attempt=attempt):
-                    writer.writerow([mnemonic, address, priv_hex])
+                    writer.writerow([mnemonic, address, priv_hex])  # Записываем кошелек в файл
                     completed_wallets += 1
 
                     # Update progress bar
@@ -153,6 +153,7 @@ def eth_generate_nice_wallets(num_wallets):
                         end="",
                         flush=True,
                     )
+
             except Exception as e:
                 print(f"\n❌ Error generating wallet: {str(e)}", file=sys.stderr)
     print()  # Move to the next line after the progress bar is complete

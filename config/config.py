@@ -25,13 +25,13 @@ NICE_ADDRESS_WORDS = [
     # Повторения букв по 10 раз (только допустимые в ETH адресах: a-f)
     'aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc', 'dddddddddd', 'eeeeeeeeee', 'ffffffffff'
 ] # вынести отдельный список для ETH и SOL (нужно сделать)
-NICE_ADDRESS_WORDS_enable = True  # Включить/выключить поиск по словам
+NICE_ADDRESS_WORDS_enable = False  # Включить/выключить поиск по словам
 
 
 # Минимальное количество повторяющихся символов для поиска
 '-----------------------------------------------------------------------------------------------------------------------'
-REPEATED_CHAR_COUNT = 5  # Например, 4 означает поиск "aaaa", "bbbb" и т.д.
-REPEATED_CHAR_COUNT_enable = False  # Включить/выключить поиск по повторяющимся символам
+REPEATED_CHAR_COUNT = 10  # Например, 4 означает поиск "aaaa", "bbbb" и т.д.
+REPEATED_CHAR_COUNT_enable = True  # Включить/выключить поиск по повторяющимся символам
 
 # Если включить и NICE_ADDRESS_WORDS_enable и REPEATED_CHAR_COUNT_enable, будет соблюдаться два правила
 
