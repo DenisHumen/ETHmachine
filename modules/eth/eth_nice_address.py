@@ -13,8 +13,8 @@ from config.config import (
 )
 import re
 import sys
-from colorama import Fore  # Добавляем импорт Fore
-from eth_account import Account  # Добавляем импорт Account
+from colorama import Fore 
+from eth_account import Account  
 import random
 import time
 
@@ -93,39 +93,27 @@ def mnemonic_to_private_key(mnemonic, str_derivation_path, passphrase=""):
     return private_key
 
 def is_nice_address(address, attempt=None):
-    """
-    Проверяет, является ли адрес "красивым".
-    Критерии:
-
-        - Адрес содержит слово из массива `NICE_ADDRESS_WORDS`.
-    - Адрес содержит повторяющиеся символы в количестве, указанном в `REPEATED_CHAR_COUNT`.
-    """
     address = address.lower().replace('0x', '')
 
     if display_the_address_search_process:
         attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
         print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
-    # Проверка на наличие слов
     match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS)
 
-    # Проверка на повторяющиеся символы
     match_repeated = REPEATED_CHAR_COUNT_enable and re.search(rf'([a-f0-9])\1{{{REPEATED_CHAR_COUNT - 1}}}', address)
 
     return match_word or match_repeated
 
 def eth_generate_nice_wallets(num_wallets):
-    """
-    Генерирует только "красивые" Ethereum-кошельки и сохраняет их в CSV-файл.
-    """
     mnemo = Mnemonic("english")
-    spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
-    bar_length = 30  # Length of the progress bar
+    spinner_cycle = cycle(["|", "/", "-", "\\"])  
+    bar_length = 30  
 
-    # Clear the file and write the header
+
     with open('result/result.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
+        writer.writerow(["mnemonic", "wallet_address", "private_key"]) 
 
     completed_wallets = 0
     attempt = 0
@@ -141,10 +129,9 @@ def eth_generate_nice_wallets(num_wallets):
                 priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
 
                 if is_nice_address(address, attempt=attempt):
-                    writer.writerow([mnemonic, address, priv_hex])  # Записываем кошелек в файл
+                    writer.writerow([mnemonic, address, priv_hex]) 
                     completed_wallets += 1
 
-                    # Update progress bar
                     progress = int((completed_wallets / num_wallets) * bar_length)
                     bar = "█" * progress + "░" * (bar_length - progress)
                     spinner_frame = next(spinner_cycle)
@@ -156,7 +143,7 @@ def eth_generate_nice_wallets(num_wallets):
 
             except Exception as e:
                 print(f"\n❌ Error generating wallet: {str(e)}", file=sys.stderr)
-    print()  # Move to the next line after the progress bar is complete
+    print() 
 
 def find_nice_addresses(search_word=None):
     words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS
@@ -171,7 +158,6 @@ def find_nice_addresses(search_word=None):
         account = Account.create(random.randint(0, 2**256 - 1))
         address = account.address.lower()
 
-        # Проверяем на наличие слов или повторяющихся символов
         match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in words_to_search)
         match_repeated = REPEATED_CHAR_COUNT_enable and re.search(rf'([a-f0-9])\1{{{REPEATED_CHAR_COUNT - 1}}}', address)
 

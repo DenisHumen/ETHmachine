@@ -11,6 +11,7 @@ from colorama import Style
 import json
 import os
 
+
 def parse_percent_range(percent_str):
     try:
         parts = percent_str.split('-')
@@ -303,18 +304,21 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
                 'maxPriorityFeePerGas': 0
             }
 
-            if MIN_FROM_BALANCE == None:
-                print(Fore.YELLOW + "ВНИМАНИЕ: MIN_FROM_BALANCE не задан, используем значение по умолчанию 0 ETH")
-                MIN_FROM_BALANCE = 0
-
             estimated_gas = w3.eth.estimate_gas(tx)
             gas = int(estimated_gas * 1.2)
             fee = gas * int(gas_price * 1.2)
-            min_balance_wei = w3.to_wei(MIN_FROM_BALANCE, 'ether')
+            
+            # Берем случайное значение из диапазона MIN_FROM_BALANCE
+            min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
+            min_balance_wei = w3.to_wei(min_balance_random, 'ether')
+
             if value + fee > balance - min_balance_wei:
+                original_value = value
                 value = balance - fee - min_balance_wei
-            if value < 0:
-                value = 0
+                if value < 0:
+                    value = 0
+                print(Fore.YELLOW + f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
+                                    f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
             return value, gas
 
         send_amount, gas = get_send_amount(balance, percent, w3, from_acc.address, intermediary_acc.address, gas_price, w3.eth.chain_id, from_priv)

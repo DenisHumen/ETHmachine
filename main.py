@@ -43,6 +43,8 @@ from modules.transefer_wallets_to_wallets import (
     transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
 )
 
+from modules.stats_modules.pharos_stats import pharos_wallet_stats
+
 init(autoreset=True)
 
 mainnet_rpc_urls = {
@@ -117,6 +119,7 @@ def main_menu():
                 f"What do you want to do?",
                 choices=[
                     Choice('💲 Check Balances | Проверить балансы', 'check_balances'),
+                    Choice('📊 Check project stats | Проверка статистики по проектам', 'project_stats'),
                     Choice('💰 Sum Balances | Суммировать балансы', 'sum_balances'),
                     Choice('⛽ Check Gas Price | Проверить цену газа', 'check_gas_price'),
                     Choice('🔢 Check Transaction Count | Количество транзакций в выбранной сети', 'check_transaction_count'),
@@ -133,6 +136,77 @@ def main_menu():
             ).ask()
 
             match action:
+
+
+
+
+                case 'project_stats':
+                    while True:
+                        action = select(
+                            "Выберите действие:",
+                            choices=[
+                                Choice('📈 Pharos | Проверка статистики по Pharos', 'pharos_stats'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+
+                        match action:
+                            case 'pharos_stats':
+
+                                #pharos_wallet_stats()
+                                print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
+                                print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
+                                print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
+                                animation = [
+                                    "🕐",
+                                    "🕑",
+                                    "🕒",
+                                    "🕓",
+                                    "🕔",
+                                    "🕕",
+                                    "🕖",
+                                    "🕗",
+                                    "🕘",
+                                    "🕙",
+                                    "🕚",
+                                    "🕛",
+                                    "🕐",
+                                    "🕑",
+                                    "🕒",
+                                    "🕓",
+                                    "🕔",
+                                    "🕕",
+                                    "🕖",
+                                    "🕗",
+                                    "🕘",
+                                    "🕙",
+                                    "🕚",
+                                    "🕛",
+                                    "🕐",
+                                    "🕑",
+                                    "🕒",
+                                    "🕓",
+                                    "🕔",
+                                    "🕕",
+                                    "🕖",
+                                    "🕗",
+                                    "🕘",
+                                    "🕙",
+                                    "🕚",
+                                    "🕛"
+                                ]
+                                for frame in animation:
+                                    print(Fore.GREEN + f"\r{frame}", end='', flush=True)
+                                    time.sleep(0.1)
+                                print()
+                                continue
+
+                            case 'back':
+                                break
+
+
 
 
 
