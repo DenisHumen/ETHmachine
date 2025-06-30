@@ -143,9 +143,11 @@ def main_menu():
                 case 'project_stats':
                     while True:
                         action = select(
-                            "Выберите действие:",
+                            "Выберите действие (статистика по проектам):",
                             choices=[
-                                Choice('📈 Pharos | Проверка статистики по Pharos', 'pharos_stats'),
+                                Choice('📈 Pharos', 'pharos_stats'),
+                                Choice('📈 Monad', 'monad'),
+                                Choice('📈 Mega ETH', 'MegaETH'),
                                 Choice('🔙 Back', 'back')
                             ],
                             qmark='🛠️',
@@ -202,6 +204,14 @@ def main_menu():
                                     time.sleep(0.1)
                                 print()
                                 continue
+                            
+                            case 'monad':
+                                print(Fore.GREEN + '\n\tДоступна в скрипте https://github.com/DenisHumen/CryptoProjectChecker\n')
+                                time.sleep(3)
+
+                            case 'MegaETH':
+                                print(Fore.GREEN + '\n\tДоступна в скрипте https://github.com/DenisHumen/CryptoProjectChecker\n')
+                                time.sleep(3)
 
                             case 'back':
                                 break

@@ -13,7 +13,7 @@ from bip_utils import (
 from solders.keypair import Keypair
 import base58
 from config.config import (
-    NICE_ADDRESS_WORDS, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
+    NICE_ADDRESS_WORDS_SOL, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
     REPEATED_CHAR_COUNT_enable, display_the_address_search_process
 )
 
@@ -46,7 +46,7 @@ def is_nice_address(address, attempt=None):
         print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
     # Проверка на наличие слов из NICE_ADDRESS_WORDS
-    if NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS):
+    if NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS_SOL):
         return True
 
     # Проверка на повторяющиеся символы

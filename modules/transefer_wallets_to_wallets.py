@@ -5,7 +5,7 @@ from colorama import Fore
 import time
 from datetime import datetime, timedelta
 import csv
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters
 from itertools import cycle
 from colorama import Style
 import json
@@ -83,7 +83,7 @@ def send_with_retry(w3, signed_tx, explorer_url, max_attempts=None):
                 print(Fore.RED + f"Транзакция неуспешна (статус != 1): {tx_hash_hex}")
         except Exception as e:
             print(Fore.RED + f"Ошибка отправки/подтверждения транзакции (попытка {attempt}): {e}")
-        time.sleep(5)
+        time.sleep(WHAITE_TRANSACTION_PENDING)
     print(Fore.RED + "Не удалось выполнить транзакцию после нескольких попыток.")
     return False, None
 
@@ -308,8 +308,10 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
             gas = int(estimated_gas * 1.2)
             fee = gas * int(gas_price * 1.2)
             
-            # Берем случайное значение из диапазона MIN_FROM_BALANCE
             min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
+            if trim_the_number_of_characters_enable:
+
+                min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
             min_balance_wei = w3.to_wei(min_balance_random, 'ether')
 
             if value + fee > balance - min_balance_wei:

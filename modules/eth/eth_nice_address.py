@@ -8,7 +8,7 @@ from eth_utils import to_checksum_address, keccak as eth_utils_keccak
 import csv
 from itertools import cycle
 from config.config import (
-    NICE_ADDRESS_WORDS, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
+    NICE_ADDRESS_WORDS_ETH, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
     REPEATED_CHAR_COUNT_enable, display_the_address_search_process
 )
 import re
@@ -99,7 +99,7 @@ def is_nice_address(address, attempt=None):
         attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
         print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
 
-    match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS)
+    match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS_ETH)
 
     match_repeated = REPEATED_CHAR_COUNT_enable and re.search(rf'([a-f0-9])\1{{{REPEATED_CHAR_COUNT - 1}}}', address)
 
@@ -146,7 +146,7 @@ def eth_generate_nice_wallets(num_wallets):
     print() 
 
 def find_nice_addresses(search_word=None):
-    words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS
+    words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS_ETH
 
     print(Fore.GREEN + "Начинаем поиск адресов...")
 
