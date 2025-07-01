@@ -157,52 +157,52 @@ def main_menu():
                         match action:
                             case 'pharos_stats':
 
-                                #pharos_wallet_stats()
-                                print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
-                                print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
-                                print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
-                                animation = [
-                                    "🕐",
-                                    "🕑",
-                                    "🕒",
-                                    "🕓",
-                                    "🕔",
-                                    "🕕",
-                                    "🕖",
-                                    "🕗",
-                                    "🕘",
-                                    "🕙",
-                                    "🕚",
-                                    "🕛",
-                                    "🕐",
-                                    "🕑",
-                                    "🕒",
-                                    "🕓",
-                                    "🕔",
-                                    "🕕",
-                                    "🕖",
-                                    "🕗",
-                                    "🕘",
-                                    "🕙",
-                                    "🕚",
-                                    "🕛",
-                                    "🕐",
-                                    "🕑",
-                                    "🕒",
-                                    "🕓",
-                                    "🕔",
-                                    "🕕",
-                                    "🕖",
-                                    "🕗",
-                                    "🕘",
-                                    "🕙",
-                                    "🕚",
-                                    "🕛"
-                                ]
-                                for frame in animation:
-                                    print(Fore.GREEN + f"\r{frame}", end='', flush=True)
-                                    time.sleep(0.1)
-                                print()
+                                pharos_wallet_stats()
+                                # print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
+                                # print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
+                                # print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
+                                # animation = [
+                                #     "🕐",
+                                #     "🕑",
+                                #     "🕒",
+                                #     "🕓",
+                                #     "🕔",
+                                #     "🕕",
+                                #     "🕖",
+                                #     "🕗",
+                                #     "🕘",
+                                #     "🕙",
+                                #     "🕚",
+                                #     "🕛",
+                                #     "🕐",
+                                #     "🕑",
+                                #     "🕒",
+                                #     "🕓",
+                                #     "🕔",
+                                #     "🕕",
+                                #     "🕖",
+                                #     "🕗",
+                                #     "🕘",
+                                #     "🕙",
+                                #     "🕚",
+                                #     "🕛",
+                                #     "🕐",
+                                #     "🕑",
+                                #     "🕒",
+                                #     "🕓",
+                                #     "🕔",
+                                #     "🕕",
+                                #     "🕖",
+                                #     "🕗",
+                                #     "🕘",
+                                #     "🕙",
+                                #     "🕚",
+                                #     "🕛"
+                                # ]
+                                # for frame in animation:
+                                #     print(Fore.GREEN + f"\r{frame}", end='', flush=True)
+                                #     time.sleep(0.1)
+                                # print()
                                 continue
                             
                             case 'monad':

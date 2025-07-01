@@ -98,6 +98,7 @@ def pharos_wallet_stats():
         print(Fore.GREEN + f"Обработка кошелька {wallet_address} с прокси {proxy}...")
         try:
             result = send_request(wallet_address, proxy)
+            print(result)
             print(Fore.GREEN + f"Результат для кошелька {wallet_address}: {result}")
             time.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             print(Fore.GREEN + f"Ожидание {random.uniform(*SLEEP_BETWEEN_ACTIONS)} секунд.")
