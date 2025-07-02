@@ -34,6 +34,7 @@ from modules.GitHub.check_version import check_version
 from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
+from modules.eth.private_key_to_wallet_address import process_private_keys
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
@@ -83,7 +84,9 @@ def check_and_create_files():
         'data/cex_settings.py',
         'data/transfer_token.csv',
         'data/mnemonic.txt',
-        'db/transfer_progress.json'
+        'db/transfer_progress.json',
+        'data/one_time_intermediary.csv',
+        'data/private_keys.txt'
     ]
     required_directories = ['result', 'data', 'db']
 
@@ -109,6 +112,8 @@ def check_and_create_files():
                     )
                 elif 'transfer_token.csv' in file:
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
+                elif 'one_time_intermediary.csv' in file:
+                    f.write('mnemonic,wallet_address,private_key,status\n')
             print(Fore.GREEN + f"File created: {file}")
 
 def main_menu():
@@ -126,7 +131,7 @@ def main_menu():
                     Choice('🪙  Generate Wallets | Генерация кошельков', 'generate_wallets'),
                     Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
-                    Choice('🔑 Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ и адрес кошелька', 'mnemonic_to_priv_key'),
+                    Choice('🔑 ETH/SOL convert tool | Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🔍 Check Proxy | Проверить прокси', 'check_proxy'),
                     Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
                     Choice('❌ Exit | Выход', 'exit')
@@ -238,7 +243,7 @@ def main_menu():
                     for frame in animation:
                         print(Fore.GREEN + f"\r{frame}", end='', flush=True)
                         time.sleep(0.1)
-                    print(Fore.GREEN + "\n\tСпасибо за использование ETHmachine! \n \tЕсли есть вопросы и предложения то в тг https://t.me/DenisHumen!\n\n")
+                    print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine! \n \t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen!\n\n")
                     time.sleep(3)
                     break
                 
@@ -247,35 +252,75 @@ def main_menu():
                     time.sleep(3)
                     continue
 
-                case 'mnemonic_to_priv_key':
-                    acction = select(
-                        'Sol или ETH?',
+                case 'ETH_convert_tool':
+                    action = select(
+                        'Выберите действие:',
                         choices=[
-                            Choice('💲 ETH', 'ETH'),
-                            Choice('💲 SOL', 'SOL'),
+                            Choice('🔑 Convert Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ', 'mnemonic_to_priv_key'),
+                            Choice('🔑 Convert Private Key to Wallet Address | Конвертация приватного ключа в адрес кошелька', 'private_key_to_wallet_address'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
-                    if acction == 'back':
-                        continue
-                    if acction == 'SOL':
-                        #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!")
-                        sol_process_mnemonics()
-                        time.sleep(2)
-                        continue
-                    if acction == 'ETH':
-                        if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
-                            print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
+
+                    match action:
+                        case 'back':
+                            continue
+                        case 'mnemonic_to_priv_key':
+                            blockchain_action = select(
+                                'Sol или ETH?',
+                                choices=[
+                                    Choice('💲 ETH', 'ETH'),
+                                    Choice('💲 SOL', 'SOL'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+                            
+                            match blockchain_action:
+                                case 'back':
+                                    continue
+                                case 'SOL':
+                                    print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!\n")
+                                    sol_process_mnemonics()
+                                    time.sleep(2)
+                                    continue
+                                case 'ETH':
+                                    if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
+                                        print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
+                                        time.sleep(2)
+                                        continue
+                                    print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
+                                    process_mnemonics()
+                                    continue
+                            
                             time.sleep(2)
                             continue
-                        print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
-                        process_mnemonics()
-                        continue
-                    
-                    time.sleep(2)
-                    continue
+                        case 'private_key_to_wallet_address':
+                            action = select(
+                                'Выберите действие:',
+                                choices=[
+                                    Choice('💲 ETH', 'ETH'),
+                                    Choice('💲 SOL', 'SOL'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+
+                            match action:
+                                case 'back':
+                                    continue
+                                case 'SOL':
+                                    print(Fore.RED + "Конвертация приватного ключа в адрес кошелька для SOL еще в работе, скоро будет доступна!\n")
+                                    continue
+                                case 'ETH':
+                                    print(Fore.GREEN + "Конвертация приватного ключа в адрес кошелька")
+                                    process_private_keys()
+                                    time.sleep(2)
+                                    continue
                 
                 case 'generate_wallets':
                     num_wallets = select(

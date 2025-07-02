@@ -5,7 +5,7 @@ from colorama import Fore
 import time
 from datetime import datetime, timedelta
 import csv
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops
 from itertools import cycle
 from colorama import Style
 import json
@@ -535,7 +535,118 @@ def remove_failed_wallet(row):
     except Exception as e:
         print(Fore.RED + f"Ошибка удаления строки: {e}")
 
-def process_wallets_transfer(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
+def get_available_intermediary_wallets():
+    """
+    Получает доступные посреднические кошельки из data/one_time_intermediary.csv
+    """
+    try:
+        intermediary_file = "data/one_time_intermediary.csv"
+        available_wallets = []
+        
+        if not os.path.exists(intermediary_file):
+            print(Fore.RED + f"Файл {intermediary_file} не найден!")
+            return []
+        
+        with open(intermediary_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Берем только кошельки без статуса или с пустым статусом
+                if not row.get('status', '').strip():
+                    available_wallets.append({
+                        'mnemonic': row['mnemonic'],
+                        'wallet_address': row['wallet_address'],
+                        'private_key': row['private_key'],
+                        'status': row.get('status', '')
+                    })
+        
+        print(Fore.CYAN + f"Найдено {len(available_wallets)} доступных посреднических кошельков")
+        return available_wallets
+        
+    except Exception as e:
+        print(Fore.RED + f"Ошибка чтения файла посредников: {e}")
+        return []
+
+def mark_intermediary_as_used(used_private_key):
+    """
+    Отмечает посреднический кошелек как использованный
+    """
+    try:
+        intermediary_file = "data/one_time_intermediary.csv"
+        if not os.path.exists(intermediary_file):
+            return False
+        
+        # Читаем все данные
+        rows = []
+        with open(intermediary_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames
+            for row in reader:
+                if row['private_key'] == used_private_key:
+                    row['status'] = 'used'
+                rows.append(row)
+        
+        # Записываем обратно
+        with open(intermediary_file, "w", encoding="utf-8", newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        
+        print(Fore.YELLOW + f"Посреднический кошелек отмечен как использованный: {used_private_key[:10]}...")
+        return True
+        
+    except Exception as e:
+        print(Fore.RED + f"Ошибка обновления статуса посреднического кошелька: {e}")
+        return False
+
+def check_wallet_balances_for_loop(transfer_data, network, proxies):
+    """
+    Проверяет балансы кошельков для принятия решения о продолжении цикла
+    """
+    try:
+        rpc_url = get_network_rpc(network)
+        proxy = random.choice(proxies) if proxies else None
+        w3 = get_web3_with_proxy(rpc_url, proxy) if proxy else Web3(Web3.HTTPProvider(rpc_url))
+        
+        # Генерируем случайные пороговые значения
+        min_from_balance = random.uniform(expected_balance_from_wallet[0], expected_balance_from_wallet[1])
+        max_to_balance = random.uniform(expected_balance_to_wallet[0], expected_balance_to_wallet[1])
+        
+        print(Fore.CYAN + f"Проверка балансов: минимальный from_wallet = {min_from_balance:.6f} ETH, максимальный to_wallet = {max_to_balance:.6f} ETH")
+        
+        valid_wallets = []
+        
+        for row in transfer_data:
+            try:
+                from_acc = Account.from_key(row['from_wallet'])
+                to_acc = Account.from_key(row['to_wallet'])
+                
+                from_balance = get_eth_balance_safe(w3, from_acc.address)
+                to_balance = get_eth_balance_safe(w3, to_acc.address)
+                
+                from_balance_eth = w3.from_wei(from_balance, 'ether')
+                to_balance_eth = w3.from_wei(to_balance, 'ether')
+                
+                # Проверяем условия
+                if from_balance_eth >= min_from_balance and to_balance_eth <= max_to_balance:
+                    valid_wallets.append(row)
+                    print(Fore.GREEN + f"✅  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f})")
+                else:
+                    print(Fore.YELLOW + f"⏭️  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f}) - не подходит")
+                    
+            except Exception as e:
+                print(Fore.RED + f"Ошибка проверки баланса кошелька: {e}")
+                continue
+        
+        return valid_wallets
+        
+    except Exception as e:
+        print(Fore.RED + f"Ошибка проверки балансов: {e}")
+        return []
+
+def process_wallets_transfer_normal(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
+    """
+    Обычная обработка переводов без зацикливания (оригинальная логика)
+    """
     spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
     bar_length = 80 
     total_wallets = len(transfer_data)
@@ -628,3 +739,137 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
     print()  
     if progress_file and os.path.exists(progress_file):
         os.remove(progress_file)
+
+def process_wallets_transfer(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
+    """
+    Обработка переводов с поддержкой зацикливания
+    """
+    if not loop_transfer_enable:
+        # Обычный режим работы без зацикливания
+        return process_wallets_transfer_normal(transfer_data, proxies, network, delay_between, total_tx, progress_file, start_idx, completed_txs)
+    
+    # Режим с зацикливанием
+    print(Fore.MAGENTA + f"🔄 Включен режим зацикливания. Максимум циклов: {loop_transfer_count}")
+    
+    cycle = 0
+    while cycle < loop_transfer_count:
+        cycle += 1
+        print(Fore.MAGENTA + f"\n{'='*60}")
+        print(Fore.YELLOW + f"🔄 ЦИКЛ {cycle}/{loop_transfer_count}")
+        print(Fore.MAGENTA + f"{'='*60}")
+        
+        # Проверяем доступность посреднических кошельков
+        available_intermediaries = get_available_intermediary_wallets()
+        if not available_intermediaries:
+            print(Fore.RED + "❌ Нет доступных кошельков для роли посредника!")
+            print(Fore.YELLOW + "Остановка выполнения переводов.")
+            break
+        
+        # Проверяем балансы кошельков
+        print(Fore.CYAN + "🔍 Проверка балансов кошельков...")
+        valid_wallets = check_wallet_balances_for_loop(transfer_data, network, proxies)
+        
+        if not valid_wallets:
+            local_sleep_time_between_loops = random.randint(sleep_time_between_loops[0], sleep_time_between_loops[1])
+            print(Fore.YELLOW + f"⏭️ Цикл {cycle}: Нет кошельков, подходящих под условия. Ждем {local_sleep_time_between_loops} секунд...")
+            time.sleep(local_sleep_time_between_loops)
+            continue
+        
+        print(Fore.GREEN + f"✅ Найдено {len(valid_wallets)} подходящих пар кошельков")
+        
+        # Проверяем, хватает ли посредников
+        if len(available_intermediaries) < len(valid_wallets):
+            print(Fore.YELLOW + f"⚠️ Доступно только {len(available_intermediaries)} посредников для {len(valid_wallets)} пар")
+            valid_wallets = valid_wallets[:len(available_intermediaries)]
+        
+        # Обрабатываем ВСЕ найденные кошельки сразу
+        current_total_tx = len(valid_wallets) * 2
+        process_wallets_transfer_with_one_time_intermediaries(valid_wallets, available_intermediaries, proxies, network, delay_between, current_total_tx)
+        
+        print(Fore.GREEN + f"✅ Цикл {cycle} завершен. Обработано {len(valid_wallets)} пар кошельков")
+        
+        # Пауза между циклами (кроме последнего)
+        if cycle < loop_transfer_count:
+            local_sleep_time_between_loops = random.randint(sleep_time_between_loops[0], sleep_time_between_loops[1])
+            print(Fore.CYAN + f"⏸️ Пауза между циклами {local_sleep_time_between_loops} секунд...")
+            countdown_timer(local_sleep_time_between_loops, "Пауза между циклами")
+
+    if cycle >= loop_transfer_count: 
+        print(Fore.GREEN + f"🎉 Все {loop_transfer_count} циклов завершены!")
+    else:
+        print(Fore.RED + f"❌ Завершены не все циклы, выполнено - {cycle} из {loop_transfer_count} циклов.")
+
+def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, available_intermediaries, proxies, network, delay_between, total_tx):
+    """
+    Обработка переводов с использованием одноразовых посредников
+    """
+    if not valid_wallets:
+        return
+        
+    print(Fore.MAGENTA + f"\n🚀 Начинаем обработку {len(valid_wallets)} подходящих пар кошельков")
+    
+    spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+    bar_length = 80
+    completed_txs = 0
+    
+    for idx, row in enumerate(valid_wallets):
+        if idx >= len(available_intermediaries):
+            print(Fore.RED + f"❌ Недостаточно посредников для обработки всех кошельков")
+            break
+        
+        # Берем случайного посредника из доступных
+        intermediary = random.choice(available_intermediaries)
+        available_intermediaries.remove(intermediary)  # Убираем из списка доступных
+        
+        proxy = random.choice(proxies) if proxies else None
+        tx_counter = idx * 2
+        
+        print(Fore.CYAN + f"\n📋 Обработка пары {idx + 1}/{len(valid_wallets)}")
+        
+        try:
+            # Используем одноразового посредника вместо того, что в файле transfer_data
+            transefer_wallets_to_wallets(
+                row['from_wallet'],
+                intermediary['private_key'],  # Используем посредника из one_time_intermediary.csv
+                row['to_wallet'],
+                network,
+                row['amount'],
+                proxy,
+                delay_between,
+                tx_counter + completed_txs,
+                total_tx
+            )
+            
+            # Отмечаем посредника как использованного
+            mark_intermediary_as_used(intermediary['private_key'])
+            
+            completed_txs += 2
+            
+        except Exception as e:
+            print(Fore.RED + f"Ошибка обработки кошелька: {e}")
+            # Даже при ошибке отмечаем посредника как использованного
+            mark_intermediary_as_used(intermediary['private_key'])
+        
+        # Обновляем прогресс
+        progress = int((completed_txs / total_tx) * bar_length)
+        bar = "█" * progress + "░" * (bar_length - progress)
+        spinner_frame = next(spinner_cycle)
+        
+        remaining_tx = total_tx - completed_txs
+        remaining_wallets = len(valid_wallets) - idx - 1
+        estimated_time = remaining_tx * delay_between + remaining_wallets * 13
+        completion_time = datetime.now() + timedelta(seconds=estimated_time)
+        completion_time_str = completion_time.strftime("%d.%m.%Y в %H:%M")
+        
+        print(
+            f"\r[{bar}] {completed_txs}/{total_tx} транзакций | Осталось пар: {remaining_wallets} | {spinner_frame} {Fore.CYAN}Посредник: {intermediary['wallet_address'][:10]}...| Завершение: {completion_time_str}{Style.RESET_ALL}",
+            end="",
+            flush=True,
+        )
+        print()
+        
+        # Задержка между парами кошельков (кроме последней)
+        if delay_between > 0 and idx < len(valid_wallets) - 1:
+            countdown_timer(int(delay_between), "Задержка до следующей пары")
+    
+    print(Fore.GREEN + f"\n✅ Завершена обработка всех {len(valid_wallets)} подходящих пар в текущем цикле")
