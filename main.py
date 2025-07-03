@@ -15,7 +15,7 @@ from questionary import Choice, select
 from config.rpc import (
     L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
     Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora,
-    somnia_testnet, mega_eth, Abstract, pharos
+    somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet
 )
 from config.config import (
     NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
@@ -24,6 +24,7 @@ from config.config import (
 # Импорт функций из модулей
 from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
+from modules.get_token_wallet_balance_fast import check_token_balances
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
@@ -68,8 +69,9 @@ testnet_rpc_urls = {
     '🚀 Monad Testnet (native token MON)': monad_testnet,
     '🚀 Sahara testnet': sahara_testnet,
     '🚀 Somnia Testnet': somnia_testnet,
-    '🚀 Mega ETH': mega_eth,
-    '🚀 Pharos': pharos,
+    '🚀 Mega ETH Testnet': mega_eth_testnet,
+    '🚀 Pharos Testnet': pharos_testnet,
+    '🚀 Camp Testnet': camp_testnet,
 }
 
 # менюшку позимствовал у askaer, покупайте его скрипты :)
@@ -124,6 +126,7 @@ def main_menu():
                 f"What do you want to do?",
                 choices=[
                     Choice('💲 Check Balances | Проверить балансы', 'check_balances'),
+                    Choice('🔧 Check Token Balances | Проверить балансы токенов', 'check_token_balances'),
                     Choice('📊 Check project stats | Проверка статистики по проектам', 'project_stats'),
                     Choice('💰 Sum Balances | Суммировать балансы', 'sum_balances'),
                     Choice('⛽ Check Gas Price | Проверить цену газа', 'check_gas_price'),
@@ -574,6 +577,10 @@ def main_menu():
                             continue
 
                         menu_funcs[action](network, network_type)
+
+                case 'check_token_balances':
+                    from modules.get_token_wallet_balance_fast import check_token_balances_menu
+                    check_token_balances_menu()
 
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
