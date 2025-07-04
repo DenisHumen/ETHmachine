@@ -9,18 +9,13 @@ import requests
 from colorama import Fore, Style, init
 from web3 import Web3
 
-# добавить покрас токенов названия зеленый имя синий адрес
-# добаввить проверку сразу всех токенов
 # добавить сбор цены токенов и обющую цену
 
-# Инициализация colorama
 init()
 
-# Импортируем настройки
 import sys
 from pathlib import Path
 
-# Добавляем корневую директорию проекта в sys.path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
@@ -28,7 +23,6 @@ from config.config import NUM_THREADS, RETRY_COUNT
 import config.token_address_erc20 as token_addresses
 import config.rpc as rpc_config
 
-# Стандартный ABI для ERC-20
 ERC20_ABI = [
     {
         "constant": True,
@@ -56,7 +50,6 @@ ERC20_ABI = [
 def load_wallets():
     """Загружает адреса кошельков из файла data/walletss.txt"""
     try:
-        # Используем относительный путь от корня проекта
         wallets_file = project_root / 'data' / 'walletss.txt'
         with open(wallets_file, 'r') as f:
             wallets = [line.strip() for line in f if line.strip()]
@@ -68,7 +61,6 @@ def load_wallets():
 def load_proxies():
     """Загружает прокси из файла data/proxy.csv"""
     try:
-        # Используем относительный путь от корня проекта
         proxy_file = project_root / 'data' / 'proxy.csv'
         with open(proxy_file, 'r') as f:
             reader = csv.reader(f)
@@ -84,7 +76,6 @@ def get_proxy_dict(proxy_string):
         return None
     
     try:
-        # Формат: login:password@ip:port
         auth_part, address_part = proxy_string.split('@')
         login, password = auth_part.split(':')
         ip, port = address_part.split(':')
@@ -104,27 +95,31 @@ def get_token_balance(wallet_address, rpc_url, token_address, proxy=None):
         raise ValueError("Адрес токена не указан")
     
     session = requests.Session()
-    if proxy:
-        proxy_dict = get_proxy_dict(proxy)
-        if proxy_dict:
-            session.proxies.update(proxy_dict)
-    
-    w3 = Web3(Web3.HTTPProvider(rpc_url, session=session))
-    
-    if not w3.is_connected():
-        raise ConnectionError(f"Не удалось подключиться к RPC: {rpc_url}")
-    
-    token_address = Web3.to_checksum_address(token_address)
-    wallet_address = Web3.to_checksum_address(wallet_address)
-    
-    contract = w3.eth.contract(address=token_address, abi=ERC20_ABI)
-    
-    balance_raw = contract.functions.balanceOf(wallet_address).call()
-    decimals = contract.functions.decimals().call()
-    
-    balance = balance_raw / (10 ** decimals)
-    
-    return balance
+    try:
+        if proxy:
+            proxy_dict = get_proxy_dict(proxy)
+            if proxy_dict:
+                session.proxies.update(proxy_dict)
+        
+        w3 = Web3(Web3.HTTPProvider(rpc_url, session=session))
+        
+        if not w3.is_connected():
+            raise ConnectionError(f"Не удалось подключиться к RPC: {rpc_url}")
+        
+        token_address = Web3.to_checksum_address(token_address)
+        wallet_address = Web3.to_checksum_address(wallet_address)
+        
+        contract = w3.eth.contract(address=token_address, abi=ERC20_ABI)
+        
+        balance_raw = contract.functions.balanceOf(wallet_address).call()
+        decimals = contract.functions.decimals().call()
+        
+        balance = balance_raw / (10 ** decimals)
+        
+        return balance
+        
+    finally:
+        session.close()
 
 def get_rpc_urls_for_network(network):
     """Получает список RPC URL для указанной сети"""
@@ -141,7 +136,6 @@ def process_wallet_task(wallet, proxy, rpc_urls, token_address):
     
     for attempt in range(RETRY_COUNT + 1):
         try:
-            # Выбираем случайный RPC для каждой попытки
             rpc_url = get_random_rpc(rpc_urls)
             if not rpc_url:
                 raise ValueError("Нет доступных RPC URL")
@@ -151,7 +145,6 @@ def process_wallet_task(wallet, proxy, rpc_urls, token_address):
         
         except Exception as e:
             if attempt < RETRY_COUNT:
-                # При ошибке берем случайную прокси
                 proxy = random.choice(load_proxies()) if load_proxies() else None
                 time.sleep(1)
                 continue
@@ -188,46 +181,61 @@ def process_wallet_task_all_tokens(wallet, proxy, rpc_urls, tokens_dict):
     
     return wallet, wallet_results, True
 
-def save_results(results, token_symbol):
-    """Сохраняет результаты в CSV файл"""
-    # Создаем папку result если её нет, используя путь от корня проекта
+def save_results(results, token_symbol, wallets):
+    """Сохраняет результаты в CSV файл с сохранением порядка"""
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
     
     result_file = result_dir / 'result.csv'
+    
+    results_dict = {}
+    for wallet, balance, success in results:
+        results_dict[wallet] = (balance, success)
+    
     with open(result_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['address', 'balance', 'token'])
         
-        for wallet, balance, success in results:
-            if success:
-                writer.writerow([wallet, balance, token_symbol])
+        for wallet in wallets:
+            if wallet in results_dict:
+                balance, success = results_dict[wallet]
+                if success:
+                    writer.writerow([wallet, balance, token_symbol])
+                else:
+                    writer.writerow([wallet, 0, token_symbol])
             else:
                 writer.writerow([wallet, 0, token_symbol])
 
-def save_results_all_tokens(results, tokens_dict):
-    """Сохраняет результаты всех токенов в CSV файл (каждый кошелек в одной строке)"""
+def save_results_all_tokens(results, tokens_dict, wallets):
+    """Сохраняет результаты всех токенов в CSV файл (каждый кошелек в одной строке) с сохранением порядка"""
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
     
     result_file = result_dir / 'result.csv'
+    
+    results_dict = {}
+    for wallet, token_balances, success in results:
+        results_dict[wallet] = (token_balances, success)
+    
     with open(result_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         
-        # Создаем заголовок: address + все токены
         header = ['address'] + [token_symbol.upper() for token_symbol in tokens_dict.keys()]
         writer.writerow(header)
         
-        for wallet, token_balances, success in results:
-            if success and isinstance(token_balances, dict):
-                # Создаем строку: адрес + балансы всех токенов
-                row = [wallet]
-                for token_symbol in tokens_dict.keys():
-                    balance = token_balances.get(token_symbol, 0)
-                    row.append(balance)
-                writer.writerow(row)
+        for wallet in wallets:
+            if wallet in results_dict:
+                token_balances, success = results_dict[wallet]
+                if success and isinstance(token_balances, dict):
+                    row = [wallet]
+                    for token_symbol in tokens_dict.keys():
+                        balance = token_balances.get(token_symbol, 0)
+                        row.append(balance)
+                    writer.writerow(row)
+                else:
+                    row = [wallet] + [0] * len(tokens_dict)
+                    writer.writerow(row)
             else:
-                # В случае ошибки записываем нули для всех токенов
                 row = [wallet] + [0] * len(tokens_dict)
                 writer.writerow(row)
 
@@ -235,17 +243,14 @@ def check_token_balances_menu():
     """Меню для выбора сети и проверки балансов токенов"""
     from modules.rpc_return_module import get_network_rpc_selection, get_token_selection_for_network
     
-    # Получаем RPC URLs через новый модуль
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:
         return
     
-    # Получаем выбор токена для сети
     token_symbol, token_data = get_token_selection_for_network(clean_network)
     if token_symbol is None:
         return
     
-    # Проверяем, выбраны ли все токены или один токен
     if token_symbol == 'ALL_TOKENS':
         check_all_tokens_balances(rpc_urls_list, network_type, clean_network, token_data)
     else:
@@ -266,7 +271,6 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
     print(Fore.MAGENTA + "="*80)
     
-    # Загружаем данные
     wallets = load_wallets()
     proxies_list = load_proxies()
     
@@ -277,7 +281,6 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
     print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
     
-    # Переменные для прогресс бара
     total_wallets = len(wallets)
     completed_wallets = 0
     bar_length = 50
@@ -312,7 +315,6 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
                 
                 if success:
                     successful_count += 1
-                    # Подсчитываем количество токенов с балансом > 0
                     tokens_with_balance = sum(1 for balance in token_balances.values() if balance > 0)
                     status_info = f"Токенов с балансом: {tokens_with_balance}/{len(tokens_dict)}"
                 else:
@@ -349,7 +351,7 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
     
     print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results_all_tokens(results, tokens_dict)
+    save_results_all_tokens(results, tokens_dict, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
 
@@ -368,7 +370,6 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
     print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
     print(Fore.MAGENTA + "="*80)
     
-    # Загружаем данные
     wallets = load_wallets()
     proxies_list = load_proxies()
     
@@ -379,7 +380,6 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
     print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
     print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
     
-    # Переменные для прогресс бара
     total_wallets = len(wallets)
     completed_wallets = 0
     bar_length = 50
@@ -454,10 +454,6 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
     print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
     
     print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results(results, token_symbol)
+    save_results(results, token_symbol, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
-
-# if __name__ == "__main__":
-#     # Пример использования
-#     check_token_balances("somnia_testnet", "testnet")

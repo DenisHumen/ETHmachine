@@ -10,6 +10,7 @@ from itertools import cycle
 from colorama import Style
 import json
 import os
+from config.explorer_url import get_explorer_url
 
 
 def parse_percent_range(percent_str):
@@ -24,7 +25,7 @@ def parse_percent_range(percent_str):
         return 100, 100  
 
 def get_network_rpc(network):
-    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth, Abstract
+    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth_testnet, Abstract
     mainnet_rpc_urls = {
         '🚀 Ethereum Mainnet': L1,
         '🚀 Base': base,
@@ -44,7 +45,7 @@ def get_network_rpc(network):
         '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Sahara testnet': sahara_testnet,
         '🚀 Somnia Testnet': somnia_testnet,
-        '🚀 Mega ETH': mega_eth,
+        '🚀 Mega ETH': mega_eth_testnet,
     }
     if network in mainnet_rpc_urls:
         return random.choice(mainnet_rpc_urls[network])
@@ -118,8 +119,8 @@ def get_proxy_list():
                 line = line.strip()
                 if not line or line.lower().startswith("proxy"):
                     continue
-                if not line.startswith("http://"):
-                    line = "http://" + line
+                if line.startswith("http://"):
+                    line = line[7:]
                 proxies.append(line)
     except Exception as e:
         print(Fore.YELLOW + f"Не удалось загрузить прокси: {e}")
@@ -129,43 +130,44 @@ def get_proxy_list():
     return proxies
 
 def get_web3_with_proxy(rpc_url, proxy_url):
+    import requests
     from web3 import HTTPProvider
-
-    import os
-    os.environ["HTTP_PROXY"] = proxy_url
-    os.environ["HTTPS_PROXY"] = proxy_url
-
-    provider = HTTPProvider(rpc_url)
-    w3 = Web3(provider)
-    #w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    
+    session = None
     try:
+        session = requests.Session()
+        
+        if proxy_url:
+            if '@' in proxy_url:
+                auth_part, address_part = proxy_url.split('@')
+                login, password = auth_part.split(':')
+                ip, port = address_part.split(':')
+                proxy_dict = {
+                    'http': f"http://{login}:{password}@{ip}:{port}",
+                    'https': f"http://{login}:{password}@{ip}:{port}"
+                }
+            else:
+                proxy_dict = {
+                    'http': f"http://{proxy_url}",
+                    'https': f"http://{proxy_url}"
+                }
+            
+            session.proxies.update(proxy_dict)
+        
+        provider = HTTPProvider(rpc_url, session=session)
+        w3 = Web3(provider)
+        
         _ = w3.eth.chain_id
+        return w3, session
+        
     except Exception as e:
-        print(Fore.RED + f"ВНИМАНИЕ: Прокси не применился к web3 или RPC недоступен через этот прокси: {e}")
-    return w3
-
-def get_explorer_url(network):
-    explorers = {
-        '🚀 Ethereum Mainnet': "https://etherscan.io/tx/",
-        '🚀 Base': "https://basescan.org/tx/",
-        '🚀 Arbitrum One': "https://arbiscan.io/tx/",
-        '🚀 Optimism': "https://optimistic.etherscan.io/tx/",
-        '🚀 Soneium': "https://soneium.blockscout.com/tx/",
-        '🚀 Polygon': "https://polygonscan.com/tx/",
-        '🚀 Binance Smart Chain': "https://bscscan.com/tx/",
-        '🚀 Avalanche': "https://subnets.avax.network/p-chain/tx/",
-        '🚀 Fantom': "https://explorer.fantom.network/transactions/",
-        '🚀 Gravity Alpha Mainnet': "https://explorer.gravity.xyz/tx/",
-        '🚀 Zora': "https://explorer.zora.energy/tx/",
-        '🚀 Abstract': "https://explorer.testnet.abs.xyz/tx/",
-        '🚀 Sepolia': "https://sepolia.etherscan.io/tx/",
-        '🚀 Monad Testnet (native token MON)': "https://testnet.monvision.io/tx/",
-        '🚀 Sahara testnet': "https://testnet-explorer.saharalabs.ai/tx/",
-        '🚀 Somnia Testnet': "https://shannon-explorer.somnia.network/tx/",
-        '🚀 Mega ETH': "https://www.oklink.com/ru/megaeth-testnet/tx/",
-        '🚀 Pharos': "https://testnet.pharosscan.xyz/tx/",
-    }
-    return explorers.get(network, "https://www.megaexplorer.xyz/tx/")
+        print(Fore.RED + f"ВНИМАНИЕ: Ошибка подключения через прокси или RPC недоступен: {e}")
+        if session:
+            session.close()
+        # Возвращаем обычное соединение без прокси шоб хоть как-то работало
+        provider = HTTPProvider(rpc_url)
+        w3 = Web3(provider)
+        return w3, None
 
 def countdown_timer(seconds, message_prefix="Пауза"):
     for remaining in range(seconds, 0, -1):
@@ -226,6 +228,7 @@ def estimate_gas_with_margin_safe(w3, tx, max_attempts=TX_SEND_ATTEMPTS, sleep_s
     return int(21000 * 1.2)
 
 def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
+    session = None
     try:
         start_time = time.time()
         dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -247,8 +250,11 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
             return
 
         if use_proxy:
-            proxy_parts = use_proxy.split("@")
-            proxy_hidden = f"http://xxxx:xxx@{proxy_parts[-1].rsplit('.', 1)[0]}.x:{proxy_parts[-1].split(':')[-1]}"
+            if '@' in use_proxy:
+                proxy_parts = use_proxy.split("@")
+                proxy_hidden = f"xxxx:xxx@{proxy_parts[-1].rsplit('.', 1)[0]}.x:{proxy_parts[-1].split(':')[-1]}"
+            else:
+                proxy_hidden = f"{use_proxy.rsplit('.', 1)[0]}.x:{use_proxy.split(':')[-1]}"
         else:
             proxy_hidden = "Нет доступных прокси"
 
@@ -261,8 +267,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
         print(Fore.CYAN + f"  Процент:      {amount}%")
         print(Fore.CYAN + f"  Используется прокси: {proxy_hidden}")
         print(Fore.MAGENTA + "-"*61)
-
-        w3 = get_web3_with_proxy(rpc_url, use_proxy)
+        
+        w3, session = get_web3_with_proxy(rpc_url, use_proxy)
 
         explorer_url = get_explorer_url(network)
 
@@ -485,6 +491,10 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_priv, network,
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
         print(Fore.YELLOW + "Переход к следующей паре кошельков...")
+    finally:
+        if session:
+            session.close()
+
 
 def save_failed_wallet(row):
     progress_file = "db/transfer_progress.json"
@@ -602,46 +612,53 @@ def check_wallet_balances_for_loop(transfer_data, network, proxies):
     """
     Проверяет балансы кошельков для принятия решения о продолжении цикла
     """
-    try:
-        rpc_url = get_network_rpc(network)
-        proxy = random.choice(proxies) if proxies else None
-        w3 = get_web3_with_proxy(rpc_url, proxy) if proxy else Web3(Web3.HTTPProvider(rpc_url))
-        
-        # Генерируем случайные пороговые значения
-        min_from_balance = random.uniform(expected_balance_from_wallet[0], expected_balance_from_wallet[1])
-        max_to_balance = random.uniform(expected_balance_to_wallet[0], expected_balance_to_wallet[1])
-        
-        print(Fore.CYAN + f"Проверка балансов: минимальный from_wallet = {min_from_balance:.6f} ETH, максимальный to_wallet = {max_to_balance:.6f} ETH")
-        
-        valid_wallets = []
-        
-        for row in transfer_data:
-            try:
-                from_acc = Account.from_key(row['from_wallet'])
-                to_acc = Account.from_key(row['to_wallet'])
+    print(Fore.CYAN + "🔍 Проверка балансов кошельков...")
+    
+    # Генерируем случайные пороговые значения
+    min_from_balance = random.uniform(expected_balance_from_wallet[0], expected_balance_from_wallet[1])
+    max_to_balance = random.uniform(expected_balance_to_wallet[0], expected_balance_to_wallet[1])
+    
+    print(Fore.CYAN + f"Проверка балансов: минимальный from_wallet = {min_from_balance:.6f} ETH, максимальный to_wallet = {max_to_balance:.6f} ETH")
+    
+    valid_wallets = []
+    
+    for row in transfer_data:
+        session = None
+        w3 = None
+        try:
+            # Создаем новую сессию для каждого кошелька
+            rpc_url = get_network_rpc(network)
+            proxy = random.choice(proxies) if proxies else None
+            w3, session = get_web3_with_proxy(rpc_url, proxy)
+            
+            from_acc = Account.from_key(row['from_wallet'])
+            to_acc = Account.from_key(row['to_wallet'])
+            
+            from_balance = get_eth_balance_safe(w3, from_acc.address)
+            to_balance = get_eth_balance_safe(w3, to_acc.address)
+            
+            from_balance_eth = w3.from_wei(from_balance, 'ether')
+            to_balance_eth = w3.from_wei(to_balance, 'ether')
+            
+            # Проверяем условия
+            if from_balance_eth >= min_from_balance and to_balance_eth <= max_to_balance:
+                valid_wallets.append(row)
+                print(Fore.GREEN + f"✅  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f})")
+            else:
+                print(Fore.YELLOW + f"⏭️  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f}) - не подходит")
                 
-                from_balance = get_eth_balance_safe(w3, from_acc.address)
-                to_balance = get_eth_balance_safe(w3, to_acc.address)
-                
-                from_balance_eth = w3.from_wei(from_balance, 'ether')
-                to_balance_eth = w3.from_wei(to_balance, 'ether')
-                
-                # Проверяем условия
-                if from_balance_eth >= min_from_balance and to_balance_eth <= max_to_balance:
-                    valid_wallets.append(row)
-                    print(Fore.GREEN + f"✅  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f})")
-                else:
-                    print(Fore.YELLOW + f"⏭️  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f}) - не подходит")
-                    
-            except Exception as e:
-                print(Fore.RED + f"Ошибка проверки баланса кошелька: {e}")
-                continue
-        
-        return valid_wallets
-        
-    except Exception as e:
-        print(Fore.RED + f"Ошибка проверки балансов: {e}")
-        return []
+        except Exception as e:
+            print(Fore.RED + f"Ошибка проверки баланса кошелька: {e}")
+            continue
+        finally:
+            # Закрываем сессию для каждого коша после использования 
+            if session:
+                try:
+                    session.close()
+                except Exception as e:
+                    print(Fore.YELLOW + f"Ошибка закрытия сессии для кошелька: {e}")
+    
+    return valid_wallets
 
 def process_wallets_transfer_normal(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
     """

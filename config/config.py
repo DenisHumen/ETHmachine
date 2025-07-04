@@ -36,7 +36,7 @@ loop_transfer_enable = True  # Включить/выключить зацикл�
 loop_transfer_count = 100  # Количество повторений цикла отправки транзакций
 sleep_time_between_loops = [3600, 6000]  # Задержка между циклами loop_transfer_enable (в секундах)
 
-expected_balance_from_wallet = [0.5, 0.5]  # ожидаемый баланс для отправки транзакций из кошелька from_wallet
+expected_balance_from_wallet = [0.4, 0.4]  # ожидаемый баланс для отправки транзакций из кошелька from_wallet
 expected_balance_to_wallet = [1.2, 1.3]  # Баланс на конечно кошельке, при достжении которого, цикл остановится для одного коша (to_wallet)
 
 

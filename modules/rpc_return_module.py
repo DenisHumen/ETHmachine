@@ -3,7 +3,6 @@ from pathlib import Path
 from questionary import Choice, select
 from colorama import Fore
 
-# Добавляем корневую директорию проекта в sys.path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
@@ -49,7 +48,6 @@ def get_network_rpc_selection():
             '🚀 Pharos': pharos,
         }
     
-    # Выбор типа сети
     network_type = select(
         "Select network type:",
         choices=[
@@ -65,7 +63,6 @@ def get_network_rpc_selection():
         return None, None, None
 
     if network_type in ['mainnet', 'testnet']:
-        # Выбор конкретной сети
         network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
         network = select(
             "Which network do you want to use?",
@@ -77,11 +74,9 @@ def get_network_rpc_selection():
         if network == 'back':
             return None, None, None
 
-        # Получаем RPC URLs для выбранной сети
         rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
         selected_rpc_urls = rpc_urls[network]
         
-        # Удаляем префикс эмодзи из названия сети
         clean_network = network.replace('🚀 ', '')
         
         return selected_rpc_urls, network_type, clean_network
@@ -101,11 +96,8 @@ def get_token_selection_for_network(clean_network):
     try:
         import config.token_address_erc20 as token_addresses
         
-        # Получаем словарь токенов для указанной сети
-        # Преобразуем название сети в формат переменной (заменяем пробелы на подчеркивания и делаем lowercase)
         network_var_name = clean_network.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('native_token_mon', '')
         
-        # Список возможных вариантов названий переменных
         possible_names = [
             network_var_name,
             network_var_name.replace('testnet', '').strip('_'),
@@ -114,7 +106,6 @@ def get_token_selection_for_network(clean_network):
             network_var_name.replace('_mainnet', ''),
         ]
         
-        # Ищем подходящий словарь токенов
         network_tokens = None
         found_var_name = None
         
@@ -135,20 +126,16 @@ def get_token_selection_for_network(clean_network):
             print(Fore.YELLOW + f"💡 Добавьте токены в config/token_address_erc20.py -> {found_var_name}")
             return None, None
         
-        # Создаем список выборов токенов
         token_choices = []
         
-        # Добавляем опцию "Все токены"
         token_choices.append(Choice('🔍 Проверить ВСЕ токены сразу', 'ALL_TOKENS'))
         
-        # Добавляем токены без цветового оформления в Choice
         for symbol, address in network_tokens.items():
             display_text = f'🪙 {symbol.upper()} ({address[:10]}...{address[-6:]})'
             token_choices.append(Choice(display_text, symbol))
         
         token_choices.append(Choice('🔙 Back', 'back'))
         
-        # Выбор токена
         selected_token = select(
             f"Select token for {clean_network}:",
             choices=token_choices,
@@ -162,7 +149,6 @@ def get_token_selection_for_network(clean_network):
         if selected_token == 'ALL_TOKENS':
             return 'ALL_TOKENS', network_tokens
         
-        # Возвращаем символ токена и его адрес
         token_address = network_tokens[selected_token]
         return selected_token, token_address
         

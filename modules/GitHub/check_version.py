@@ -183,7 +183,8 @@ def check_version(repo_name: str):
     if answer == "yes":
         print("🆙 Running: git pull")
         os.system("git pull")
-        print("✅ Update complete. Please restart the script.")
+        print("✅ Update complete. Restarting the script...")
+        os.system("python main.py")
         exit(0)
     else:
         print("⚠️ Continuing without updating.")
