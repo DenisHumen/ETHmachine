@@ -247,7 +247,7 @@ def main_menu():
                         print(Fore.GREEN + f"\r{frame}", end='', flush=True)
                         time.sleep(0.1)
                     print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine! \n \t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen!\n\n")
-                    time.sleep(3)
+                    #time.sleep(3)
                     break
                 
                 case 'CEX_menu':
