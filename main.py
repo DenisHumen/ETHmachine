@@ -24,7 +24,7 @@ from config.config import (
 # Импорт функций из модулей
 from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
-from modules.get_token_wallet_balance_fast import check_token_balances
+from modules.get_token_wallet_balance_fast import check_token_balances_menu
 from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
@@ -162,55 +162,57 @@ def main_menu():
                             pointer='👉'
                         ).ask()
 
+                        animation = [
+                            "🕐",
+                            "🕑",
+                            "🕒",
+                            "🕓",
+                            "🕔",
+                            "🕕",
+                            "🕖",
+                            "🕗",
+                            "🕘",
+                            "🕙",
+                            "🕚",
+                            "🕛",
+                            "🕐",
+                            "🕑",
+                            "🕒",
+                            "🕓",
+                            "🕔",
+                            "🕕",
+                            "🕖",
+                            "🕗",
+                            "🕘",
+                            "🕙",
+                            "🕚",
+                            "🕛",
+                            "🕐",
+                            "🕑",
+                            "🕒",
+                            "🕓",
+                            "🕔",
+                            "🕕",
+                            "🕖",
+                            "🕗",
+                            "🕘",
+                            "🕙",
+                            "🕚",
+                            "🕛"
+                        ]
+
                         match action:
                             case 'pharos_stats':
 
-                                pharos_wallet_stats()
-                                # print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
-                                # print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
-                                # print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
-                                # animation = [
-                                #     "🕐",
-                                #     "🕑",
-                                #     "🕒",
-                                #     "🕓",
-                                #     "🕔",
-                                #     "🕕",
-                                #     "🕖",
-                                #     "🕗",
-                                #     "🕘",
-                                #     "🕙",
-                                #     "🕚",
-                                #     "🕛",
-                                #     "🕐",
-                                #     "🕑",
-                                #     "🕒",
-                                #     "🕓",
-                                #     "🕔",
-                                #     "🕕",
-                                #     "🕖",
-                                #     "🕗",
-                                #     "🕘",
-                                #     "🕙",
-                                #     "🕚",
-                                #     "🕛",
-                                #     "🕐",
-                                #     "🕑",
-                                #     "🕒",
-                                #     "🕓",
-                                #     "🕔",
-                                #     "🕕",
-                                #     "🕖",
-                                #     "🕗",
-                                #     "🕘",
-                                #     "🕙",
-                                #     "🕚",
-                                #     "🕛"
-                                # ]
-                                # for frame in animation:
-                                #     print(Fore.GREEN + f"\r{frame}", end='', flush=True)
-                                #     time.sleep(0.1)
-                                # print()
+                                #pharos_wallet_stats()
+                                print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
+                                print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
+                                print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
+
+                                for frame in animation:
+                                    print(Fore.GREEN + f"\r{frame}", end='', flush=True)
+                                    time.sleep(0.1)
+                                print()
                                 continue
                             
                             case 'monad':
@@ -223,10 +225,6 @@ def main_menu():
 
                             case 'back':
                                 break
-
-
-
-
 
                 case 'check_proxy':
                     print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
@@ -579,7 +577,6 @@ def main_menu():
                         menu_funcs[action](network, network_type)
 
                 case 'check_token_balances':
-                    from modules.get_token_wallet_balance_fast import check_token_balances_menu
                     check_token_balances_menu()
 
     except Exception as e:

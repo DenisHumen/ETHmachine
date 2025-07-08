@@ -7,7 +7,6 @@
 
 somnia_testnet = {
     'usdc': '0xE9CC37904875B459Fa5D0FE37680d36F1ED55e38',
-    'USD Coin (USDC)': '0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17',
     'Somnex USDT (USDT.x)': '0xA1F8bBf2c3d5e4C6a7D8E9F0a1B2C3D4E5F6G7H8',
     'Ginger Tether (USDT.g)': '0xDa4FDE38bE7a2b959BF46E032ECfA21e64019b76',
     'SomniaExchange (NIA)': '0xF2F773753cEbEFaF9b68b841d80C083b18C69311',
@@ -132,6 +131,14 @@ monad_testnet = {
     'BMONAD': '0x3552f8254263EA8880c7f7E25CB8dbBD79C0c4b1',
     'KEYS': '0x8A056dF4d7f23121a90aca1Ca1364063D43Ff3B8',
 }
+
+pharos_testnet = {
+    'USDC': '0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37',
+    'USDT': '0xd4071393f8716661958f766df660033b3d35fd29',
+    'WPHRS': '0x3019b247381c850ab53dc0ee53bce7a07ea9155f',
+    'WETH': '0x60184f3f218a28a56ba31cb09363732ef5ec26d6',
+}
+
 
 # Добавляйте новые сети здесь...
 # Пример для новой сети:

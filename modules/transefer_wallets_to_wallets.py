@@ -788,7 +788,12 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
         
         if not valid_wallets:
             local_sleep_time_between_loops = random.randint(sleep_time_between_loops[0], sleep_time_between_loops[1])
-            print(Fore.YELLOW + f"⏭️ Цикл {cycle}: Нет кошельков, подходящих под условия. Ждем {local_sleep_time_between_loops} секунд...")
+            completion_time = datetime.now() + timedelta(seconds=local_sleep_time_between_loops)
+            completion_time_str = completion_time.strftime("%d.%m.%Y в %H:%M:%S")
+            current_time_str = datetime.now().strftime("%d.%m.%Y в %H:%M:%S")
+            print(Fore.YELLOW + f"⏭️ Цикл {cycle}: Нет кошельков, подходящих под условия.")
+            print(Fore.YELLOW + f"⏰ Текущее время: {current_time_str}")
+            print(Fore.YELLOW + f"🔄 Следующий запуск: {completion_time_str} (через {local_sleep_time_between_loops} секунд)")
             time.sleep(local_sleep_time_between_loops)
             continue
         
