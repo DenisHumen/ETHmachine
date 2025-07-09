@@ -29,6 +29,8 @@ from modules.get_gas_price import get_gas_price
 from modules.sum_balances import sum_balances
 from modules.get_transaction_count import get_transaction_count
 
+from modules.faucets.somnia import run_somnia_faucet
+
 from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
 from modules.GitHub.check_version import check_version
 
@@ -125,19 +127,20 @@ def main_menu():
             action = select(
                 f"What do you want to do?",
                 choices=[
-                    Choice('💲 Check Balances | Проверить балансы', 'check_balances'),
-                    Choice('🔧 Check Token Balances | Проверить балансы токенов', 'check_token_balances'),
-                    Choice('📊 Check project stats | Проверка статистики по проектам', 'project_stats'),
-                    Choice('💰 Sum Balances | Суммировать балансы', 'sum_balances'),
-                    Choice('⛽ Check Gas Price | Проверить цену газа', 'check_gas_price'),
-                    Choice('🔢 Check Transaction Count | Количество транзакций в выбранной сети', 'check_transaction_count'),
-                    Choice('🪙  Generate Wallets | Генерация кошельков', 'generate_wallets'),
-                    Choice('🏦 CEX | Функционал CEX', 'CEX_menu'),
-                    Choice('🔄 Transfer Wallets to Wallets | Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
-                    Choice('🔑 ETH/SOL convert tool | Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
-                    Choice('🔍 Check Proxy | Проверить прокси', 'check_proxy'),
-                    Choice('🌐 Check All Balances Across Networks | Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
-                    Choice('❌ Exit | Выход', 'exit')
+                    Choice('💲 Check Balances 🌟 Проверить балансы', 'check_balances'),
+                    Choice('🔧 Check Token Balances 🌟 Проверить балансы токенов', 'check_token_balances'),
+                    Choice('🚰 Faucets 🌟 Краны', 'faucets'),
+                    Choice('📊 Check project stats 🌟 Проверка статистики по проектам', 'project_stats'),
+                    Choice('💰 Sum Balances 🌟 Суммировать балансы', 'sum_balances'),
+                    Choice('⛽ Check Gas Price 🌟 Проверить цену газа', 'check_gas_price'),
+                    Choice('🔢 Check Transaction Count 🌟 Количество транзакций в выбранной сети', 'check_transaction_count'),
+                    Choice('🪙  Generate Wallets 🌟 Генерация кошельков', 'generate_wallets'),
+                    Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
+                    Choice('🔄 Transfer Wallets to Wallets 🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
+                    Choice('🔑 ETH/SOL convert tool 🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                    Choice('🔍 Check Proxy 🌟 Проверить прокси', 'check_proxy'),
+                    Choice('🌐 Check All Balances Across Networks 🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
+                    Choice('❌ Exit 🌟 Выход', 'exit')
                 ],
                 qmark='🛠️',
                 pointer='👉'
@@ -147,6 +150,30 @@ def main_menu():
 
 
 
+                case 'faucets':
+                    while True:
+                        print(Fore.GREEN + "\n\tВНИМАНИЕ кран будет запрашивать или в кошельки по файлу 'data/walletss.txt' или 'data/private_keys.txt'!\n")
+                        print(Fore.GREEN + "\tВсе зависит от крана, если можно без использования приватника то там его не будет")
+                        print(Fore.GREEN + "\tПри запуске всегда будет говориться с каким файлом работает и проверять пуст ли файл\n")
+                        action = select(
+                            "Запрос крана:",
+                            choices=[
+                                Choice('💧 Somnia', 'Somnia_faucet'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+
+                        match action:
+                            case 'Somnia_faucet':
+                                run_somnia_faucet()
+                                #print(Fore.GREEN + "\n\tФункционал Somnia Faucets в разработке, скоро будет доступен!\n")
+                                #time.sleep(3)
+                                continue
+
+                            case 'back':
+                                break
 
                 case 'project_stats':
                     while True:
