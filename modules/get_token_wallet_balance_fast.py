@@ -331,13 +331,14 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
             finally:
                 completed_wallets += 1
                 progress = int((completed_wallets / total_wallets) * bar_length)
+                progress_percent = (completed_wallets / total_wallets) * 100
                 bar = "█" * progress + "░" * (bar_length - progress)
                 spinner_frame = next(spinner_cycle)
                 
                 remaining_wallets = total_wallets - completed_wallets
                 
                 print(
-                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} | "
+                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
                     f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
                     f"Осталось: {remaining_wallets} | {wallet_result[:10]}...{wallet_result[-6:]} | {status_info}{Style.RESET_ALL}",
                     end="",
@@ -434,13 +435,14 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
             finally:
                 completed_wallets += 1
                 progress = int((completed_wallets / total_wallets) * bar_length)
+                progress_percent = (completed_wallets / total_wallets) * 100
                 bar = "█" * progress + "░" * (bar_length - progress)
                 spinner_frame = next(spinner_cycle)
                 
                 remaining_wallets = total_wallets - completed_wallets
                 
                 print(
-                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} | "
+                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
                     f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
                     f"Осталось: {remaining_wallets} | {status_color}{status_icon} {wallet_result[:10]}...{wallet_result[-6:]} | {balance_info}{Style.RESET_ALL}",
                     end="",
