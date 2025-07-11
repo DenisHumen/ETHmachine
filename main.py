@@ -26,8 +26,6 @@ from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_token_wallet_balance_fast import check_token_balances_menu
 from modules.get_gas_price import get_gas_price
-from modules.sum_balances import sum_balances
-from modules.get_transaction_count import get_transaction_count
 
 from modules.faucets.somnia import run_somnia_faucet
 
@@ -76,8 +74,7 @@ testnet_rpc_urls = {
     '🚀 Camp Testnet': camp_testnet,
 }
 
-# менюшку позимствовал у askaer, покупайте его скрипты :)
-# позже шайтан код переделайю на case вместо if-elif, а то пиздец
+
 
 def check_and_create_files():
     required_files = [
@@ -130,16 +127,14 @@ def main_menu():
                     Choice('💲 Check Balances 🌟 Проверить балансы', 'check_balances'),
                     Choice('🔧 Check Token Balances 🌟 Проверить балансы токенов', 'check_token_balances'),
                     Choice('🚰 Faucets 🌟 Краны', 'faucets'),
-                    Choice('📊 Check project stats 🌟 Проверка статистики по проектам', 'project_stats'),
-                    Choice('💰 Sum Balances 🌟 Суммировать балансы', 'sum_balances'),
+                    #Choice('📊 Check project stats 🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price 🌟 Проверить цену газа', 'check_gas_price'),
-                    Choice('🔢 Check Transaction Count 🌟 Количество транзакций в выбранной сети', 'check_transaction_count'),
                     Choice('🪙  Generate Wallets 🌟 Генерация кошельков', 'generate_wallets'),
-                    Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
+                    #Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets 🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     Choice('🔑 ETH/SOL convert tool 🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🔍 Check Proxy 🌟 Проверить прокси', 'check_proxy'),
-                    Choice('🌐 Check All Balances Across Networks 🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
+                    #Choice('🌐 Check All Balances Across Networks 🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
                     Choice('❌ Exit 🌟 Выход', 'exit')
                 ],
                 qmark='🛠️',
@@ -311,7 +306,7 @@ def main_menu():
                                 case 'back':
                                     continue
                                 case 'SOL':
-                                    print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!\n")
+                                    #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!\n")
                                     sol_process_mnemonics()
                                     time.sleep(2)
                                     continue
@@ -446,22 +441,6 @@ def main_menu():
                             continue
                     #continue
 
-                case 'sum_balances':
-                    print(Fore.GREEN + "Summing balances from result/result.csv...")
-                    try:
-                        with open('result/result.csv', 'r', encoding='utf-8') as csvfile:
-                            reader = csv.reader(csvfile)
-                            data = list(reader)
-                            if len(data) <= 1:
-                                print(Fore.RED + "Error: result/result.csv is empty. Please run balance check first.")
-                            else:
-                                sum_balances('result/result.csv')
-                    except FileNotFoundError:
-                        print(Fore.RED + "Error: result/result.csv not found. Please run balance check first.")
-                    except Exception as e:
-                        print(Fore.RED + f"Error: {e}")
-                    continue
-
                 case 'check_all_balances': 
                     print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
                     time.sleep(3)
@@ -570,11 +549,10 @@ def main_menu():
                 case'back':
                     continue
 
-                case 'check_balances' | 'check_gas_price' | 'check_transaction_count':
+                case 'check_balances' | 'check_gas_price':
                     menu_funcs = {
                         'check_balances': check_balances_menu,
                         'check_gas_price': check_gas_price_menu,
-                        'check_transaction_count': check_transaction_count_menu
                     }
                     network_type = select(
                         "Select network type:",
@@ -737,93 +715,6 @@ def check_gas_price_menu(network, network_type):
             print(Fore.GREEN + f"\n\n\n⛽ Current gas price on {network}: {gas_price} Gwei\n")
         else:
             print(Fore.RED + f"\n\n\n❌ Failed to retrieve gas price for {network}.\n")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def check_transaction_count_menu(network, network_type):
-    try:
-        mode = select(
-            "Select mode:",
-            choices=[
-                Choice('🚀 Fast (requires proxies)', 'fast'),
-                Choice('🐢 Slow (no proxies)', 'slow')
-            ],
-            qmark='🛠️',
-            pointer='👉'
-        ).ask()
-
-        with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-            wallet_addresses = file.readlines()
-
-        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
-
-        if mode == 'fast':
-            check_transaction_count_fast(wallet_addresses, network, random.choice(rpc_urls[network]))
-        else:
-            check_transaction_count_slow(wallet_addresses, network, random.choice(rpc_urls[network]))
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def check_transaction_count_fast(wallet_addresses, network, rpc_url):
-    try:
-        with open('data/proxy.csv', 'r', encoding='utf-8') as file:
-            proxies = file.readlines()[1:]
-
-        if len(proxies) == 0:
-            print(Fore.RED + "ERROR: No proxies found in data/proxy.csv")
-            return
-        elif len(proxies) < len(wallet_addresses):
-            print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")
-        else:
-            print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
-
-        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
-
-        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            with logging_redirect_tqdm():
-                future_to_address = {executor.submit(get_with_retry, get_transaction_count, addr.strip(), rpc_url, [format_proxy(proxy) for proxy in proxies.copy()]): addr for addr in wallet_addresses}
-                for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking transaction counts", unit="wallet", colour="green"):
-                    address = future_to_address[future]
-                    try:
-                        count = future.result()
-                        results[address.strip()] = count if count is not None else 'N/A'
-                    except Exception as e:
-                        tqdm.write(Fore.RED + f"Error checking transaction count for {address.strip()}: {e}")
-                        tqdm.set_description("Error occurred", refresh=True)
-                        tqdm.colour = "red"
-                        input(Fore.RED + "Press Enter to continue...")
-                        return
-
-        with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['address', 'transaction_count', 'network']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for address in wallet_addresses:
-                writer.writerow({'address': address.strip(), 'transaction_count': results[address.strip()], 'network': network})
-
-        print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in result/transaction_count_result.csv for {network} network\n")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def check_transaction_count_slow(wallet_addresses, network, rpc_url):
-    try:
-        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
-
-        with open('result/transaction_count_result.csv', 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['address', 'transaction_count', 'network']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for address in tqdm(wallet_addresses, desc="Checking transaction counts", unit="wallet"):
-                address = address.strip()
-                count = get_transaction_count(address, rpc_url)
-                time.sleep(1)
-                results[address] = count
-
-            for address in wallet_addresses:
-                writer.writerow({'address': address.strip(), 'transaction_count': results[address.strip()], 'network': network})
-
-        print(Fore.GREEN + f"\n\n\nTransaction counts checked and saved in result/transaction_count_result.csv for {network} network\n")
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 

@@ -23,6 +23,12 @@ try:
 except ImportError:
     ENABLE_CHECK_BALANCE = True  # Значение по умолчанию
 
+# Импорт настройки задержки между проверками баланса
+try:
+    from config.config import SLEEP_BETWEEN_CHECK_BALANCE
+except ImportError:
+    SLEEP_BETWEEN_CHECK_BALANCE = [1, 3]  # Значение по умолчанию
+
 # Импорт настройки задержки между циклами
 try:
     from config.config import DELAY_FOR_READY_WALLETS_somnia
@@ -94,7 +100,7 @@ class SomniaFaucet:
             # Используем точную логику обработки ответа из рабочего кода
             success = response.json()['success']
             if success:
-                return True, "Успешно получены токены из крана"
+                return True, "Успешно запрошены токены из крана"
             else:
                 error_msg = response.json().get("error", "Неизвестная ошибка")
                 
@@ -271,19 +277,20 @@ def get_balance(wallet_address, wallet_index):
 
 def check_balances_for_ready_wallets(ready_wallets, log):
     """Проверяет балансы только для кошельков, готовых к обработке"""
-    if not ENABLE_CHECK_BALANCE:  # Проверяем переключатель
+    # Если мультипоточность выключена, проверка балансов не нужна
+    if not IGNORE_TIME_SLEEP_BETWEEN_ACTIONS:
         return {}
         
-    if not log:  # Если файл пуст, не проверяем балансы
+    # Проверяем переключатель проверки баланса
+    if not ENABLE_CHECK_BALANCE:
         return {}
     
     balances_before = {}
     wallets_to_check = []
     
-    # Определяем какие кошельки нужно проверить
+    # Определяем какие кошельки нужно проверить - ВСЕ готовые кошельки
     for wallet, proxy in ready_wallets:
-        if wallet in log:  # Только если кошелек есть в логе
-            wallets_to_check.append(wallet)
+        wallets_to_check.append(wallet)
     
     if not wallets_to_check:
         return {}
@@ -309,16 +316,35 @@ def check_balances_for_ready_wallets(ready_wallets, log):
 
 def check_balances_after_processing_ready_wallets(processed_wallets, log, balances_before):
     """Проверяет балансы после обработки только для обработанных кошельков и обновляет статусы"""
-    if not ENABLE_CHECK_BALANCE:  # Проверяем переключатель
+    # Если мультипоточность выключена, проверка балансов не нужна
+    if not IGNORE_TIME_SLEEP_BETWEEN_ACTIONS:
         return
         
-    if not balances_before or not processed_wallets:  # Если не было начальных балансов или обработанных кошельков, не проверяем
+    # Проверяем переключатель проверки баланса
+    if not ENABLE_CHECK_BALANCE:
+        return
+        
+    if not processed_wallets:  # Если нет обработанных кошельков, не проверяем
         return
     
-    # Фильтруем только те кошельки, которые были реально обработаны
-    wallets_to_check = [wallet for wallet in processed_wallets if wallet in balances_before]
+    # Фильтруем кошельки - проверяем балансы только для тех, где был успешный запрос крана
+    # Исключаем кошельки с "уже запрошен" или "Bot detected"
+    wallets_to_check = []
+    for wallet in processed_wallets:
+        if wallet in log:
+            # Пропускаем кошельки с особыми статусами
+            if log[wallet].get('status') == 'не_подходит_под_кран':
+                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - пропускаем проверку баланса (Bot detected){Style.RESET_ALL}")
+                continue
+            
+            # Проверяем последнее сообщение через лог - если это "уже запрошен", пропускаем
+            # Этот кошелек уже обработан и помечен как успешный, но кран уже был запрошен
+            # Можем добавить дополнительную проверку через переменную success_message если нужно
+            
+        wallets_to_check.append(wallet)
     
     if not wallets_to_check:
+        print(f"{Fore.YELLOW}[BALANCE] Нет кошельков для проверки баланса (все пропущены){Style.RESET_ALL}")
         return
     
     print(f"{Fore.CYAN}🔍 Проверка балансов после запроса крана ({len(wallets_to_check)} кошельков)...{Style.RESET_ALL}")
@@ -331,25 +357,45 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
             wallet_index = all_wallets.index(wallet)
             balance_after = get_balance(wallet, wallet_index)
             if balance_after is None:
+                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не удалось получить баланс после запроса{Style.RESET_ALL}")
                 continue
                 
-            balance_before = balances_before[wallet]
-            balance_diff = balance_after - balance_before
-            
-            print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
-            
-            # Проверяем изменение баланса
-            if wallet in log:
-                if abs(balance_diff) < 0.0001 and balance_before >= 0.5:  # Баланс не изменился и был >= 0.5
-                    log[wallet]['status'] = '⚠️'  # Желтый восклицательный знак
-                    print(f"{Fore.YELLOW}[STATUS] {wallet[:10]}... - баланс не изменился, отмечаем статусом ⚠️{Style.RESET_ALL}")
-                elif balance_diff > 0.0001:  # Баланс увеличился
-                    log[wallet]['status'] = '✅'  # Зеленый статус
-                    print(f"{Fore.GREEN}[STATUS] {wallet[:10]}... - баланс увеличился, отмечаем статусом ✅{Style.RESET_ALL}")
-                else:
-                    # Оставляем предыдущий статус если баланс был < 0.5 или незначительно изменился
-                    if 'status' not in log[wallet]:
-                        log[wallet]['status'] = ''
+            # Проверяем изменение баланса если есть начальный баланс
+            if wallet in balances_before:
+                balance_before = balances_before[wallet]
+                balance_diff = balance_after - balance_before
+                print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
+                
+                # Проверяем изменение баланса для статуса
+                if wallet in log:
+                    if balance_diff > 0.0001:  # Баланс увеличился - успех
+                        log[wallet]['status'] = '✅'  # Зеленый статус
+                        print(f"{Fore.GREEN}[STATUS] {wallet[:10]}... - баланс увеличился, отмечаем статусом ✅{Style.RESET_ALL}")
+                    elif abs(balance_diff) < 0.0001:  # Баланс не изменился
+                        current_status = log[wallet].get('status', '')
+                        
+                        # Система накопления предупреждений
+                        if current_status == '':
+                            new_status = '⚠️'
+                        elif current_status == '⚠️':
+                            new_status = '⚠️⚠️'
+                        elif current_status == '⚠️⚠️':
+                            new_status = '⚠️⚠️⚠️'
+                        elif current_status == '⚠️⚠️⚠️':
+                            new_status = '❌'  # Красный крест после трех предупреждений
+                        else:
+                            new_status = '⚠️'  # Начинаем заново если статус был другим
+                        
+                        log[wallet]['status'] = new_status
+                        print(f"{Fore.YELLOW}[STATUS] {wallet[:10]}... - баланс не изменился, статус: {new_status}{Style.RESET_ALL}")
+                    else:
+                        # Оставляем предыдущий статус для незначительных изменений
+                        if 'status' not in log[wallet]:
+                            log[wallet]['status'] = ''
+            else:
+                # Если нет начального баланса, просто показываем текущий
+                print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (нет данных о начальном балансе){Style.RESET_ALL}")
+                
         except ValueError:
             print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
 
@@ -503,6 +549,9 @@ def check_and_process_expired_wallets():
     failed_count = 0  # Счетчик неудачных попыток
     skipped_count = 0  # Счетчик пропущенных кошельков
     
+    # Собираем кошельки для проверки баланса со всех пакетов
+    all_successful_wallets_for_balance_check = []
+    
     # СОСТАВЛЯЕМ ПОЛНЫЙ ПЛАН: проходим ВСЕ кошельки в файле
     ready_wallets = []
     for i, wallet in enumerate(wallets):
@@ -549,7 +598,9 @@ def check_and_process_expired_wallets():
                 future = executor.submit(process_wallet_task, wallet, proxy, faucet, log, log_file, reserve_proxies)
                 futures.append((future, wallet, proxy))
             
-            # Собираем результаты
+            # Собираем результаты ЭТОГО пакета
+            batch_successful_wallets_for_balance_check = []  # Кошельки для проверки баланса из этого пакета
+            
             for future, wallet, proxy in futures:
                 try:
                     wallet_result, success, message = future.result(timeout=120)
@@ -564,6 +615,11 @@ def check_and_process_expired_wallets():
                     if success:
                         processed_count += 1
                         processed_wallets.append(wallet)  # Добавляем в список обработанных
+                        
+                        # Проверяем, нужно ли добавить кошелек для проверки баланса
+                        if "Кран уже запрошен" not in message and "Bot detected" not in message:
+                            batch_successful_wallets_for_balance_check.append(wallet)
+                        
                         print(f"{Fore.GREEN}[ВЫПОЛНЕНИЕ] ✅ {wallet[:10]}... | Прокси: {proxy_display} - {message}{Style.RESET_ALL}")
                     else:
                         failed_count += 1
@@ -589,6 +645,9 @@ def check_and_process_expired_wallets():
                     
                     proxy_display = f"xxx:xxx@{proxy.split('@')[-1]}" if '@' in proxy else f"{proxy.rsplit('.', 1)[0]}.xxx:{proxy.split(':')[-1]}"
                     print(f"{Fore.RED}[ВЫПОЛНЕНИЕ] ❌ {wallet[:10]}... | Прокси: {proxy_display} | Исключение: {error_msg}{Style.RESET_ALL}")
+            
+            # Добавляем кошельки этого пакета к общему списку
+            all_successful_wallets_for_balance_check.extend(batch_successful_wallets_for_balance_check)
         
         # Задержка между пакетами (если не последний пакет)
         if batch_end < len(ready_wallets):
@@ -596,10 +655,20 @@ def check_and_process_expired_wallets():
             print(f"{Fore.BLUE}⏸️ Пауза между пакетами {delay:.1f}с... (следующий пакет {current_batch_num + 1}/{total_batches}){Style.RESET_ALL}")
             time.sleep(delay)
     
-    # После обработки всех кошельков проверяем балансы только для обработанных
-    if processed_count > 0:  # Только если были обработанные кошельки
-        check_balances_after_processing_ready_wallets(processed_wallets, log, balances_before)
+    # После обработки всех кошельков проверяем балансы для ВСЕХ кошельков с реальным запросом крана
+    if len(all_successful_wallets_for_balance_check) > 0:  # Только если были кошельки с реальным запросом крана
+        # Добавляем задержку перед проверкой балансов (только если мультипоточность И проверка балансов включены)
+        if IGNORE_TIME_SLEEP_BETWEEN_ACTIONS and ENABLE_CHECK_BALANCE:
+            delay = random.uniform(SLEEP_BETWEEN_CHECK_BALANCE[0], SLEEP_BETWEEN_CHECK_BALANCE[1])
+            print(f"{Fore.BLUE}⏳ Ожидание {delay:.1f}с перед проверкой балансов после запроса крана...{Style.RESET_ALL}")
+            time.sleep(delay)
+        
+        # Передаем ВСЕ кошельки с реальным запросом крана для проверки баланса
+        check_balances_after_processing_ready_wallets(all_successful_wallets_for_balance_check, log, balances_before)
         write_log(log_file, log)  # Сохраняем обновленные статусы
+    elif processed_count > 0:
+        print(f"{Fore.YELLOW}[BALANCE] Пропускаем проверку балансов - все запросы были 'уже запрошен' или 'Bot detected'{Style.RESET_ALL}")
+        write_log(log_file, log)  # Сохраняем лог без проверки балансов
     
     # Выводим детальную статистику выполнения плана
     total_planned = len(ready_wallets)
@@ -752,6 +821,10 @@ def run_somnia_faucet():
         print(Fore.RED + "❌ Нет прокси для работы!")
         return
     
+    # Определяем основные и резервные прокси
+    main_proxies = proxies[:len(wallets)]
+    reserve_proxies = proxies[len(wallets):] if len(proxies) > len(wallets) else []
+    
     # Отображаем информацию о распределении прокси с логом
     display_proxy_distribution_info(len(wallets), len(proxies), log)
     
@@ -790,10 +863,6 @@ def run_somnia_faucet():
     else:
         print(Fore.CYAN + f"⏳ Режим с задержками: {SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]}с между кошельками")
     print(Fore.MAGENTA + "="*80)
-    
-    # Определяем основные и резервные прокси
-    main_proxies = proxies[:len(wallets)]
-    reserve_proxies = proxies[len(wallets):] if len(proxies) > len(wallets) else []
     
     faucet = SomniaFaucet()
     total_wallets = len(tasks)
