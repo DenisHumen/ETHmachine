@@ -79,7 +79,6 @@ testnet_rpc_urls = {
 def check_and_create_files():
     required_files = [
         'result/result.csv',
-        'result/transaction_count_result.csv',
         'data/proxy.csv',
         'data/walletss.txt',
         'data/cex_settings.py',

@@ -364,13 +364,12 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
             if wallet in balances_before:
                 balance_before = balances_before[wallet]
                 balance_diff = balance_after - balance_before
-                print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
                 
                 # Проверяем изменение баланса для статуса
                 if wallet in log:
                     if balance_diff > 0.0001:  # Баланс увеличился - успех
                         log[wallet]['status'] = '✅'  # Зеленый статус
-                        print(f"{Fore.GREEN}[STATUS] {wallet[:10]}... - баланс увеличился, отмечаем статусом ✅{Style.RESET_ALL}")
+                        print(f"{Fore.GREEN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: ✅{Style.RESET_ALL}")
                     elif abs(balance_diff) < 0.0001:  # Баланс не изменился
                         current_status = log[wallet].get('status', '')
                         
@@ -387,11 +386,12 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
                             new_status = '⚠️'  # Начинаем заново если статус был другим
                         
                         log[wallet]['status'] = new_status
-                        print(f"{Fore.YELLOW}[STATUS] {wallet[:10]}... - баланс не изменился, статус: {new_status}{Style.RESET_ALL}")
+                        print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: {new_status}{Style.RESET_ALL}")
                     else:
                         # Оставляем предыдущий статус для незначительных изменений
                         if 'status' not in log[wallet]:
                             log[wallet]['status'] = ''
+                        print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
             else:
                 # Если нет начального баланса, просто показываем текущий
                 print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (нет данных о начальном балансе){Style.RESET_ALL}")
