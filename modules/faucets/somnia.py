@@ -318,14 +318,14 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
     """Проверяет балансы после обработки только для обработанных кошельков и обновляет статусы"""
     # Если мультипоточность выключена, проверка балансов не нужна
     if not IGNORE_TIME_SLEEP_BETWEEN_ACTIONS:
-        return
+        return 0, 0
         
     # Проверяем переключатель проверки баланса
     if not ENABLE_CHECK_BALANCE:
-        return
+        return 0, 0
         
     if not processed_wallets:  # Если нет обработанных кошельков, не проверяем
-        return
+        return 0, 0
     
     # Фильтруем кошельки - проверяем балансы только для тех, где был успешный запрос крана
     # Исключаем кошельки с "уже запрошен" или "Bot detected"
@@ -345,9 +345,13 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
     
     if not wallets_to_check:
         print(f"{Fore.YELLOW}[BALANCE] Нет кошельков для проверки баланса (все пропущены){Style.RESET_ALL}")
-        return
+        return 0, 0
     
     print(f"{Fore.CYAN}🔍 Проверка балансов после запроса крана ({len(wallets_to_check)} кошельков)...{Style.RESET_ALL}")
+    
+    # Счетчики для статистики
+    tokens_received = 0
+    tokens_not_received = 0
     
     # Получаем индексы кошельков для RPC
     all_wallets = load_wallets()
@@ -369,6 +373,7 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
                 if wallet in log:
                     if balance_diff > 0.0001:  # Баланс увеличился - успех
                         log[wallet]['status'] = '✅'  # Зеленый статус
+                        tokens_received += 1
                         print(f"{Fore.GREEN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: ✅{Style.RESET_ALL}")
                     elif abs(balance_diff) < 0.0001:  # Баланс не изменился
                         current_status = log[wallet].get('status', '')
@@ -386,6 +391,7 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
                             new_status = '⚠️'  # Начинаем заново если статус был другим
                         
                         log[wallet]['status'] = new_status
+                        tokens_not_received += 1
                         print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: {new_status}{Style.RESET_ALL}")
                     else:
                         # Оставляем предыдущий статус для незначительных изменений
@@ -398,6 +404,8 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
                 
         except ValueError:
             print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
+    
+    return tokens_received, tokens_not_received
 
 def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=None):
     """Обрабатывает один кошелек"""
@@ -552,6 +560,10 @@ def check_and_process_expired_wallets():
     # Собираем кошельки для проверки баланса со всех пакетов
     all_successful_wallets_for_balance_check = []
     
+    # Переменные для подсчета результатов проверки балансов
+    tokens_received_count = 0
+    tokens_not_received_count = 0
+    
     # СОСТАВЛЯЕМ ПОЛНЫЙ ПЛАН: проходим ВСЕ кошельки в файле
     ready_wallets = []
     for i, wallet in enumerate(wallets):
@@ -664,7 +676,7 @@ def check_and_process_expired_wallets():
             time.sleep(delay)
         
         # Передаем ВСЕ кошельки с реальным запросом крана для проверки баланса
-        check_balances_after_processing_ready_wallets(all_successful_wallets_for_balance_check, log, balances_before)
+        tokens_received_count, tokens_not_received_count = check_balances_after_processing_ready_wallets(all_successful_wallets_for_balance_check, log, balances_before)
         write_log(log_file, log)  # Сохраняем обновленные статусы
     elif processed_count > 0:
         print(f"{Fore.YELLOW}[BALANCE] Пропускаем проверку балансов - все запросы были 'уже запрошен' или 'Bot detected'{Style.RESET_ALL}")
@@ -674,7 +686,14 @@ def check_and_process_expired_wallets():
     total_planned = len(ready_wallets)
     success_rate = (processed_count / total_planned * 100) if total_planned > 0 else 0
     
-    print(f"{Fore.GREEN}🏁 ИТОГ: {processed_count}✅ {failed_count}❌ из {total_planned} ({success_rate:.1f}% успех){Style.RESET_ALL}")
+    # Формируем итоговый отчет
+    balance_info = ""
+    if tokens_received_count > 0 or tokens_not_received_count > 0:
+        total_checked = tokens_received_count + tokens_not_received_count
+        tokens_rate = (tokens_received_count / total_checked * 100) if total_checked > 0 else 0
+        balance_info = f" | 💰 {tokens_received_count}✅ {tokens_not_received_count}⚠️ токенов ({tokens_rate:.1f}%)"
+    
+    print(f"{Fore.GREEN}🏁 ИТОГ: {processed_count}✅ {failed_count}❌ из {total_planned} ({success_rate:.1f}% успех){balance_info}{Style.RESET_ALL}")
     
     return processed_count
 
