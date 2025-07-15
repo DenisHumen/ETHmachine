@@ -300,17 +300,29 @@ def check_balances_for_ready_wallets(ready_wallets, log):
     # Получаем индексы кошельков для RPC
     all_wallets = load_wallets()
     
-    for wallet in wallets_to_check:
-        try:
-            wallet_index = all_wallets.index(wallet)
-            balance = get_balance(wallet, wallet_index)
-            if balance is not None:
-                balances_before[wallet] = balance
-                print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance:.6f} STT{Style.RESET_ALL}")
-            else:
-                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не удалось получить баланс{Style.RESET_ALL}")
-        except ValueError:
-            print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
+    # Многопоточная проверка балансов
+    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        futures = {}
+        for wallet in wallets_to_check:
+            try:
+                wallet_index = all_wallets.index(wallet)
+                future = executor.submit(get_balance, wallet, wallet_index)
+                futures[future] = wallet
+            except ValueError:
+                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
+        
+        # Собираем результаты
+        for future in as_completed(futures):
+            wallet = futures[future]
+            try:
+                balance = future.result()
+                if balance is not None:
+                    balances_before[wallet] = balance
+                    print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance:.6f} STT{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не удалось получить баланс{Style.RESET_ALL}")
+            except Exception as e:
+                print(f"{Fore.RED}[BALANCE] {wallet[:10]}... - ошибка: {e}{Style.RESET_ALL}")
     
     return balances_before
 
@@ -336,11 +348,6 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
             if log[wallet].get('status') == 'не_подходит_под_кран':
                 print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - пропускаем проверку баланса (Bot detected){Style.RESET_ALL}")
                 continue
-            
-            # Проверяем последнее сообщение через лог - если это "уже запрошен", пропускаем
-            # Этот кошелек уже обработан и помечен как успешный, но кран уже был запрошен
-            # Можем добавить дополнительную проверку через переменную success_message если нужно
-            
         wallets_to_check.append(wallet)
     
     if not wallets_to_check:
@@ -356,54 +363,66 @@ def check_balances_after_processing_ready_wallets(processed_wallets, log, balanc
     # Получаем индексы кошельков для RPC
     all_wallets = load_wallets()
     
-    for wallet in wallets_to_check:
-        try:
-            wallet_index = all_wallets.index(wallet)
-            balance_after = get_balance(wallet, wallet_index)
-            if balance_after is None:
-                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не удалось получить баланс после запроса{Style.RESET_ALL}")
-                continue
-                
-            # Проверяем изменение баланса если есть начальный баланс
-            if wallet in balances_before:
-                balance_before = balances_before[wallet]
-                balance_diff = balance_after - balance_before
-                
-                # Проверяем изменение баланса для статуса
-                if wallet in log:
-                    if balance_diff > 0.0001:  # Баланс увеличился - успех
-                        log[wallet]['status'] = '✅'  # Зеленый статус
-                        tokens_received += 1
-                        print(f"{Fore.GREEN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: ✅{Style.RESET_ALL}")
-                    elif abs(balance_diff) < 0.0001:  # Баланс не изменился
-                        current_status = log[wallet].get('status', '')
-                        
-                        # Система накопления предупреждений
-                        if current_status == '':
-                            new_status = '⚠️'
-                        elif current_status == '⚠️':
-                            new_status = '⚠️⚠️'
-                        elif current_status == '⚠️⚠️':
-                            new_status = '⚠️⚠️⚠️'
-                        elif current_status == '⚠️⚠️⚠️':
-                            new_status = '❌'  # Красный крест после трех предупреждений
+    # Многопоточная проверка балансов после обработки
+    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        futures = {}
+        for wallet in wallets_to_check:
+            try:
+                wallet_index = all_wallets.index(wallet)
+                future = executor.submit(get_balance, wallet, wallet_index)
+                futures[future] = wallet
+            except ValueError:
+                print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
+        
+        # Собираем результаты
+        for future in as_completed(futures):
+            wallet = futures[future]
+            try:
+                balance_after = future.result()
+                if balance_after is None:
+                    print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не удалось получить баланс после запроса{Style.RESET_ALL}")
+                    continue
+                    
+                # Проверяем изменение баланса если есть начальный баланс
+                if wallet in balances_before:
+                    balance_before = balances_before[wallet]
+                    balance_diff = balance_after - balance_before
+                    
+                    # Проверяем изменение баланса для статуса
+                    if wallet in log:
+                        if balance_diff > 0.0001:  # Баланс увеличился - успех
+                            log[wallet]['status'] = '✅'  # Зеленый статус
+                            tokens_received += 1
+                            print(f"{Fore.GREEN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: ✅{Style.RESET_ALL}")
+                        elif abs(balance_diff) < 0.0001:  # Баланс не изменился
+                            current_status = log[wallet].get('status', '')
+                            
+                            # Система накопления предупреждений
+                            if current_status == '':
+                                new_status = '⚠️'
+                            elif current_status == '⚠️':
+                                new_status = '⚠️⚠️'
+                            elif current_status == '⚠️⚠️':
+                                new_status = '⚠️⚠️⚠️'
+                            elif current_status == '⚠️⚠️⚠️':
+                                new_status = '❌'  # Красный крест после трех предупреждений
+                            else:
+                                new_status = '⚠️'  # Начинаем заново если статус был другим
+                            
+                            log[wallet]['status'] = new_status
+                            tokens_not_received += 1
+                            print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: {new_status}{Style.RESET_ALL}")
                         else:
-                            new_status = '⚠️'  # Начинаем заново если статус был другим
-                        
-                        log[wallet]['status'] = new_status
-                        tokens_not_received += 1
-                        print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}) - статус: {new_status}{Style.RESET_ALL}")
-                    else:
-                        # Оставляем предыдущий статус для незначительных изменений
-                        if 'status' not in log[wallet]:
-                            log[wallet]['status'] = ''
-                        print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
-            else:
-                # Если нет начального баланса, просто показываем текущий
-                print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (нет данных о начальном балансе){Style.RESET_ALL}")
-                
-        except ValueError:
-            print(f"{Fore.YELLOW}[BALANCE] {wallet[:10]}... - не найден в списке кошельков{Style.RESET_ALL}")
+                            # Оставляем предыдущий статус для незначительных изменений
+                            if 'status' not in log[wallet]:
+                                log[wallet]['status'] = ''
+                            print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (изменение: {balance_diff:+.6f}){Style.RESET_ALL}")
+                else:
+                    # Если нет начального баланса, просто показываем текущий
+                    print(f"{Fore.CYAN}[BALANCE] {wallet[:10]}... = {balance_after:.6f} ETH (нет данных о начальном балансе){Style.RESET_ALL}")
+                    
+            except Exception as e:
+                print(f"{Fore.RED}[BALANCE] {wallet[:10]}... - ошибка получения баланса: {e}{Style.RESET_ALL}")
     
     return tokens_received, tokens_not_received
 
@@ -421,16 +440,24 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
         # УБИРАЕМ ПРОВЕРКУ ВРЕМЕНИ - кошелек уже отфильтрован как готовый
         # Если кошелек попал в обработку, значит он готов по времени
         
-        # Список прокси для попыток (основной + резервные)
-        proxies_to_try = [proxy]
+        # Список прокси для попыток (основной + случайные резервные)
+        proxies_to_try = [proxy]  # Начинаем с основного прокси
         if reserve_proxies and len(reserve_proxies) > 0:
-            # Добавляем случайные резервные прокси для попыток
-            random_reserves = random.sample(reserve_proxies, min(RETRY_COUNT, len(reserve_proxies)))
+            # Добавляем случайные резервные прокси из диапазона резервных
+            num_reserves_to_use = min(RETRY_COUNT, len(reserve_proxies))
+            random_reserves = random.sample(reserve_proxies, num_reserves_to_use)
             proxies_to_try.extend(random_reserves)
 
         # Попытки запроса крана с разными прокси
-        for attempt in range(RETRY_COUNT + 1):
-            current_proxy = proxies_to_try[min(attempt, len(proxies_to_try) - 1)]
+        for attempt in range(min(RETRY_COUNT + 1, len(proxies_to_try))):
+            current_proxy = proxies_to_try[attempt]
+            
+            # Форматируем прокси для отображения
+            if '@' in current_proxy:
+                auth_part, address_part = current_proxy.split('@')
+                proxy_display = f"xxx:xxx@{address_part}"
+            else:
+                proxy_display = f"{current_proxy.rsplit('.', 1)[0]}.xxx:{current_proxy.split(':')[-1]}"
             
             # Проверяем прокси только для первой попытки или при смене прокси
             if attempt == 0 or current_proxy != proxies_to_try[attempt - 1]:
@@ -440,23 +467,17 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                     if PRINT_FULL_ERRORS_MESSAGES:
                         print(f"{Fore.YELLOW}[PROXY DEBUG] {wallet[:10]}... - Прокси {current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy}: {proxy_error}{Style.RESET_ALL}")
                     
-                    if attempt < RETRY_COUNT and len(proxies_to_try) > attempt + 1:
-                        if reserve_proxies and len(reserve_proxies) > 0:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси не работает ({proxy_error}), пробуем резервный{Style.RESET_ALL}")
-                        else:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси не работает ({proxy_error}), резерва нет{Style.RESET_ALL}")
+                    if attempt < len(proxies_to_try) - 1:
+                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси {proxy_display} не работает ({proxy_error}), пробуем следующий резервный{Style.RESET_ALL}")
                         continue
                     else:
-                        if reserve_proxies and len(reserve_proxies) > 0:
-                            return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error})"
-                        else:
-                            return wallet, False, f"Прокси не работает ({proxy_error})"
+                        return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error})"
 
             # Используем точную логику запроса из рабочего кода
             try:
                 success, message = faucet.drip(wallet, current_proxy, session)
                 
-                # Обновляем лог
+                # Обновляем лог ТОЛЬКО при успехе
                 if wallet not in log:
                     log[wallet] = {'success': 0, 'failure': 0, 'last_attempt': datetime.now(), 'status': ''}
 
@@ -473,60 +494,77 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                     
                     return wallet, True, f"{message} (следующий запрос через {random_timeout_hours:.1f}ч)"
                 else:
-                    log[wallet]['failure'] += 1
-                    log[wallet]['last_attempt'] = datetime.now()
+                    # НЕ обновляем лог при ошибках - кошелек остается не запрошенным
                     
                     # Проверяем на "Bot detected" и устанавливаем специальный статус
                     if "Bot detected" in message:
+                        if wallet not in log:
+                            log[wallet] = {'success': 0, 'failure': 0, 'last_attempt': datetime.now(), 'status': ''}
+                        log[wallet]['failure'] += 1
+                        log[wallet]['last_attempt'] = datetime.now()
                         log[wallet]['status'] = 'не_подходит_под_кран'
                         write_log(log_file, log)
                         return wallet, False, "Кошелек не подходит под кран (Bot detected)"
                     
-                    # Выводим полное сообщение об ошибке если включена настройка
-                    if PRINT_FULL_ERRORS_MESSAGES and ("Rate limit" in message or "Ошибка крана:" in message):
-                        print(f"\n{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}...: {message}{Style.RESET_ALL}")
-                    
-                    if attempt < RETRY_COUNT:
-                        if len(proxies_to_try) > attempt + 1:
+                    # Проверяем на серверные ошибки (Internal server error, 502, 503, 504)
+                    if any(error in message.lower() for error in ["internal server error", "502", "503", "504", "server error"]):
+                        if attempt < len(proxies_to_try) - 1:
+                            # Выводим полное сообщение об ошибке если включена настройка
+                            if PRINT_FULL_ERRORS_MESSAGES:
+                                print(f"\n{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}{Style.RESET_ALL}")
+                            
                             # Форматируем сообщение в зависимости от настройки
                             if PRINT_FULL_ERRORS_MESSAGES:
                                 error_preview = message
                             else:
                                 error_preview = f"{message[:30]}..."
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Ошибка крана ({error_preview}), пробуем резервный прокси{Style.RESET_ALL}")
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Серверная ошибка ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
+                            time.sleep(3)  # Увеличенная пауза для серверных ошибок
+                            continue
+                        else:
+                            # НЕ записываем в лог при финальной серверной ошибке
+                            return wallet, False, f"Серверные ошибки на всех прокси: {message}"
+                    
+                    # Для других ошибок (не серверных)
+                    if attempt < len(proxies_to_try) - 1:
+                        # Выводим полное сообщение об ошибке если включена настройка
+                        if PRINT_FULL_ERRORS_MESSAGES and ("Rate limit" in message or "Ошибка крана:" in message):
+                            print(f"\n{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}{Style.RESET_ALL}")
+                        
+                        # Форматируем сообщение в зависимости от настройки
+                        if PRINT_FULL_ERRORS_MESSAGES:
+                            error_preview = message
+                        else:
+                            error_preview = f"{message[:30]}..."
+                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Ошибка крана ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
                         time.sleep(2)  # Пауза перед повтором
                         continue
                     else:
-                        write_log(log_file, log)
+                        # НЕ записываем в лог при финальной ошибке
                         return wallet, False, message
 
             except Exception as e:
                 # Форматируем сообщение об исключении в зависимости от настройки
                 if PRINT_FULL_ERRORS_MESSAGES:
                     error_msg = f"Исключение: {str(e)}"
-                    print(f"\n{Fore.RED}[ПОЛНОЕ ИСКЛЮЧЕНИЕ] {wallet[:10]}...: {str(e)}{Style.RESET_ALL}")
+                    print(f"\n{Fore.RED}[ПОЛНОЕ ИСКЛЮЧЕНИЕ] {wallet[:10]}... | Прокси: {proxy_display} - {str(e)}{Style.RESET_ALL}")
                 else:
                     error_msg = f"Исключение: {str(e)[:50]}..."
                 
-                if attempt < RETRY_COUNT:
-                    if len(proxies_to_try) > attempt + 1:
-                        # Форматируем сообщение в зависимости от настройки
-                        if PRINT_FULL_ERRORS_MESSAGES:
-                            error_preview = str(e)
-                        else:
-                            error_preview = f"{str(e)[:30]}..."
-                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Исключение ({error_preview}), пробуем резервный прокси{Style.RESET_ALL}")
+                if attempt < len(proxies_to_try) - 1:
+                    # Форматируем сообщение в зависимости от настройки
+                    if PRINT_FULL_ERRORS_MESSAGES:
+                        error_preview = str(e)
+                    else:
+                        error_preview = f"{str(e)[:30]}..."
+                    print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Исключение ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
                     time.sleep(2)
                     continue
                 else:
-                    if wallet not in log:
-                        log[wallet] = {'success': 0, 'failure': 0, 'last_attempt': datetime.now(), 'status': ''}
-                    log[wallet]['failure'] += 1
-                    log[wallet]['last_attempt'] = datetime.now()
-                    write_log(log_file, log)
+                    # НЕ записываем в лог при финальном исключении
                     return wallet, False, error_msg
 
-        return wallet, False, "Не удалось выполнить запрос"
+        return wallet, False, "Не удалось выполнить запрос на всех прокси"
     
     finally:
         # Обязательно закрываем сессию для каждого кошелька
@@ -664,16 +702,36 @@ def check_and_process_expired_wallets():
         # Задержка между пакетами (если не последний пакет)
         if batch_end < len(ready_wallets):
             delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
+            
+            # Показываем время начала и окончания ожидания
+            start_time = datetime.now()
+            end_time = start_time + timedelta(seconds=delay)
             print(f"{Fore.BLUE}⏸️ Пауза между пакетами {delay:.1f}с... (следующий пакет {current_batch_num + 1}/{total_batches}){Style.RESET_ALL}")
-            time.sleep(delay)
-    
+            print(f"{Fore.BLUE}🕒 Начало: {start_time.strftime('%H:%M:%S')} → Окончание: {end_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
+            
+            # Обратный отсчет
+            for remaining in range(int(delay), 0, -1):
+                print(f"\r{Fore.BLUE}⏸️ Осталось: {remaining}с до следующего пакета...{Style.RESET_ALL}", end="", flush=True)
+                time.sleep(1)
+            print()  # Новая строка после обратного отсчета
+
     # После обработки всех кошельков проверяем балансы для ВСЕХ кошельков с реальным запросом крана
     if len(all_successful_wallets_for_balance_check) > 0:  # Только если были кошельки с реальным запросом крана
         # Добавляем задержку перед проверкой балансов (только если мультипоточность И проверка балансов включены)
         if IGNORE_TIME_SLEEP_BETWEEN_ACTIONS and ENABLE_CHECK_BALANCE:
             delay = random.uniform(SLEEP_BETWEEN_CHECK_BALANCE[0], SLEEP_BETWEEN_CHECK_BALANCE[1])
+            
+            # Показываем время начала и окончания ожидания
+            start_time = datetime.now()
+            end_time = start_time + timedelta(seconds=delay)
             print(f"{Fore.BLUE}⏳ Ожидание {delay:.1f}с перед проверкой балансов после запроса крана...{Style.RESET_ALL}")
-            time.sleep(delay)
+            print(f"{Fore.BLUE}🕒 Начало: {start_time.strftime('%H:%M:%S')} → Окончание: {end_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
+            
+            # Обратный отсчет
+            for remaining in range(int(delay), 0, -1):
+                print(f"\r{Fore.BLUE}⏳ Осталось: {remaining}с до проверки балансов...{Style.RESET_ALL}", end="", flush=True)
+                time.sleep(1)
+            print()  # Новая строка после обратного отсчета
         
         # Передаем ВСЕ кошельки с реальным запросом крана для проверки баланса
         tokens_received_count, tokens_not_received_count = check_balances_after_processing_ready_wallets(all_successful_wallets_for_balance_check, log, balances_before)
@@ -808,10 +866,16 @@ def run_somnia_faucet_loop():
             
             # Генерируем рандомную задержку из конфига
             delay = random.randint(DELAY_FOR_READY_WALLETS_somnia[0], DELAY_FOR_READY_WALLETS_somnia[1])
-            print(f"{Fore.BLUE}⏳ Пауза {delay}с до следующего анализа...{Style.RESET_ALL}")
             
+            # Показываем время начала и окончания ожидания
+            start_time = datetime.now()
+            end_time = start_time + timedelta(seconds=delay)
+            print(f"{Fore.BLUE}⏳ Пауза {delay}с до следующего анализа...{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}🕒 Начало: {start_time.strftime('%H:%M:%S')} → Окончание: {end_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
+            
+            # Обратный отсчет
             for remaining in range(delay, 0, -1):
-                print(f"\r{Fore.BLUE}⏳ Следующий анализ через {remaining}с...{Style.RESET_ALL}", end="", flush=True)
+                print(f"\r{Fore.BLUE}⏳ Осталось: {remaining}с до следующего анализа...{Style.RESET_ALL}", end="", flush=True)
                 time.sleep(1)
             print()  # Новая строка после обратного отсчета
             
