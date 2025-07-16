@@ -15,3 +15,4 @@ db/transfer_progress.json
 data/mnemonic.txt
 data/one_time_intermediary.csv
 data/private_keys.txt
+data/twitter_tokens.csv

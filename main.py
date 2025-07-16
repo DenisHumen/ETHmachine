@@ -29,7 +29,8 @@ from modules.get_gas_price import get_gas_price
 
 from modules.faucets.somnia import run_somnia_faucet
 
-from modules.cex.okx_withdraw import withdraw_from_okx, get_balances_okx
+from modules.cex.okx import withdraw_from_okx, get_balances_okx
+from modules.cex.binance import withdraw_from_binance, get_balances_binance
 from modules.GitHub.check_version import check_version
 
 from modules.eth.eth_wallet_generator import eth_generate_wallets
@@ -86,9 +87,16 @@ def check_and_create_files():
         'data/mnemonic.txt',
         'db/transfer_progress.json',
         'data/one_time_intermediary.csv',
-        'data/private_keys.txt'
+        'data/private_keys.txt',
+        'data/twitter_tokens.csv',
     ]
-    required_directories = ['result', 'data', 'db']
+    required_directories = [
+        'result',
+        'data',
+        'db',
+        'result/json/pharos_faucet',
+        'result/faucet'
+    ]
 
     for directory in required_directories:
         if not os.path.exists(directory):
@@ -114,6 +122,8 @@ def check_and_create_files():
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
                 elif 'one_time_intermediary.csv' in file:
                     f.write('mnemonic,wallet_address,private_key,status\n')
+                elif 'twitter_tokens.txt' in file:
+                    f.write('auth_token,ct0\n')
             print(Fore.GREEN + f"File created: {file}")
 
 def main_menu():
@@ -129,7 +139,7 @@ def main_menu():
                     #Choice('📊 Check project stats 🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price 🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets 🌟 Генерация кошельков', 'generate_wallets'),
-                    #Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
+                    Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🔄 Transfer Wallets to Wallets 🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     Choice('🔑 ETH/SOL convert tool 🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🔍 Check Proxy 🌟 Проверить прокси', 'check_proxy'),
@@ -270,9 +280,48 @@ def main_menu():
                     break
                 
                 case 'CEX_menu':
-                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
-                    time.sleep(3)
-                    continue
+                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen\n")
+                    action = select(
+                        'Выберите действие:',
+                        choices=[
+                            Choice('💲 Withdraw from OKX | Вывод с OKX', 'withdraw_from_okx'),
+                            Choice('💲 Withdraw from Binance | Вывод с Binance', 'withdraw_from_binance'),
+                            Choice('💲 Спот торговля | Спотовая торговлять на бирже', 'spot_trade'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    match action:
+                        case 'withdraw_from_okx':
+                            continue
+                            #withdraw_from_okx()
+                        case 'withdraw_from_binance':
+                            continue
+                            #withdraw_from_binance()
+
+
+
+                        case 'spot_trade':
+                            print(Fore.GREEN + f"\n\tПараметры задаются в config/config.py раздел НАСТРОЙКИ ФУНКЦИИ SPOT TRADE\n")
+                            action = select(
+                                'Выберите биржу:',
+                                choices=[
+                                    Choice('💲 Binance', 'binance'),
+                                    Choice('💲 OKX', 'okx'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+                            print(Fore.GREEN + f"\n\tФункционал CEX в разработке")
+
+
+
+                            continue
+                        case 'back':
+                            continue
 
                 case 'ETH_convert_tool':
                     action = select(
