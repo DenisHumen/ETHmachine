@@ -2,12 +2,122 @@ import json
 import asyncio
 import aiohttp
 import csv
+import sys
 from typing import Optional, List, Tuple
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
-from loguru import logger
 from eth_account import Account
 from pathlib import Path
+from colorama import Fore, Style, init
+
+# Инициализируем colorama для Windows
+init()
+
+class StatusDisplay:
+    """Класс для управления динамическим отображением статусов"""
+    
+    def __init__(self, wallet_address: str):
+        self.wallet_address = wallet_address
+        self.lines_printed = 0
+        self.statuses = {
+            'twitter': {'text': '💾 twitter', 'status': 'pending', 'details': ''},
+            'pharos_login': {'text': '✅ Pharos login', 'status': 'pending', 'details': ''},
+            'faucet': {'text': '🚰 Starting faucet request', 'status': 'pending', 'details': ''},
+            'account': {'text': '🎉 account status', 'status': 'pending', 'details': ''}
+        }
+        self.printed_header = False
+        
+    def print_header(self):
+        """Печатает заголовок один раз"""
+        if not self.printed_header:
+            print(f"{Fore.GREEN}🚀 Starting Pharos process for {self.wallet_address}{Style.RESET_ALL}")
+            self.printed_header = True
+            
+    def print_initial_status(self):
+        """Печатает начальные статусы всех строк с учетом предустановленных статусов"""
+        self.print_header()
+        for key in ['twitter', 'pharos_login', 'faucet', 'account']:
+            status_info = self.statuses[key]
+            
+            # Определяем цвет и текст на основе текущего статуса
+            if status_info['status'] == 'already_connected':
+                color = Fore.GREEN
+                status_text = 'already connected'
+            elif status_info['status'] == 'already_requested':
+                color = Fore.YELLOW
+                status_text = 'already requested today'
+            elif status_info['status'] == 'success':
+                color = Fore.GREEN
+                status_text = 'successful'
+                if status_info['details']:
+                    status_text += f" {status_info['details']}"
+            else:
+                color = Fore.YELLOW  # pending - желтый
+                status_text = 'pending'
+            
+            print(f"    {status_info['text']} - {color}{status_text}{Style.RESET_ALL}")
+            self.lines_printed += 1
+            
+    def update_status(self, key: str, status: str, details: str = ''):
+        """Обновляет статус конкретной строки"""
+        if key not in self.statuses:
+            return
+            
+        self.statuses[key]['status'] = status
+        self.statuses[key]['details'] = details
+        
+        # Определяем цвет по статусу
+        color_map = {
+            'pending': Fore.YELLOW,
+            'success': Fore.GREEN,
+            'error': Fore.RED,
+            'already_connected': Fore.GREEN,
+            'already_requested': Fore.YELLOW
+        }
+        color = color_map.get(status, Fore.YELLOW)
+        
+        # Формируем текст статуса
+        status_text_map = {
+            'pending': 'pending',
+            'success': 'successful',
+            'error': 'error',
+            'already_connected': 'already connected',
+            'already_requested': 'already requested today'
+        }
+        status_text = status_text_map.get(status, status)
+        
+        # Добавляем детали если есть
+        full_text = f"{self.statuses[key]['text']} - {status_text}"
+        if details:
+            full_text += f" {details}"
+            
+        # Обновляем строку
+        self._update_line(key, full_text, color)
+        
+    def _update_line(self, key: str, text: str, color: str):
+        """Обновляет конкретную строку в терминале"""
+        # Определяем позицию строки
+        line_positions = {'twitter': 0, 'pharos_login': 1, 'faucet': 2, 'account': 3}
+        line_pos = line_positions[key]
+        
+        # Перемещаемся к нужной строке
+        lines_to_move_up = self.lines_printed - line_pos - 1
+        if lines_to_move_up > 0:
+            # Используем \033[F для перемещения к началу предыдущей строки
+            for _ in range(lines_to_move_up):
+                sys.stdout.write('\033[F')  # Курсор в начало предыдущей строки
+            
+        # Очищаем строку и пишем новый текст
+        sys.stdout.write('\r\033[K')  # Очистить строку
+        sys.stdout.write(f"    {color}{text}{Style.RESET_ALL}")
+        
+        # Возвращаемся в конец
+        if lines_to_move_up > 0:
+            # Перемещаемся обратно в конец
+            for _ in range(lines_to_move_up):
+                sys.stdout.write('\n')  # Переходим на следующую строку
+                
+        sys.stdout.flush()
 
 def load_twitter_tokens() -> List[Tuple[str, str]]:
     """Загружает Twitter токены и ct0 из файла data/twitter_tokens.csv"""
@@ -15,21 +125,21 @@ def load_twitter_tokens() -> List[Tuple[str, str]]:
         project_root = Path(__file__).parent.parent.parent
         tokens_file = project_root / 'data' / 'twitter_tokens.csv'
         
-        logger.info(f"🔍 Looking for CSV file at: {tokens_file}")
+        print(f"{Fore.CYAN}🔍 Looking for CSV file at: {tokens_file}{Style.RESET_ALL}")
         
         if not tokens_file.exists():
-            logger.error(f"❌ Файл {tokens_file} не найден!")
+            print(f"{Fore.RED}❌ Файл {tokens_file} не найден!{Style.RESET_ALL}")
             return []
         
         tokens = []
         with open(tokens_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
             if not content:
-                logger.error("❌ CSV файл пустой!")
+                print(f"{Fore.RED}❌ CSV файл пустой!{Style.RESET_ALL}")
                 return []
             
             # Проверяем содержимое файла
-            logger.info(f"📄 First 200 chars of CSV: {content[:200]}")
+            print(f"{Fore.CYAN}📄 First 200 chars of CSV: {content[:200]}{Style.RESET_ALL}")
             
             # Перематываем файл
             f.seek(0)
@@ -41,15 +151,15 @@ def load_twitter_tokens() -> List[Tuple[str, str]]:
                 
                 if auth_token and ct0:
                     tokens.append((auth_token, ct0))
-                    logger.debug(f"✅ Loaded token pair {row_num}: {auth_token[:5]}.../{ct0[:5]}...")
+                    # Убираем debug сообщения для чистоты
                 else:
-                    logger.warning(f"⚠️ Row {row_num} missing data: auth_token={bool(auth_token)}, ct0={bool(ct0)}")
+                    print(f"{Fore.YELLOW}⚠️ Row {row_num} missing data: auth_token={bool(auth_token)}, ct0={bool(ct0)}{Style.RESET_ALL}")
         
-        logger.info(f"📱 Successfully loaded {len(tokens)} token pairs from CSV")
+        print(f"{Fore.GREEN}📱 Successfully loaded {len(tokens)} token pairs from CSV{Style.RESET_ALL}")
         return tokens
         
     except FileNotFoundError:
-        logger.error("❌ Файл data/twitter_tokens.csv не найден!")
+        print(f"{Fore.RED}❌ Файл data/twitter_tokens.csv не найден!{Style.RESET_ALL}")
         # Создаем пример файла
         try:
             project_root = Path(__file__).parent.parent.parent
@@ -60,12 +170,12 @@ def load_twitter_tokens() -> List[Tuple[str, str]]:
                 f.write("auth_token,ct0\n")
                 f.write("example_token_1,example_ct0_1\n")
                 f.write("example_token_2,example_ct0_2\n")
-            logger.info(f"📝 Created example file at {example_file}")
+            print(f"{Fore.GREEN}📝 Created example file at {example_file}{Style.RESET_ALL}")
         except Exception as e:
-            logger.error(f"Failed to create example file: {e}")
+            print(f"{Fore.RED}Failed to create example file: {e}{Style.RESET_ALL}")
         return []
     except Exception as e:
-        logger.error(f"❌ Ошибка при чтении CSV файла: {e}")
+        print(f"{Fore.RED}❌ Ошибка при чтении CSV файла: {e}{Style.RESET_ALL}")
         return []
 
 def load_wallet_data(wallet_address: str) -> dict:
@@ -80,19 +190,19 @@ def load_wallet_data(wallet_address: str) -> dict:
             with open(json_file, 'r', encoding='utf-8') as f:
                 content = f.read().strip()
                 if not content:
-                    logger.warning(f"JSON file for {wallet_address} is empty")
+                    print(f"{Fore.YELLOW}JSON file for {wallet_address} is empty{Style.RESET_ALL}")
                     return {}
                 return json.loads(content)
     except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error for {wallet_address}: {e}")
+        print(f"{Fore.RED}JSON decode error for {wallet_address}: {e}{Style.RESET_ALL}")
         # Удаляем поврежденный файл
         try:
             json_file.unlink()
-            logger.info(f"Removed corrupted JSON file for {wallet_address}")
+            print(f"{Fore.GREEN}Removed corrupted JSON file for {wallet_address}{Style.RESET_ALL}")
         except:
             pass
     except Exception as e:
-        logger.error(f"Error loading wallet data: {e}")
+        print(f"{Fore.RED}Error loading wallet data: {e}{Style.RESET_ALL}")
     return {}
 
 def save_wallet_data(wallet_address: str, data: dict):
@@ -106,15 +216,40 @@ def save_wallet_data(wallet_address: str, data: dict):
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Error saving wallet data: {e}")
+        print(f"{Fore.RED}Error saving wallet data: {e}{Style.RESET_ALL}")
 
 async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: Optional[str] = None):
     """
-    Функция для Pharos с CSV токенами:
-    1. Авторизация кошелька через api.pharosnetwork.xyz
-    2. Подключение Twitter через api.pharosnetwork.xyz  
-    3. Запрос крана
+    Функция для Pharos с динамическим отображением статуса
     """
+    
+    # Извлекаем адрес кошелька из приватного ключа
+    if not wallet_address:
+        account = Account.from_key(private_key)
+        wallet_address = account.address
+    
+    # СНАЧАЛА загружаем данные кошелька
+    wallet_data = load_wallet_data(wallet_address)
+    twitter_connected = wallet_data.get('twitter_connected', False)
+    
+    # Создаем дисплей статуса
+    status_display = StatusDisplay(wallet_address)
+    
+    # Определяем начальные статусы ДО печати
+    if twitter_connected and wallet_data.get('successful_twitter_token') and wallet_data.get('successful_ct0_token'):
+        # Если Twitter уже подключен, предустанавливаем все статусы
+        status_display.statuses['twitter']['status'] = 'already_connected'
+        
+        # Предполагаем что если Twitter подключен, то Pharos login тоже будет успешным
+        status_display.statuses['pharos_login']['status'] = 'success'
+        status_display.statuses['pharos_login']['details'] = f'for {wallet_address}'
+        
+        # Предполагаем что faucet уже запрошен
+        status_display.statuses['faucet']['status'] = 'already_requested'
+        status_display.statuses['account']['status'] = 'already_requested'
+    
+    # Теперь печатаем статусы с правильными начальными состояниями
+    status_display.print_initial_status()
     
     class TwitterAuthConfig:
         CLIENT_ID = "TGQwNktPQWlBQzNNd1hyVkFvZ2E6MTpjaQ"
@@ -180,20 +315,16 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                         proxy=self.proxy if self.proxy else None
                     ) as auth_response:
                         if auth_response.status == 403:
-                            logger.warning(f'Twitter token invalid (403): {self.twitter_token[:5]}***')
                             return None
                         elif auth_response.status != 200:
-                            logger.error(f'Auth response error: {auth_response.status}')
                             return None
                             
                         try:
                             auth_data = await auth_response.json()
                             auth_code = auth_data.get('auth_code')
                             if not auth_code:
-                                logger.error('No auth_code in response')
                                 return None
                         except Exception as e:
-                            logger.error(f'Failed to parse auth response: {e}')
                             return None
                             
                     # Второй запрос - подтверждение  
@@ -203,28 +334,22 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                         proxy=self.proxy if self.proxy else None
                     ) as approve_response:
                         if approve_response.status != 200:
-                            logger.error(f'Approval response error: {approve_response.status}')
                             return None
                             
                         try:
                             approve_data = await approve_response.json()
                             redirect_uri = approve_data.get('redirect_uri')
                             if not redirect_uri:
-                                logger.error('No redirect_uri in response')
                                 return None
                             
                             final_code = self.extract_code_from_redirect(redirect_uri)
                             if final_code:
-                                logger.success(f'✅ Successfully got Twitter auth code')
                                 return final_code
                         except Exception as e:
-                            logger.error(f'Failed to parse approval response: {e}')
                             return None
 
-            except aiohttp.ClientError as error:
-                logger.error(f'Twitter HTTP error: {error}')
             except Exception as error:
-                logger.error(f'Twitter connection error: {str(error)}')
+                pass
                 
             return None
 
@@ -250,11 +375,11 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                 
         def get_headers(self, auth=True):
             headers = {
-                'authority': 'api.pharosnetwork.xyz',  # Исправлено
+                'authority': 'api.pharosnetwork.xyz',
                 'accept': 'application/json',
                 'content-type': 'application/json',
-                'origin': 'https://testnet.pharosnetwork.xyz',  # Исправлено
-                'referer': 'https://testnet.pharosnetwork.xyz/',  # Исправлено
+                'origin': 'https://testnet.pharosnetwork.xyz',
+                'referer': 'https://testnet.pharosnetwork.xyz/',
                 'cache-control': 'no-cache',
                 'pragma': 'no-cache',
                 'priority': 'u=1, i',
@@ -274,7 +399,7 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                 signed_message = self.account.sign_message(message)
                 return signed_message.signature.hex()
             except Exception as e:
-                logger.error(f"Signature error: {e}")
+                print(f"{Fore.RED}Signature error: {e}{Style.RESET_ALL}")
                 return "0x" + "a" * 130  # Fallback
             
         async def pharoshub_login(self):
@@ -282,7 +407,6 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
             try:
                 signature = await self.get_signature('pharos')
                 
-                # Используем правильный URL из оригинального кода
                 url = f"https://api.pharosnetwork.xyz/user/login?address={self.wallet_address}&signature={signature}"
                 json_data = {
                     'address': self.wallet_address,
@@ -300,19 +424,16 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                         token = data.get("data", {}).get("jwt")
                         if token:
                             self.auth_token = token
-                            logger.success(f"✅ Pharos login successful for {self.wallet_address}")
                             return True
                             
-                logger.error(f"Pharos login failed for {self.wallet_address}, status: {response.status}")
                 return False
                 
             except Exception as e:
-                logger.error(f"Pharos login error: {e}")
                 return False
-                
+
         async def get_auth_link(self):
-            """Получает параметры авторизации - точная копия из рабочего кода"""
-            for attempt in range(3):  # config.ATTEMPTS_NUMBER_RESTORE
+            """Получает параметры авторизации"""
+            for attempt in range(3):
                 try:
                     base_url = "https://api.pharosnetwork.xyz/auth/twitter"
                     timeout = aiohttp.ClientTimeout(total=30)
@@ -337,23 +458,19 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                             state = query_params.get("state", [""])[0]
                             return code_challenge, state
                 except aiohttp.ClientError as e:
-                    logger.error(f'Request failed: {str(e)}')
+                    print(f"{Fore.RED}Request failed: {str(e)}{Style.RESET_ALL}")
                     if attempt < 2:
-                        await asyncio.sleep(1)  # config.DELAY_AFTER_ERROR
+                        await asyncio.sleep(1)
             return None, None
 
         async def connect_twitter(self):
             """Подключает Twitter"""
-            logger.info(f'Trying to connect Twitter account...')
-            
             code_challenge, state = await self.get_auth_link()
             if not (code_challenge and state):
-                logger.error("Failed to get auth parameters from Pharos")
                 return False
 
             code = await self.twitter_worker.connect_twitter(code_challenge, state)
             if not code:
-                logger.warning("Failed to get Twitter authorization code - token may be invalid")
                 return False
 
             # Привязываем аккаунт к Pharos
@@ -371,19 +488,13 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                         result = await response.json()
                         status = result.get("code")
                         if status == 0:
-                            logger.success(f"✅ Successfully Bind Twitter")
                             return True
                         else:
-                            msg = result.get("msg", "Unknown error")
-                            logger.warning(f"Twitter binding failed: {msg}")
                             return False
                     else:
-                        response_text = await response.text()
-                        logger.error(f"Twitter binding request failed: {response.status}, response: {response_text[:200]}")
                         return False
                         
             except Exception as e:
-                logger.error(f"twitter connect error: {e}")
                 return False
 
         async def status_faucet(self):
@@ -405,19 +516,15 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                     return None
 
             except Exception as e:
-                logger.error(f"Status faucet error: {e}")
                 return None
                 
         async def request_faucet(self):
             """Запрос фаусета"""
             try:
-                logger.info(f'Starting faucet request...')
-
                 # Проверяем статус фаусета
                 status = await self.status_faucet()
                 if status is not True:
-                    logger.warning(f"Faucet already claimed today for {self.wallet_address}")
-                    return True
+                    return "already_claimed"  # Специальный статус для уже запрошенного
                 
                 # Запрашиваем фаусет
                 url = f"https://api.pharosnetwork.xyz/faucet/daily?address={self.wallet_address}"
@@ -433,39 +540,20 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
                         result = await response.json()
                         status = result.get("code")
                         if status == 0:
-                            logger.success(f"✅ Faucet successfully claimed for {self.wallet_address}")
                             return True
                         else:
-                            msg = result.get("msg", "Unknown error")
-                            logger.warning(f"Faucet request failed: {msg}")
                             return False
                     else:
-                        response_text = await response.text()
-                        logger.warning(f'Faucet request failed: {response.status} | {response_text[:200]}')
+                        return False
                             
-                return False
-                
             except Exception as e:
-                logger.error(f"Faucet request error: {e}")
                 return False
 
-    # Основная логика
+    # Основная логика с обновлением статусов
     try:
-        # Извлекаем адрес кошелька из приватного ключа
-        if not wallet_address:
-            account = Account.from_key(private_key)
-            wallet_address = account.address
-            
-        logger.info(f"🚀 Starting Pharos process for {wallet_address}")
-        
-        # Загружаем данные кошелька
-        wallet_data = load_wallet_data(wallet_address)
-        twitter_connected = wallet_data.get('twitter_connected', False)
-        
         # Проверяем есть ли уже успешно подключенный Twitter
         if twitter_connected and wallet_data.get('successful_twitter_token') and wallet_data.get('successful_ct0_token'):
-            logger.info(f"💾 Found successfully connected Twitter account for {wallet_address}")
-            logger.info(f"🔄 Skipping Twitter connection, going directly to faucet claim")
+            # Twitter уже подключен, все статусы уже установлены при печати
             
             # Используем сохраненные токены из JSON файла
             saved_twitter_token = wallet_data.get('successful_twitter_token')
@@ -475,124 +563,156 @@ async def pharos_faucet_complete(proxy: str, private_key: str, wallet_address: O
             await client.create_session()
             
             try:
-                success_steps = ["twitter_already_connected"]
-                
-                # 1. Авторизация в Pharos
+                # 1. Авторизация в Pharos (НЕ обновляем статус - уже установлен)
                 if await client.pharoshub_login():
-                    success_steps.append("pharos_login")
+                    # 2. Запрос фаусета напрямую
+                    faucet_result = await client.request_faucet()
                     
-                    # 2. Запрос фаусета напрямую (пропускаем подключение Twitter)
-                    if await client.request_faucet():
-                        success_steps.append("faucet_claimed")
+                    # Обновляем статусы только если результат отличается от предполагаемого
+                    if faucet_result == "already_claimed":
+                        # Статусы уже правильные (already_requested)
+                        pass
+                    elif faucet_result:
+                        # Неожиданный успех - обновляем статусы
+                        status_display.update_status('faucet', 'success')
+                        status_display.update_status('account', 'success')
                         
                         # Обновляем данные с новым timestamp
                         wallet_data.update({
                             "last_faucet_claim": datetime.now().isoformat(),
-                            "completed_steps": success_steps,
                             "success": True
                         })
-                        
                         save_wallet_data(wallet_address, wallet_data)
-                        logger.success(f"🎉 Faucet claimed successfully using existing Twitter connection!")
-                        return True
                     else:
-                        logger.warning(f"⚠️ Faucet request failed even with existing Twitter connection")
+                        # Ошибка - обновляем статусы
+                        status_display.update_status('faucet', 'error')
+                        status_display.update_status('account', 'error')
+                        print()
                         return False
+                    
+                    print()
+                    return True
                 else:
-                    logger.error(f"❌ Pharos login failed")
+                    # Ошибка login - обновляем статус
+                    status_display.update_status('pharos_login', 'error')
+                    print()
                     return False
                     
             finally:
                 await client.close_session()
-        
-        # Если Twitter не подключен, загружаем токены из CSV и выполняем полный процесс
-        logger.info(f"🔗 No existing Twitter connection found, starting full process")
-        
-        # Загружаем Twitter токены из CSV
-        twitter_tokens = load_twitter_tokens()
-        if not twitter_tokens:
-            logger.error("❌ No Twitter tokens available")
-            return False
+        else:
+            # Если Twitter не подключен, загружаем токены из CSV и выполняем полный процесс
+            print()
             
-        logger.info(f"📱 Loaded {len(twitter_tokens)} Twitter token pairs")
-        
-        # Перебираем Twitter токены для подключения
-        for token_index, (twitter_token, ct0_token) in enumerate(twitter_tokens, 1):
-            logger.info(f"🔄 Trying Twitter token {token_index}/{len(twitter_tokens)}: {twitter_token[:10]}... | ct0: {ct0_token[:10]}...")
+            # Загружаем Twitter токены из CSV только если Twitter не подключен
+            twitter_tokens = load_twitter_tokens()
+            if not twitter_tokens:
+                status_display.update_status('twitter', 'error', '- no tokens available')
+                status_display.update_status('account', 'error')
+                print()
+                return False
             
-            # Создаем клиент
-            client = PharosHubClient(wallet_address, private_key, twitter_token, ct0_token, proxy)
-            await client.create_session()
-            
-            try:
-                success_steps = []
+            # Перебираем Twitter токены для подключения
+            for token_index, (twitter_token, ct0_token) in enumerate(twitter_tokens, 1):
+                # Создаем клиент
+                client = PharosHubClient(wallet_address, private_key, twitter_token, ct0_token, proxy)
+                await client.create_session()
                 
-                # 1. Авторизация в Pharos
-                if await client.pharoshub_login():
-                    success_steps.append("pharos_login")
-                    
-                    # 2. Подключение Twitter
-                    if await client.connect_twitter():
-                        success_steps.append("twitter_connected")
-                        twitter_connected = True
-                        logger.success(f"✅ Twitter connected with token {token_index}")
+                try:
+                    # 1. Авторизация в Pharos
+                    if await client.pharoshub_login():
+                        status_display.update_status('pharos_login', 'success', f'for {wallet_address}')
                         
-                        # 3. Запрос фаусета
-                        if await client.request_faucet():
-                            success_steps.append("faucet_claimed")
-
-                            # Сохраняем результат успешного выполнения
-                            result_data = {
-                                "wallet_address": wallet_address,
-                                "proxy": proxy,
-                                "successful_twitter_token": twitter_token,
-                                "successful_ct0_token": ct0_token,
-                                "twitter_connected": True,
-                                "token_index": token_index,
-                                "total_tokens_tried": token_index,
-                                "completed_steps": success_steps,
-                                "first_connection_timestamp": datetime.now().isoformat(),
-                                "last_faucet_claim": datetime.now().isoformat(),
-                                "success": True
-                            }
+                        # 2. Подключение Twitter
+                        if await client.connect_twitter():
+                            status_display.update_status('twitter', 'success', f'(token {token_index}/{len(twitter_tokens)})')
                             
-                            save_wallet_data(wallet_address, result_data)
-                            logger.success(f"🎉 Process completed successfully! Used token {token_index}/{len(twitter_tokens)}")
-                            return True
+                            # 3. Запрос фаусета
+                            faucet_result = await client.request_faucet()
+                            if faucet_result == "already_claimed":
+                                status_display.update_status('faucet', 'already_requested')
+                                status_display.update_status('account', 'already_requested')
+                                
+                                # Сохраняем результат с уже запрошенным статусом
+                                result_data = {
+                                    "wallet_address": wallet_address,
+                                    "proxy": proxy,
+                                    "successful_twitter_token": twitter_token,
+                                    "successful_ct0_token": ct0_token,
+                                    "twitter_connected": True,
+                                    "token_index": token_index,
+                                    "total_tokens_tried": token_index,
+                                    "first_connection_timestamp": datetime.now().isoformat(),
+                                    "last_faucet_claim": datetime.now().isoformat(),
+                                    "success": True,
+                                    "faucet_already_claimed": True
+                                }
+                                
+                                save_wallet_data(wallet_address, result_data)
+                                print()
+                                return True
+                            elif faucet_result:
+                                status_display.update_status('faucet', 'success')
+                                status_display.update_status('account', 'success')
+
+                                # Сохраняем результат успешного выполнения
+                                result_data = {
+                                    "wallet_address": wallet_address,
+                                    "proxy": proxy,
+                                    "successful_twitter_token": twitter_token,
+                                    "successful_ct0_token": ct0_token,
+                                    "twitter_connected": True,
+                                    "token_index": token_index,
+                                    "total_tokens_tried": token_index,
+                                    "first_connection_timestamp": datetime.now().isoformat(),
+                                    "last_faucet_claim": datetime.now().isoformat(),
+                                    "success": True
+                                }
+                                
+                                save_wallet_data(wallet_address, result_data)
+                                print()
+                                return True
+                            else:
+                                status_display.update_status('faucet', 'error')
+                                status_display.update_status('account', 'error')
+                                print()
+                                return False
                         else:
-                            logger.warning(f"⚠️ Faucet request failed with token {token_index}")
+                            # Twitter connection failed, try next token
+                            await client.close_session()
+                            continue
                     else:
-                        logger.warning(f"⚠️ Twitter connection failed with token {token_index} - trying next token")
-                        await client.close_session()
-                        continue
-                else:
-                    logger.warning(f"⚠️ Pharos login failed with token {token_index}")
+                        status_display.update_status('pharos_login', 'error')
+                        print()
+                        return False
 
-            finally:
-                await client.close_session()
+                finally:
+                    await client.close_session()
+                
+                # Пауза между токенами
+                if token_index < len(twitter_tokens):
+                    await asyncio.sleep(1)
+
+            # Если все токены не сработали
+            status_display.update_status('twitter', 'error', f'- all {len(twitter_tokens)} tokens failed')
+            status_display.update_status('account', 'error')
+            print()
             
-            # Пауза между токенами
-            if token_index < len(twitter_tokens):
-                logger.info(f"⏳ Waiting 1 second before trying next token...")
-                await asyncio.sleep(1)
-
-        # Если все токены не сработали
-        logger.error(f"❌ All {len(twitter_tokens)} Twitter token pairs failed")
-        
-        error_data = {
-            "wallet_address": wallet_address,
-            "proxy": proxy,
-            "total_tokens_tried": len(twitter_tokens),
-            "timestamp": datetime.now().isoformat(),
-            "success": False,
-            "error": f"All {len(twitter_tokens)} Twitter token pairs failed"
-        }
-        
-        save_wallet_data(wallet_address, error_data)
-        return False
+            error_data = {
+                "wallet_address": wallet_address,
+                "proxy": proxy,
+                "total_tokens_tried": len(twitter_tokens),
+                "timestamp": datetime.now().isoformat(),
+                "success": False,
+                "error": f"All {len(twitter_tokens)} Twitter token pairs failed"
+            }
+            
+            save_wallet_data(wallet_address, error_data)
+            return False
 
     except Exception as e:
-        logger.error(f"❌ Main process error: {e}")
+        status_display.update_status('account', 'error', f'- {str(e)[:30]}...')
+        print()
         
         error_data = {
             "wallet_address": wallet_address or "unknown",

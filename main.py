@@ -22,6 +22,7 @@ from config.config import (
 )
 
 # Импорт функций из модулей
+from modules.info import info
 from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
 from modules.get_token_wallet_balance_fast import check_token_balances_menu
@@ -86,6 +87,7 @@ def check_and_create_files():
         'data/transfer_token.csv',
         'data/mnemonic.txt',
         'db/transfer_progress.json',
+        'db/spot_trade.sqlite',
         'data/one_time_intermediary.csv',
         'data/private_keys.txt',
         'data/twitter_tokens.csv',
@@ -129,30 +131,42 @@ def check_and_create_files():
 def main_menu():
     check_and_create_files()
     try:
+        print(Fore.GREEN + "\nWelcome to ETHmachine! 🌟")
+        print(Fore.RED + "\tВНИМАНИЕ директорию 'result/json/', 'result/faucet' и db/ нужно бекапить. Хранит в себе важные данные.\n")
         while True:
             action = select(
                 f"What do you want to do?",
                 choices=[
-                    Choice('💲 Check Balances 🌟 Проверить балансы', 'check_balances'),
-                    Choice('🔧 Check Token Balances 🌟 Проверить балансы токенов', 'check_token_balances'),
-                    Choice('🚰 Faucets 🌟 Краны', 'faucets'),
-                    #Choice('📊 Check project stats 🌟 Проверка статистики по проектам', 'project_stats'),
-                    Choice('⛽ Check Gas Price 🌟 Проверить цену газа', 'check_gas_price'),
-                    Choice('🪙  Generate Wallets 🌟 Генерация кошельков', 'generate_wallets'),
-                    Choice('🏦 CEX 🌟 Функционал CEX', 'CEX_menu'),
-                    Choice('🔄 Transfer Wallets to Wallets 🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
-                    Choice('🔑 ETH/SOL convert tool 🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
-                    Choice('🔍 Check Proxy 🌟 Проверить прокси', 'check_proxy'),
-                    #Choice('🌐 Check All Balances Across Networks 🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
-                    Choice('❌ Exit 🌟 Выход', 'exit')
+                    Choice('💲 Check Balances ETH           🌟 Проверить балансы', 'check_balances'),
+                    Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
+                    Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
+                    Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
+                    #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
+                    Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
+                    Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
+                    Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
+                    Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
+                    Choice('🔑 ETH/SOL convert tool         🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                    Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
+                    #Choice('🌐 Check All Balances          🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
+                    Choice('ℹ️ INFO                          🌟 Информация о всех пунктах', 'info'),
+                    Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',
                 pointer='👉'
             ).ask()
 
             match action:
+                case 'info':
+                    #info()
+                    print(Fore.GREEN + "\n\tИнформация о всех пунктах:\n")
+                    print(Fore.YELLOW + "\t еще пишу, будет по позже.\n")
+                    time.sleep(3)
+                    continue
 
-
+                case 'check_balances_SOL':
+                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                    continue
 
                 case 'faucets':
                     while True:
