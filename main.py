@@ -83,7 +83,7 @@ def check_and_create_files():
         'result/result.csv',
         'data/proxy.csv',
         'data/walletss.txt',
-        'data/cex_settings.py',
+        'config/cex_settings.py',
         'data/transfer_token.csv',
         'data/mnemonic.txt',
         'db/transfer_progress.json',
@@ -119,12 +119,20 @@ def check_and_create_files():
                         'OKX_API_SECRET = ""\n'
                         'OKX_API_PASSPHRAS = ""\n'
                         'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
+                        '\n'
+                        '\n'
+                        'TOKEN = [\'USDC\', \'arb\']  # Токены для перевода между кошельками\n'
+                        '    # принцып настройки:\n'
+                        '    # 1. Например токен USDC (значение 0 в массиве), а значение 1 это сеть в которой будет переводиться токен USDC\n'
+                        '    # 2. Если токен имеет только свою сеть, например G тогда значение 1 будет игнорироваться.\n'
+                        '            # - Если сетей несколько, но сеть не была указана, то поумолчнаю будет использовать сеть OP\n'
+                        '    # 3. Доступные сети можно посмотреть ниже в этом файле, или же позже в пункет меню INFO\n'
                     )
                 elif 'transfer_token.csv' in file:
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
                 elif 'one_time_intermediary.csv' in file:
                     f.write('mnemonic,wallet_address,private_key,status\n')
-                elif 'twitter_tokens.txt' in file:
+                elif 'twitter_tokens.csv' in file:
                     f.write('auth_token,ct0\n')
             print(Fore.GREEN + f"File created: {file}")
 
@@ -141,6 +149,7 @@ def main_menu():
                     Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
                     Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
                     Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
+                    Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
@@ -157,6 +166,11 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'drainers':
+                    print(Fore.GREEN + f"\n\tФункционал drainers в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
+                    time.sleep(3)
+                    continue
+
                 case 'info':
                     #info()
                     print(Fore.GREEN + "\n\tИнформация о всех пунктах:\n")
@@ -289,7 +303,7 @@ def main_menu():
                     for frame in animation:
                         print(Fore.GREEN + f"\r{frame}", end='', flush=True)
                         time.sleep(0.1)
-                    print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine! \n \t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen!\n\n")
+                    print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine! \n \t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen\n\n")
                     #time.sleep(3)
                     break
                 

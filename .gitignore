@@ -2,7 +2,6 @@ main.spec
 result/*
 data/proxy.csv
 data/walletss.txt
-data/cex_settings.py
 modules/__pycache__/
 config/__pycache__/
 build
@@ -17,3 +16,4 @@ data/one_time_intermediary.csv
 data/private_keys.txt
 data/twitter_tokens.csv
 db/spot_trade.sqlite
+config/cex_settings.py

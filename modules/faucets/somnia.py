@@ -35,6 +35,24 @@ try:
 except ImportError:
     DELAY_FOR_READY_WALLETS_somnia = [60, 60]  # Значение по умолчанию
 
+# Импорт настройки задержки между повторами после ошибки
+try:
+    from config.config import DELAY_BETWEEN_REPETITIONS_somnia
+except ImportError:
+    DELAY_BETWEEN_REPETITIONS_somnia = [10, 30]  # Значение по умолчанию
+
+# Импорт пути к файлу с кошельками
+try:
+    from config.config import PATH_TO_WALLETS_SOMNIA
+except ImportError:
+    PATH_TO_WALLETS_SOMNIA = 'data/walletss.txt'  # Значение по умолчанию
+
+# Импорт настройки задержки между кошельками в потоке
+try:
+    from config.config import DELAY_BETWEEN_WALLETS_somnia
+except ImportError:
+    DELAY_BETWEEN_WALLETS_somnia = [1, 15]  # Значение по умолчанию
+
 # Импорт RPC конфигурации
 try:
     from config.rpc import somnia_testnet
@@ -165,14 +183,14 @@ class SomniaFaucet:
             session.close()
 
 def load_wallets():
-    """Загружает кошельки из файла data/walletss.txt"""
+    """Загружает кошельки из файла по пути PATH_TO_WALLETS_SOMNIA"""
     try:
-        wallets_file = project_root / 'data' / 'walletss.txt'
+        wallets_file = project_root / PATH_TO_WALLETS_SOMNIA
         with open(wallets_file, 'r', encoding='utf-8') as f:
             wallets = [line.strip() for line in f if line.strip()]
         return wallets
     except FileNotFoundError:
-        print(Fore.RED + "❌ Файл data/walletss.txt не найден!")
+        print(Fore.RED + f"❌ Файл {PATH_TO_WALLETS_SOMNIA} не найден!")
         return []
 
 def load_proxies():
@@ -509,17 +527,17 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                     # Проверяем на серверные ошибки (Internal server error, 502, 503, 504)
                     if any(error in message.lower() for error in ["internal server error", "502", "503", "504", "server error"]):
                         if attempt < len(proxies_to_try) - 1:
-                            # Выводим полное сообщение об ошибке если включена настройка
-                            if PRINT_FULL_ERRORS_MESSAGES:
-                                print(f"\n{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}{Style.RESET_ALL}")
+                            # Генерируем рандомную задержку для этого кошелька
+                            retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
                             
-                            # Форматируем сообщение в зависимости от настройки
+                            # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
                             if PRINT_FULL_ERRORS_MESSAGES:
-                                error_preview = message
+                                print(f"{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
                             else:
                                 error_preview = f"{message[:30]}..."
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Серверная ошибка ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
-                            time.sleep(3)  # Увеличенная пауза для серверных ошибок
+                                print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Серверная ошибка ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
+                            
+                            time.sleep(retry_delay)
                             continue
                         else:
                             # НЕ записываем в лог при финальной серверной ошибке
@@ -527,41 +545,39 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                     
                     # Для других ошибок (не серверных)
                     if attempt < len(proxies_to_try) - 1:
-                        # Выводим полное сообщение об ошибке если включена настройка
-                        if PRINT_FULL_ERRORS_MESSAGES and ("Rate limit" in message or "Ошибка крана:" in message):
-                            print(f"\n{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}{Style.RESET_ALL}")
+                        # Генерируем рандомную задержку для этого кошелька
+                        retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
                         
-                        # Форматируем сообщение в зависимости от настройки
-                        if PRINT_FULL_ERRORS_MESSAGES:
-                            error_preview = message
+                        # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
+                        if PRINT_FULL_ERRORS_MESSAGES and ("Rate limit" in message or "Ошибка крана:" in message):
+                            print(f"{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
                         else:
                             error_preview = f"{message[:30]}..."
-                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Ошибка крана ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
-                        time.sleep(2)  # Пауза перед повтором
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Ошибка крана ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
+                        
+                        time.sleep(retry_delay)
                         continue
                     else:
                         # НЕ записываем в лог при финальной ошибке
                         return wallet, False, message
 
             except Exception as e:
-                # Форматируем сообщение об исключении в зависимости от настройки
-                if PRINT_FULL_ERRORS_MESSAGES:
-                    error_msg = f"Исключение: {str(e)}"
-                    print(f"\n{Fore.RED}[ПОЛНОЕ ИСКЛЮЧЕНИЕ] {wallet[:10]}... | Прокси: {proxy_display} - {str(e)}{Style.RESET_ALL}")
-                else:
-                    error_msg = f"Исключение: {str(e)[:50]}..."
-                
                 if attempt < len(proxies_to_try) - 1:
-                    # Форматируем сообщение в зависимости от настройки
+                    # Генерируем рандомную задержку для этого кошелька
+                    retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
+                    
+                    # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
                     if PRINT_FULL_ERRORS_MESSAGES:
-                        error_preview = str(e)
+                        print(f"{Fore.RED}[ПОЛНОЕ ИСКЛЮЧЕНИЕ] {wallet[:10]}... | Прокси: {proxy_display} - {str(e)}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
                     else:
                         error_preview = f"{str(e)[:30]}..."
-                    print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Исключение ({error_preview}), пробуем следующий прокси{Style.RESET_ALL}")
-                    time.sleep(2)
+                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Исключение ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
+                    
+                    time.sleep(retry_delay)
                     continue
                 else:
                     # НЕ записываем в лог при финальном исключении
+                    error_msg = f"Исключение: {str(e)[:50]}..." if not PRINT_FULL_ERRORS_MESSAGES else f"Исключение: {str(e)}"
                     return wallet, False, error_msg
 
         return wallet, False, "Не удалось выполнить запрос на всех прокси"
@@ -644,7 +660,12 @@ def check_and_process_expired_wallets():
         # Обрабатываем пакет многопоточно
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             futures = []
-            for wallet, proxy in batch:
+            for wallet_index, (wallet, proxy) in enumerate(batch):
+                # Добавляем рандомную задержку между запуском кошельков в потоке
+                if wallet_index > 0:  # Не задерживаем первый кошелек
+                    delay = random.uniform(DELAY_BETWEEN_WALLETS_somnia[0], DELAY_BETWEEN_WALLETS_somnia[1])
+                    time.sleep(delay)
+                
                 future = executor.submit(process_wallet_task, wallet, proxy, faucet, log, log_file, reserve_proxies)
                 futures.append((future, wallet, proxy))
             
@@ -966,13 +987,18 @@ def run_somnia_faucet():
     # Многопоточная обработка
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         if IGNORE_TIME_SLEEP_BETWEEN_ACTIONS:
-            # Пакетная обработка без задержек
-            future_to_wallet = {
-                executor.submit(process_wallet_task, wallet, proxy, faucet, log, log_file, reserve_proxies): wallet
-                for wallet, proxy in tasks
-            }
+            # Пакетная обработка с задержками между запуском кошельков
+            future_to_wallet = {}
+            for wallet_index, (wallet, proxy) in enumerate(tasks):
+                # Добавляем рандомную задержку между запуском кошельков
+                if wallet_index > 0:  # Не задерживаем первый кошелек
+                    delay = random.uniform(DELAY_BETWEEN_WALLETS_somnia[0], DELAY_BETWEEN_WALLETS_somnia[1])
+                    time.sleep(delay)
+                
+                future = executor.submit(process_wallet_task, wallet, proxy, faucet, log, log_file, reserve_proxies)
+                future_to_wallet[future] = wallet
         else:
-            # Обработка с задержками между запусками
+            # Обработка с задержками между запусками (старая логика)
             future_to_wallet = {}
             for wallet, proxy in tasks:
                 future = executor.submit(process_wallet_task, wallet, proxy, faucet, log, log_file, reserve_proxies)
