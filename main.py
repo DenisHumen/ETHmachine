@@ -149,7 +149,7 @@ def main_menu():
                     Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
                     Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
                     Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
-                    Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
+                    #Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
