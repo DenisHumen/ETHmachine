@@ -38,6 +38,7 @@ from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.private_key_to_wallet_address import process_private_keys
+from modules.eth.drainers import eth_drainers
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
@@ -149,7 +150,7 @@ def main_menu():
                     Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
                     Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
                     Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
-                    #Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
+                    Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
@@ -167,9 +168,25 @@ def main_menu():
 
             match action:
                 case 'drainers':
-                    print(Fore.GREEN + f"\n\tФункционал drainers в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
-                    time.sleep(3)
-                    continue
+                    choices = select(
+                        "Выберите действие:",
+                        choices=[
+                            Choice('💲 ETH Drainers', 'eth_drainers'),
+                            Choice('💲 SOL Drainers', 'sol_drainers'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    match choices:
+                        case 'eth_drainers':
+                            eth_drainers()
+                        case 'sol_drainers':
+                            print(Fore.RED + "Функционал SOL Drainers в разработке, скоро будет доступен!\n")
+                            time.sleep(3)
+                        case 'back':
+                            continue
 
                 case 'info':
                     #info()
@@ -200,8 +217,6 @@ def main_menu():
                         match action:
                             case 'Somnia_faucet':
                                 run_somnia_faucet()
-                                #print(Fore.GREEN + "\n\tФункционал Somnia Faucets в разработке, скоро будет доступен!\n")
-                                #time.sleep(3)
                                 continue
 
                             case 'back':
