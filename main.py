@@ -136,7 +136,7 @@ def check_and_create_files():
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
                 elif 'one_time_intermediary.csv' in file:
                     f.write('mnemonic,wallet_address,private_key,status\n')
-                elif 'data/twitters.csv' in file:
+                elif 'data/twitter/twitters.csv' in file:
                     f.write('nickname,auth_token,ct0\n')
                 elif 'data/twitter/twitter_task.csv' in file:
                     f.write('еще в разработке\n')
