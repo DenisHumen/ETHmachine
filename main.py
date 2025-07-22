@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, init
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-
 from questionary import Choice, select
 
 from config.rpc import (
@@ -21,7 +20,6 @@ from config.config import (
     NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
 )
 
-# Импорт функций из модулей
 from modules.info import info
 from modules.get_wallet_balance import get_wallet_balance
 from modules.get_wallet_balance_fast import get_wallet_balance_fast
@@ -29,6 +27,7 @@ from modules.get_token_wallet_balance_fast import check_token_balances_menu
 from modules.get_gas_price import get_gas_price
 
 from modules.faucets.somnia import run_somnia_faucet
+from modules.twitter.twitter_check import run_twitter_check
 
 from modules.cex.okx import withdraw_from_okx, get_balances_okx
 from modules.cex.binance import withdraw_from_binance, get_balances_binance
@@ -91,14 +90,18 @@ def check_and_create_files():
         'db/spot_trade.sqlite',
         'data/one_time_intermediary.csv',
         'data/private_keys.txt',
-        'data/twitter_tokens.csv',
+        'data/twitter/twitters.csv',
+        'result/twitter/result.csv',
+        'data/twitter/twitter_task.csv'
     ]
     required_directories = [
         'result',
         'data',
         'db',
         'result/json/pharos_faucet',
-        'result/faucet'
+        'result/faucet',
+        'result/twitter',
+        'data/twitter',
     ]
 
     for directory in required_directories:
@@ -133,8 +136,10 @@ def check_and_create_files():
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
                 elif 'one_time_intermediary.csv' in file:
                     f.write('mnemonic,wallet_address,private_key,status\n')
-                elif 'twitter_tokens.csv' in file:
-                    f.write('auth_token,ct0\n')
+                elif 'data/twitters.csv' in file:
+                    f.write('nickname,auth_token,ct0\n')
+                elif 'data/twitter/twitter_task.csv' in file:
+                    f.write('еще в разработке\n')
             print(Fore.GREEN + f"File created: {file}")
 
 def main_menu():
@@ -150,6 +155,7 @@ def main_menu():
                     Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
                     Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
                     Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
+                    Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
@@ -185,6 +191,50 @@ def main_menu():
                         case 'sol_drainers':
                             print(Fore.RED + "Функционал SOL Drainers в разработке, скоро будет доступен!\n")
                             time.sleep(3)
+                        case 'back':
+                            continue
+
+                case 'twitter':
+                    count = select(
+                        "Выберите действие:",
+                        choices=[
+                            Choice('🐦 Check Twitter Accounts  🌟 сбор статистики по аккаунтам с data/twitter/twitters.csv', 'check_twitter_accounts'),
+                            Choice('🐦 Twitter Task            🌟 выполнение задач по файлу data/twitter/twitter_task.csv', 'twitter_task'),
+                            Choice('ℹ️ INFO', 'info'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉',
+                    ).ask()
+                    match count:
+                        case 'check_twitter_accounts':
+                            choices = select(
+                                "Выберите платформу на которой запускается скрипт:",
+                                choices=[
+                                    Choice('🐦 Windows', 'windows'),
+                                    Choice('🐦 Linux', 'linux'),
+                                    Choice('🐦 MacOS', 'macos'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+
+                            match choices:
+                                case 'windows':
+                                    run_twitter_check('windows')
+                                case 'linux':
+                                    run_twitter_check('linux')
+                                case 'macos':
+                                    run_twitter_check('macos')
+                                case 'back':
+                                    continue
+
+                        case 'twitter_task':
+                            print(Fore.GREEN + "\n\tФункционал Twitter Task в разработке, скоро будет доступен!\n")
+                        case 'info':
+                            print(Fore.GREEN + "\n\tИнформация о Twitter Checker (еще делаю):\n")
+
                         case 'back':
                             continue
 

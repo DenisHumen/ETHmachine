@@ -483,10 +483,10 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                 
                 if not proxy_working:
                     if PRINT_FULL_ERRORS_MESSAGES:
-                        print(f"{Fore.YELLOW}[PROXY DEBUG] {wallet[:10]}... - Прокси {current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy}: {proxy_error}{Style.RESET_ALL}")
+                        print(f"{Fore.YELLOW}[PROXY DEBUG] {wallet[:10]}... - Прокси: {current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy}: {proxy_error}{Style.RESET_ALL}")
                     
                     if attempt < len(proxies_to_try) - 1:
-                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси {proxy_display} не работает ({proxy_error}), пробуем следующий резервный{Style.RESET_ALL}")
+                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный{Style.RESET_ALL}")
                         continue
                     else:
                         return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error})"
@@ -787,9 +787,9 @@ def display_proxy_distribution_info(wallets_count, proxies_count, log=None):
         print(Fore.YELLOW + "   ⚠️ Резервных прокси нет")
         
     elif proxies_count < wallets_count:
-        print(Fore.YELLOW + "⚠️ Режим рандомного распределения: Прокси меньше кошельков")
+        print(Fore.YELLOW + "⚠️ Режим рандомного распределения: Прокси: меньше кошельков")
         print(Fore.CYAN + f"   📊 Кошельков: {wallets_count}, Прокси: {proxies_count}")
-        print(Fore.YELLOW + "   🔀 Прокси будут назначаться случайным образом")
+        print(Fore.YELLOW + "   🔀 Прокси: будут назначаться случайным образом")
         
     else:  # proxies_count > wallets_count
         main_proxies = wallets_count

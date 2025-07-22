@@ -14,6 +14,7 @@ db/transfer_progress.json
 data/mnemonic.txt
 data/one_time_intermediary.csv
 data/private_keys.txt
-data/twitter_tokens.csv
+data/twitter/twitters.csv
+data/twitter/twitter_task.csv
 db/spot_trade.sqlite
 config/cex_settings.py
