@@ -61,59 +61,108 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         # Получение газа для транзакции
         gas_price = w3.eth.gas_price
         
+        # Получение nonce
+        nonce = w3.eth.get_transaction_count(wallet_address)
+        
+        # Проверяем поддержку EIP-1559
+        try:
+            latest_block = w3.eth.get_block('latest')
+            supports_eip1559 = hasattr(latest_block, 'baseFeePerGas') and latest_block.baseFeePerGas is not None
+        except:
+            supports_eip1559 = False
+        
         # Построение тестовой транзакции для оценки газа
-        test_tx = {
-            'type': 0x2,
-            'from': Web3.to_checksum_address(wallet_address),
-            'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-            'value': 1000000,  # Тестовое значение
-            'gas': 1000000,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'chainId': w3.eth.chain_id,
-            'maxFeePerGas': int(gas_price * 1.2),
-            'maxPriorityFeePerGas': 0
-        }
+        if supports_eip1559:
+            # EIP-1559 транзакция
+            try:
+                max_priority_fee = w3.eth.max_priority_fee
+            except:
+                max_priority_fee = w3.to_wei(1, 'gwei')  # 1 gwei fallback
+            
+            max_fee_per_gas = int(gas_price * 1.5)  # Увеличиваем множитель
+            
+            test_tx = {
+                'type': 0x2,
+                'from': Web3.to_checksum_address(wallet_address),
+                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                'value': 1000000,  # Тестовое значение
+                'nonce': nonce,
+                'chainId': w3.eth.chain_id,
+                'maxFeePerGas': max_fee_per_gas,
+                'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
+            }
+        else:
+            # Legacy транзакция
+            test_tx = {
+                'from': Web3.to_checksum_address(wallet_address),
+                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                'value': 1000000,  # Тестовое значение
+                'nonce': nonce,
+                'gasPrice': int(gas_price * 1.5)  # Увеличиваем множитель
+            }
         
         # Оценка газа
         try:
             estimated_gas = w3.eth.estimate_gas(test_tx)
-            gas_limit = int(estimated_gas * 1.2)  # +20% запас
+            gas_limit = int(estimated_gas * 1.5)  # Увеличиваем запас до 50%
         except Exception as e:
             print(Fore.YELLOW + f"Не удалось оценить газ, используем 21000: {e}")
-            gas_limit = int(21000 * 1.2)
+            gas_limit = 25000  # Увеличиваем базовый лимит
         
-        gas_cost = gas_limit * int(gas_price * 1.2)
+        # Расчет стоимости газа
+        if supports_eip1559:
+            gas_cost = gas_limit * max_fee_per_gas
+        else:
+            gas_cost = gas_limit * int(gas_price * 1.5)
         
         # Проверка достаточности средств для газа
         if balance_wei <= gas_cost:
-            print(Fore.YELLOW + "⚠️ Недостаточно средств для оплаты газа")
+            print(Fore.YELLOW + f"⚠️ Недостаточно средств для оплаты газа. Баланс: {w3.from_wei(balance_wei, 'ether')} ETH, Газ: {w3.from_wei(gas_cost, 'ether')} ETH")
             return {
                 'wallet': wallet_address,
                 'balance': str(balance_eth),
                 'status': 'insufficient_gas',
                 'tx_hash': '',
                 'explorer_link': '',
-                'error': 'Недостаточно средств для газа'
+                'error': f'Недостаточно средств для газа. Нужно: {w3.from_wei(gas_cost, "ether"):.8f} ETH'
             }
         
-        # Сумма к отправке (баланс минус газ)
-        amount_to_send = balance_wei - gas_cost
+        # Сумма к отправке (баланс минус газ с дополнительным запасом)
+        amount_to_send = balance_wei - int(gas_cost * 1.1)  # Дополнительный запас 10%
         
-        # Получение nonce
-        nonce = w3.eth.get_transaction_count(wallet_address)
+        if amount_to_send <= 0:
+            print(Fore.YELLOW + f"⚠️ После вычета газа сумма к отправке <= 0")
+            return {
+                'wallet': wallet_address,
+                'balance': str(balance_eth),
+                'status': 'insufficient_amount',
+                'tx_hash': '',
+                'explorer_link': '',
+                'error': 'Сумма к отправке после вычета газа <= 0'
+            }
         
-        # Построение транзакции в том же формате что и в transefer_wallets_to_wallets.py
-        transaction = {
-            'type': 0x2,
-            'from': Web3.to_checksum_address(wallet_address),
-            'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-            'value': amount_to_send,
-            'gas': gas_limit,
-            'nonce': nonce,
-            'chainId': w3.eth.chain_id,
-            'maxFeePerGas': int(gas_price * 1.2),
-            'maxPriorityFeePerGas': 0
-        }
+        # Построение финальной транзакции
+        if supports_eip1559:
+            transaction = {
+                'type': 0x2,
+                'from': Web3.to_checksum_address(wallet_address),
+                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                'value': amount_to_send,
+                'gas': gas_limit,
+                'nonce': nonce,
+                'chainId': w3.eth.chain_id,
+                'maxFeePerGas': max_fee_per_gas,
+                'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
+            }
+        else:
+            transaction = {
+                'from': Web3.to_checksum_address(wallet_address),
+                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                'value': amount_to_send,
+                'gas': gas_limit,
+                'nonce': nonce,
+                'gasPrice': int(gas_price * 1.5)
+            }
         
         # Подписание транзакции
         signed_txn = w3.eth.account.sign_transaction(transaction, private_key)
@@ -129,14 +178,16 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         try:
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
             if receipt.status == 1:
-                print(Fore.GREEN + f"✅ Успешно отправлено {w3.from_wei(amount_to_send, 'ether'):.6f} ETH")
+                amount_sent_eth = w3.from_wei(amount_to_send, 'ether')
+                print(Fore.GREEN + f"✅ Успешно отправлено {amount_sent_eth:.8f} ETH")
                 return {
                     'wallet': wallet_address,
                     'balance': str(balance_eth),
                     'status': 'success',
                     'tx_hash': tx_hash_hex,
                     'explorer_link': f"{explorer_url}{tx_hash_hex}",
-                    'error': ''
+                    'error': '',
+                    'amount_sent': f"{amount_sent_eth:.8f}"
                 }
             else:
                 print(Fore.RED + f"❌ Транзакция провалена")
@@ -156,18 +207,19 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
                 'status': 'timeout',
                 'tx_hash': tx_hash_hex,
                 'explorer_link': f"{explorer_url}{tx_hash_hex}",
-                'error': f'Timeout: {str(e)}'
+                'error': f'Timeout: {str(e)[:100]}'
             }
         
     except Exception as e:
-        print(Fore.RED + f"❌ Ошибка при обработке кошелька {private_key[:10]}...: {str(e)[:50]}...")
+        error_msg = str(e)
+        print(Fore.RED + f"❌ Ошибка при обработке кошелька {private_key[:10]}...: {error_msg[:100]}...")
         return {
-            'wallet': 'unknown',
-            'balance': '0',
+            'wallet': account.address if 'account' in locals() else 'unknown',
+            'balance': str(balance_eth) if 'balance_eth' in locals() else '0',
             'status': 'error',
             'tx_hash': '',
             'explorer_link': '',
-            'error': str(e)
+            'error': error_msg[:200]  # Увеличиваем лимит символов для ошибки
         }
 
 def eth_drainers():
@@ -328,7 +380,7 @@ def eth_drainers():
     # Сохранение результатов в CSV
     print(Fore.CYAN + f"\n\n💾 Сохраняем результаты...")
     with open(result_file, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['wallet', 'balance', 'status', 'tx_hash', 'explorer_link', 'error']
+        fieldnames = ['wallet', 'balance', 'status', 'tx_hash', 'explorer_link', 'error', 'amount_sent']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
