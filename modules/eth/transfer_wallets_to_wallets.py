@@ -5,11 +5,18 @@ from colorama import Fore
 import time
 from datetime import datetime, timedelta
 import csv
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops
+import sys
+from pathlib import Path
 from itertools import cycle
 from colorama import Style
 import json
 import os
+
+# Настройка путей для импорта
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops
 from config.explorer_url import get_explorer_url
 
 

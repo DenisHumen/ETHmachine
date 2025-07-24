@@ -3,7 +3,7 @@ from pathlib import Path
 from questionary import Choice, select
 from colorama import Fore
 
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 def get_network_rpc_selection():
@@ -21,7 +21,7 @@ def get_network_rpc_selection():
             L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
             Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, 
             monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth_testnet, 
-            Abstract, pharos_testnet
+            Abstract, pharos_testnet, camp_testnet
         )
         
         mainnet_rpc_urls = {
@@ -46,6 +46,7 @@ def get_network_rpc_selection():
             '🚀 Somnia Testnet': somnia_testnet,
             '🚀 Mega ETH': mega_eth_testnet,
             '🚀 Pharos': pharos_testnet,
+            '🚀 Camp Testnet': camp_testnet,
         }
     
     network_type = select(
@@ -53,6 +54,7 @@ def get_network_rpc_selection():
         choices=[
             Choice('🌐 Mainnet', 'mainnet'),
             Choice('🔧 Testnet', 'testnet'),
+            Choice('🌍 Проверить ВСЕ сети', 'all_networks'),
             Choice('🔙 Back', 'back')
         ],
         qmark='🛠️',
@@ -61,6 +63,12 @@ def get_network_rpc_selection():
 
     if network_type == 'back':
         return None, None, None
+    
+    if network_type == 'all_networks':
+        all_networks = {}
+        all_networks.update(mainnet_rpc_urls)
+        all_networks.update(testnet_rpc_urls)
+        return 'ALL_NETWORKS', all_networks, 'All Networks'
 
     if network_type in ['mainnet', 'testnet']:
         network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())

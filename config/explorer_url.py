@@ -1,22 +1,74 @@
+# Словарь с обновлёнными данными
+explorers = {
+    '🚀 Ethereum Mainnet': {'symbol': 'ETH', 'tx_url': "https://etherscan.io/tx/"},
+    '🚀 Base': {'symbol': 'ETH', 'tx_url': "https://basescan.org/tx/"},
+    '🚀 Arbitrum One': {'symbol': 'ETH', 'tx_url': "https://arbiscan.io/tx/"},
+    '🚀 Optimism': {'symbol': 'ETH', 'tx_url': "https://optimistic.etherscan.io/tx/"},
+    '🚀 Soneium': {'symbol': 'ETH', 'tx_url': "https://soneium.blockscout.com/tx/"},
+    '🚀 Polygon': {'symbol': 'MATIC', 'tx_url': "https://polygonscan.com/tx/"},
+    '🚀 Binance Smart Chain': {'symbol': 'BNB', 'tx_url': "https://bscscan.com/tx/"},
+    '🚀 Avalanche': {'symbol': 'AVAX', 'tx_url': "https://subnets.avax.network/p-chain/tx/"},
+    '🚀 Fantom': {'symbol': 'FTM', 'tx_url': "https://explorer.fantom.network/transactions/"},
+    '🚀 Gravity Alpha Mainnet': {'symbol': 'G', 'tx_url': "https://explorer.gravity.xyz/tx/"},
+    '🚀 Zora': {'symbol': 'ETH', 'tx_url': "https://explorer.zora.energy/tx/"},
+    '🚀 Abstract': {'symbol': 'ETH', 'tx_url': "https://explorer.testnet.abs.xyz/tx/"},
+    '🚀 Sepolia': {'symbol': 'ETH', 'tx_url': "https://sepolia.etherscan.io/tx/"},
+    '🚀 Monad Testnet (native token MON)': {'symbol': 'MON', 'tx_url': "https://testnet.monvision.io/tx/"},
+    '🚀 Sahara testnet': {'symbol': 'ETH', 'tx_url': "https://testnet-explorer.saharalabs.ai/tx/"},
+    '🚀 Somnia Testnet': {'symbol': 'ETH', 'tx_url': "https://shannon-explorer.somnia.network/tx/"},
+    '🚀 Mega ETH': {'symbol': 'ETH', 'tx_url': "https://www.oklink.com/ru/megaeth-testnet/tx/"},
+    '🚀 Pharos': {'symbol': 'ETH', 'tx_url': "https://testnet.pharosscan.xyz/tx/"},
+    '🚀 Camp Testnet': {'symbol': 'ETH', 'tx_url': "https://explorer.camp-network-testnet.gelato.digital/tx/"},
+}
+
 def get_explorer_url(network):
-    explorers = {
-        '🚀 Ethereum Mainnet': "https://etherscan.io/tx/",
-        '🚀 Base': "https://basescan.org/tx/",
-        '🚀 Arbitrum One': "https://arbiscan.io/tx/",
-        '🚀 Optimism': "https://optimistic.etherscan.io/tx/",
-        '🚀 Soneium': "https://soneium.blockscout.com/tx/",
-        '🚀 Polygon': "https://polygonscan.com/tx/",
-        '🚀 Binance Smart Chain': "https://bscscan.com/tx/",
-        '🚀 Avalanche': "https://subnets.avax.network/p-chain/tx/",
-        '🚀 Fantom': "https://explorer.fantom.network/transactions/",
-        '🚀 Gravity Alpha Mainnet': "https://explorer.gravity.xyz/tx/",
-        '🚀 Zora': "https://explorer.zora.energy/tx/",
-        '🚀 Abstract': "https://explorer.testnet.abs.xyz/tx/",
-        '🚀 Sepolia': "https://sepolia.etherscan.io/tx/",
-        '🚀 Monad Testnet (native token MON)': "https://testnet.monvision.io/tx/",
-        '🚀 Sahara testnet': "https://testnet-explorer.saharalabs.ai/tx/",
-        '🚀 Somnia Testnet': "https://shannon-explorer.somnia.network/tx/",
-        '🚀 Mega ETH': "https://www.oklink.com/ru/megaeth-testnet/tx/",
-        '🚀 Pharos': "https://testnet.pharosscan.xyz/tx/",
-    }
-    return explorers.get(network, "ошибка получения explorer URL для сети: ")
+    """
+    Возвращает URL обозревателя (tx_url) для указанной сети.
+    Сохраняет обратную совместимость с предыдущей версией.
+    
+    Args:
+        network (str): Название сети
+        
+    Returns:
+        str: URL обозревателя или сообщение об ошибке
+    """
+    data = explorers.get(network)
+    if data is not None:
+        return data['tx_url']
+    return "ошибка получения explorer URL для сети: "
+
+def get_network_symbol(network):
+    """
+    Возвращает символ нативного токена для указанной сети.
+    
+    Args:
+        network (str): Название сети
+        
+    Returns:
+        str: Символ токена или 'ETH' по умолчанию
+    """
+    data = explorers.get(network)
+    if data is not None:
+        return data['symbol']
+    return 'ETH'  # По умолчанию возвращаем ETH
+
+def get_network_info(network):
+    """
+    Возвращает полную информацию о сети (символ токена и URL обозревателя).
+    
+    Args:
+        network (str): Название сети
+        
+    Returns:
+        dict: Словарь с ключами 'symbol' и 'tx_url' или None если сеть не найдена
+    """
+    return explorers.get(network)
+
+def get_all_networks():
+    """
+    Возвращает список всех доступных сетей.
+    
+    Returns:
+        list: Список названий сетей
+    """
+    return list(explorers.keys())

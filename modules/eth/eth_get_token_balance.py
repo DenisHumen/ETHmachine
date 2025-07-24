@@ -17,7 +17,7 @@ init()
 import sys
 from pathlib import Path
 
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
@@ -242,7 +242,7 @@ def save_results_all_tokens(results, tokens_dict, wallets):
 
 def check_token_balances_menu():
     """Меню для выбора сети и проверки балансов токенов"""
-    from modules.rpc_return_module import get_network_rpc_selection, get_token_selection_for_network
+    from modules.eth.rpc_return_module import get_network_rpc_selection, get_token_selection_for_network
     
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:

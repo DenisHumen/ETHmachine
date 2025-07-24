@@ -1,14 +1,9 @@
 import os
-import csv
 import time
 import json
-import random
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from colorama import Fore, init
-from tqdm import tqdm
-from tqdm.contrib.logging import logging_redirect_tqdm
 from questionary import Choice, select
 
 from config.rpc import (
@@ -17,14 +12,13 @@ from config.rpc import (
     somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet
 )
 from config.config import (
-    NUM_THREADS, expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
+    expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable
 )
 
 from modules.info import info
-from modules.get_wallet_balance import get_wallet_balance
-from modules.get_wallet_balance_fast import get_wallet_balance_fast
-from modules.get_token_wallet_balance_fast import check_token_balances_menu
-from modules.get_gas_price import get_gas_price
+from modules.eth.eth_get_balaces import check_wallet_balances_menu
+from modules.eth.eth_get_token_balance import check_token_balances_menu
+from modules.get_gas_price import check_all_gas_prices
 
 from modules.faucets.somnia import run_somnia_faucet
 from modules.twitter.twitter_check import run_twitter_check
@@ -36,18 +30,18 @@ from modules.GitHub.check_version import check_version
 from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
-from modules.eth.private_key_to_wallet_address import process_private_keys
-from modules.eth.drainers import eth_drainers
+from modules.eth.eth_private_key_to_wallet_address import process_private_keys
+from modules.eth.eth_drainers import eth_drainers
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
 from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
 
-from modules.transefer_wallets_to_wallets import (
-    transefer_wallets_to_wallets, process_wallets_transfer, get_proxy_list
+from modules.eth.transfer_wallets_to_wallets import (
+    process_wallets_transfer, get_proxy_list
 )
 
-from modules.stats_modules.pharos_stats import pharos_wallet_stats
+#from modules.stats_modules.pharos_stats import pharos_wallet_stats
 
 init(autoreset=True)
 
@@ -83,6 +77,7 @@ def check_and_create_files():
         'result/result.csv',
         'data/proxy.csv',
         'data/walletss.txt',
+        'data/walletss_sol.txt',
         'config/cex_settings.py',
         'data/transfer_token.csv',
         'data/mnemonic.txt',
@@ -149,11 +144,9 @@ def main_menu():
         print(Fore.RED + "\tВНИМАНИЕ директорию 'result/json/', 'result/faucet' и db/ нужно бекапить. Хранит в себе важные данные.\n")
         while True:
             action = select(
-                f"What do you want to do?",
+                f"Что вы хотите сделать?",
                 choices=[
-                    Choice('💲 Check Balances ETH           🌟 Проверить балансы', 'check_balances'),
-                    Choice('💲 Check Balances SOL           🌟 Проверить балансы SOL', 'check_balances_SOL'),
-                    Choice('🔧 Check Token Balances         🌟 Проверить балансы токенов', 'check_token_balances'),
+                    Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
@@ -164,7 +157,6 @@ def main_menu():
                     Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transefer_wallets_to_wallets_call'),
                     Choice('🔑 ETH/SOL convert tool         🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
-                    #Choice('🌐 Check All Balances          🌟 Проверить все балансы во всех сетях', 'check_all_balances'),  # New option
                     Choice('ℹ️ INFO                          🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
@@ -173,6 +165,60 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'check_balances':
+                    blockchain = select(
+                        "Выберите блокчейн:",
+                        choices=[
+                            Choice('💲 ETH', 'ETH'),
+                            Choice('💲 SOL', 'SOL'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+                    if blockchain == 'back':
+                        continue
+
+                    if blockchain == 'ETH':
+                        choices = select(
+                            "Выберите действие для ETH:",
+                            choices=[
+                                Choice('💲 Check Wallets Balances', 'check_wallet_balances_eth'),
+                                Choice('💲 Check Token Balances', 'check_token_balances'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        match choices:
+                            case 'check_wallet_balances_eth':
+                                check_wallet_balances_menu()
+                            case 'check_token_balances':
+                                check_token_balances_menu()
+                            case 'back':
+                                continue
+
+                    elif blockchain == 'SOL':
+                        choices = select(
+                            "Выберите действие для SOL:",
+                            choices=[
+                                Choice('💲 Check Wallets Balances', 'check_wallet_balances_sol'),
+                                Choice('💲 Check Token Balances', 'check_token_balances_sol'),
+                                Choice('🔙 Back', 'back')
+                            ],
+                            qmark='🛠️',
+                            pointer='👉'
+                        ).ask()
+                        match choices:
+                            case 'check_wallet_balances_sol':
+                                #check_wallet_balances_sol()
+                                print(Fore.RED + "Функционал проверки балансов SOL в разработке, скоро будет доступен!\n")
+                            case 'check_token_balances_sol':
+                                #check_token_balances_sol()
+                                print(Fore.RED + "Функционал проверки токенов SOL в разработке, скоро будет доступен!\n")
+                            case 'back':
+                                continue
+
                 case 'drainers':
                     choices = select(
                         "Выберите действие:",
@@ -687,179 +733,17 @@ def main_menu():
                     )
                     continue
 
+                case 'check_gas_price':
+                    check_all_gas_prices()
+
                 case'back':
                     continue
 
-                case 'check_balances' | 'check_gas_price':
-                    menu_funcs = {
-                        'check_balances': check_balances_menu,
-                        'check_gas_price': check_gas_price_menu,
-                    }
-                    network_type = select(
-                        "Select network type:",
-                        choices=[
-                            Choice('🌐 Mainnet', 'mainnet'),
-                            Choice('🔧 Testnet', 'testnet'),
-                            Choice('🔙 Back', 'back')
-                        ],
-                        qmark='🛠️',
-                        pointer='👉'
-                    ).ask()
-
-                    if network_type == 'back':
-                        continue
-                    if network_type in ['mainnet', 'testnet']:
-                        network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
-                        network = select(
-                            "Which network do you want to check?",
-                            choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
-                            qmark='🛠️',
-                            pointer='👉'
-                        ).ask()
-
-                        if network == 'back':
-                            continue
-
-                        menu_funcs[action](network, network_type)
-
-                case 'check_token_balances':
-                    check_token_balances_menu()
 
     except Exception as e:
         print(Fore.RED + f"Error: {e}")
 
-def check_balances_menu(network, network_type):
-    try:
-        mode = select(
-            "Select mode:",
-            choices=[
-                Choice('🚀 Fast (requires proxies)', 'fast'),
-                Choice('🐢 Slow (no proxies)', 'slow'),
-                Choice('🔙 Back', 'back')
-            ],
-            qmark='🛠️',
-            pointer='👉'
-        ).ask()
-
-        if mode == 'back':
-            return
-
-        with open('data/walletss.txt', 'r', encoding='utf-8') as file:
-            wallet_addresses = file.readlines()
-
-        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
-
-        if mode == 'fast':
-            check_balances_fast(wallet_addresses, network, random.choice(rpc_urls[network]))
-        else:
-            check_balances_slow(wallet_addresses, network, random.choice(rpc_urls[network]))
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def format_proxy(proxy):
-    if not proxy.startswith('http://'):
-        return 'http://' + proxy
-    return proxy
-
-def get_with_retry(func, address, rpc_url, proxies):
-    while True:
-        try:
-            if func == get_wallet_balance_fast:
-                return func(address, rpc_url, [format_proxy(proxy) for proxy in proxies])
-            else:
-                return func(address, rpc_url)
-        except Exception as e:
-            if '429 Client Error: Too Many Requests' in str(e) or 'ProxyError' in str(e) or '407 Proxy Authentication Required' in str(e):
-                if proxies:
-                    proxy = random.choice(proxies)
-                    proxies.remove(proxy)
-                    # Continue retrying with new proxy without printing the error
-                else:
-                    return 'N/A'
-            elif 'Failed to parse' in str(e):
-                tqdm.write(Fore.RED + f"Error with proxy: {e}")
-                tqdm.set_description("Error occurred", refresh=True)
-                tqdm.colour = "red"
-                input(Fore.RED + "Press Enter to continue...")
-                return 'N/A'
-            else:
-                raise e
-
-def check_balances_fast(wallet_addresses, network, rpc_url):
-    try:
-        with open('data/proxy.csv', 'r', encoding='utf-8') as file:
-            proxies = file.readlines()[1:]
-
-        if len(proxies) == 0:
-            print(Fore.RED + "ERROR: No proxies found in data/proxy.csv")
-            return
-        elif len(proxies) < len(wallet_addresses):
-            print(Fore.YELLOW + "WARNING: Так как прокси меньше кошельков, будут браться рандомно.")
-        else:
-            print(Fore.GREEN + "INFO: Прокси больше или равны количеству кошельков, будет использоваться 1к1.")
-
-        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
-
-        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            with logging_redirect_tqdm():
-                future_to_address = {executor.submit(get_with_retry, get_wallet_balance_fast, addr.strip(), rpc_url, [format_proxy(proxy) for proxy in proxies.copy()]): addr for addr in wallet_addresses}
-                for future in tqdm(as_completed(future_to_address), total=len(wallet_addresses), desc="Checking balances", unit="wallet", colour="green"):
-                    address = future_to_address[future]
-                    try:
-                        balance = future.result()
-                        results[address.strip()] = balance if balance is not None else 'N/A'
-                    except Exception as e:
-                        tqdm.write(Fore.RED + f"Error checking balance for {address.strip()}: {e}")
-                        tqdm.set_description("Error occurred", refresh=True)
-                        tqdm.colour = "red"
-                        input(Fore.RED + "Press Enter to continue...")
-                        return
-
-        with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['address', 'balance', 'network']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for address in wallet_addresses:
-                writer.writerow({'address': address.strip(), 'balance': results[address.strip()], 'network': network})
-
-        print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def check_balances_slow(wallet_addresses, network, rpc_url):
-    try:
-        results = {addr.strip(): 'N/A' for addr in wallet_addresses}
-
-        with open('result/result.csv', 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['address', 'balance', 'network']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for address in tqdm(wallet_addresses, desc="Checking balances", unit="wallet"):
-                address = address.strip()
-                balance = get_wallet_balance(address, rpc_url)
-                time.sleep(1)
-                results[address] = balance
-
-            for address in wallet_addresses:
-                writer.writerow({'address': address.strip(), 'balance': results[address.strip()], 'network': network})
-
-        print(Fore.GREEN + f"\n\n\nBalances checked and saved in result/result.csv for {network} network\n")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-
-def check_gas_price_menu(network, network_type):
-    try:
-        rpc_urls = mainnet_rpc_urls if network_type == 'mainnet' else testnet_rpc_urls
-        gas_price = get_gas_price(random.choice(rpc_urls[network]))
-        if gas_price is not None:
-            print(Fore.GREEN + f"\n\n\n⛽ Current gas price on {network}: {gas_price} Gwei\n")
-        else:
-            print(Fore.RED + f"\n\n\n❌ Failed to retrieve gas price for {network}.\n")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
 
 if __name__ == "__main__":
     check_version("ETHmachine")
     main_menu()
-

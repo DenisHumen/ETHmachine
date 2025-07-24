@@ -18,3 +18,4 @@ data/twitter/twitters.csv
 data/twitter/twitter_task.csv
 db/spot_trade.sqlite
 config/cex_settings.py
+data/walletss_sol.txt
