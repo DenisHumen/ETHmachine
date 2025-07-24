@@ -2,7 +2,6 @@ requests
 web3
 inquirer
 colorama
-tqdm
 questionary
 python-okx
 mnemonic

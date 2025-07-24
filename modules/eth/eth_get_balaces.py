@@ -397,7 +397,7 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
                     end="",
                     flush=True,
                 )
-    
+
     print(Fore.MAGENTA + "\n\n" + "="*80)
     print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
     print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
@@ -508,20 +508,6 @@ def check_wallet_balances_all_networks(all_networks):
                     end="",
                     flush=True,
                 )
-    
-    print(Fore.MAGENTA + "\n\n" + "="*80)
-    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
-    print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
-    print(Fore.RED + f"❌ Ошибок: {failed_count}")
-    print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
-    
-    total_time = time.time() - start_time
-    print(Fore.CYAN + f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
-    
-    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results_all_networks(results, all_networks, wallets)
-    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
-    print(Fore.MAGENTA + "="*80 + "\n")
 
 def check_wallet_balances_menu():
     """Главная функция для запуска проверки балансов кошельков"""
@@ -529,6 +515,20 @@ def check_wallet_balances_menu():
     
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:
+        return
+    
+    if rpc_urls_list == 'ALL_NETWORKS':
+        # Проверяем все сети
+        check_wallet_balances_all_networks(network_type)
+    else:
+        # Проверяем одну сеть
+        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
+    if rpc_urls_list == 'ALL_NETWORKS':
+        # Проверяем все сети
+        check_wallet_balances_all_networks(network_type)
+    else:
+        # Проверяем одну сеть
+        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
         return
     
     if rpc_urls_list == 'ALL_NETWORKS':

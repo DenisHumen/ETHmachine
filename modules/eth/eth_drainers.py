@@ -242,7 +242,7 @@ def eth_drainers():
     print(Fore.CYAN + f"🔗 RPC URL: {rpc_url}")
     print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
     
-    # Получаем URL эксплорера для выбранной сети
+    # Получаем URL эксплорера для выбранной сети (добавляем эмодзи обратно)
     explorer_url = get_explorer_url(f"🚀 {clean_network}")
     print(Fore.CYAN + f"🔍 Explorer URL: {explorer_url}")
     
