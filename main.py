@@ -122,13 +122,13 @@ def check_and_create_files():
                         'OKX_API_PASSPHRAS = ""\n'
                         'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
                         '\n'
-                        '\n'
-                        'TOKEN = [\'USDC\', \'arb\']  # Токены для перевода между кошельками\n'
-                        '    # принцып настройки:\n'
-                        '    # 1. Например токен USDC (значение 0 в массиве), а значение 1 это сеть в которой будет переводиться токен USDC\n'
-                        '    # 2. Если токен имеет только свою сеть, например G тогда значение 1 будет игнорироваться.\n'
-                        '            # - Если сетей несколько, но сеть не была указана, то поумолчнаю будет использовать сеть OP\n'
-                        '    # 3. Доступные сети можно посмотреть ниже в этом файле, или же позже в пункет меню INFO\n'
+                        'TOKEN = [\'USDC\']\n'
+                        '"""\n'
+                        '        - Список токенов:\n'
+                        '                - USDC\n'
+                        '                - USDT\n'
+                        '                - ETH\n'
+                        '"""\n'
                     )
                 elif 'transfer_token.csv' in file:
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
@@ -155,10 +155,10 @@ def main_menu():
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
-                    Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
+                    #Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🔑 ETH/SOL convert tool         🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
-                    Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
-                    Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
+                    #Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
+                    #Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',

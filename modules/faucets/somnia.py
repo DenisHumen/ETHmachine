@@ -885,20 +885,23 @@ def run_somnia_faucet_loop():
             else:
                 print(f"{Fore.YELLOW}📊 Нет готовых кошельков (все ожидают {somnia_timeout[0]}-{somnia_timeout[1]}ч){Style.RESET_ALL}")
             
-            # Генерируем рандомную задержку из конфига
-            delay = random.randint(DELAY_FOR_READY_WALLETS_somnia[0], DELAY_FOR_READY_WALLETS_somnia[1])
-            
-            # Показываем время начала и окончания ожидания
-            start_time = datetime.now()
-            end_time = start_time + timedelta(seconds=delay)
-            print(f"{Fore.BLUE}⏳ Пауза {delay}с до следующего анализа...{Style.RESET_ALL}")
-            print(f"{Fore.BLUE}🕒 Начало: {start_time.strftime('%H:%M:%S')} → Окончание: {end_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
-            
-            # Обратный отсчет
-            for remaining in range(delay, 0, -1):
-                print(f"\r{Fore.BLUE}⏳ Осталось: {remaining}с до следующего анализа...{Style.RESET_ALL}", end="", flush=True)
-                time.sleep(1)
-            print()  # Новая строка после обратного отсчета
+            # Генерируем рандомную задержку из конфига, если требуется
+            if DELAY_FOR_READY_WALLETS_somnia[0] == 0 and DELAY_FOR_READY_WALLETS_somnia[1] == 0:
+                continue  # Без ожидания, сразу следующий цикл
+            else:
+                delay = random.randint(DELAY_FOR_READY_WALLETS_somnia[0], DELAY_FOR_READY_WALLETS_somnia[1])
+                
+                # Показываем время начала и окончания ожидания
+                start_time = datetime.now()
+                end_time = start_time + timedelta(seconds=delay)
+                print(f"{Fore.BLUE}⏳ Пауза {delay}с до следующего анализа...{Style.RESET_ALL}")
+                print(f"{Fore.BLUE}🕒 Начало: {start_time.strftime('%H:%M:%S')} → Окончание: {end_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
+                
+                # Обратный отсчет
+                for remaining in range(delay, 0, -1):
+                    print(f"\r{Fore.BLUE}⏳ Осталось: {remaining}с до следующего анализа...{Style.RESET_ALL}", end="", flush=True)
+                    time.sleep(1)
+                print()  # Новая строка после обратного отсчета
             
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}🛑 Остановка процесса пользователем{Style.RESET_ALL}")
