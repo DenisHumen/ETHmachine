@@ -1,5 +1,14 @@
-import requests
+import sys
+import os
+
+# Исправленный импорт config для корректного поиска модуля
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.append(project_root)
+
 from config.config import ENABLE_NOTIFICATIONS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+import requests
 
 # Эмодзи для разных типов уведомлений
 TYPE_EMOJI = {
@@ -33,7 +42,7 @@ def format_notification_message(
     Все параметры опциональны.
     """
     emoji = TYPE_EMOJI.get(notif_type, TYPE_EMOJI["default"])
-    lines = [f"{emoji} <b>{notif_type.upper()}</b>"]
+    lines = [f"{emoji} <b>{notif_type.upper()}</b>\n"]
 
     if title:
         lines.append(f"<b>{title}</b>")
@@ -134,3 +143,73 @@ def send_telegram_notification(
                 success = False
 
     return success
+
+# if __name__ == "__main__":
+#     # Тестовые вызовы для проверки всех типов уведомлений
+
+#     # Тест: info
+#     send_telegram_notification(
+#         notif_type="info",
+#         title="Информационное уведомление",
+#         message="Это тестовое информационное сообщение.",
+#         proxy="123.45.67.89:8080",
+#         wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+#         status="info",
+#         balance="1.234 ETH",
+#         extra="Дополнительная информация",
+#         tx_hash="0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+#         explorer_url="https://etherscan.io/tx/",
+#         test_param="test_value"
+#     )
+
+#     # Тест: success
+#     send_telegram_notification(
+#         notif_type="success",
+#         title="Успех!",
+#         message="Транзакция прошла успешно.",
+#         proxy="proxy.example.com:3128",
+#         wallet_address="0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+#         status="success",
+#         balance="0.999 ETH",
+#         tx_hash="0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+#         explorer_url="https://etherscan.io/tx/",
+#         extra="Тест успешного уведомления"
+#     )
+
+#     # Тест: error
+#     send_telegram_notification(
+#         notif_type="error",
+#         title="Ошибка!",
+#         message="Произошла ошибка при обработке транзакции.",
+#         proxy="proxy.error.com:8080",
+#         wallet_address="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+#         status="error",
+#         balance="0.0 ETH",
+#         tx_hash="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+#         explorer_url="https://etherscan.io/tx/",
+#         extra="Ошибка: недостаточно средств"
+#     )
+
+#     # Тест: warning
+#     send_telegram_notification(
+#         notif_type="warning",
+#         title="Внимание!",
+#         message="Баланс кошелька низкий.",
+#         wallet_address="0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+#         status="warning",
+#         balance="0.01 ETH",
+#         extra="Проверьте баланс перед отправкой"
+#     )
+
+#     # Тест: critical + файл
+#     test_file_path = "result/result.csv"
+#     send_telegram_notification(
+#         notif_type="critical",
+#         title="Критическая ошибка!",
+#         message="Сбой системы, требуется вмешательство.",
+#         wallet_address="0xfacefacefacefacefacefacefacefacefaceface",
+#         status="critical",
+#         balance="0.00 ETH",
+#         extra="Файл с логами прикреплен",
+#         file_path=test_file_path
+#     )
