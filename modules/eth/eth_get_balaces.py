@@ -508,33 +508,22 @@ def check_wallet_balances_all_networks(all_networks):
                     end="",
                     flush=True,
                 )
+    # Сохраняем результаты после обработки всех кошельков
+    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
+    save_results_all_networks(results, all_networks, wallets)
+    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
+    print(Fore.MAGENTA + "="*80 + "\n")
 
 def check_wallet_balances_menu():
     """Главная функция для запуска проверки балансов кошельков"""
     from modules.eth.rpc_return_module import get_network_rpc_selection
-    
+
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:
         return
-    
-    if rpc_urls_list == 'ALL_NETWORKS':
-        # Проверяем все сети
-        check_wallet_balances_all_networks(network_type)
-    else:
-        # Проверяем одну сеть
-        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
-    if rpc_urls_list == 'ALL_NETWORKS':
-        # Проверяем все сети
-        check_wallet_balances_all_networks(network_type)
-    else:
-        # Проверяем одну сеть
-        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
-        return
-    
-    if rpc_urls_list == 'ALL_NETWORKS':
-        # Проверяем все сети
-        check_wallet_balances_all_networks(network_type)
-    else:
-        # Проверяем одну сеть
-        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
 
+    if rpc_urls_list == 'ALL_NETWORKS':
+        check_wallet_balances_all_networks(network_type)
+    else:
+        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
+    
