@@ -223,18 +223,117 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         }
 
 def eth_drainers():
-    """Дренирование всех кошельков из private_keys.txt на главный кошелек"""
-    
+    """Дренирование всех кошельков из private_keys.txt на главный кошелек, поддержка ВСЕХ сетей"""
     print(Fore.MAGENTA + "\n" + "="*80)
     print(Fore.YELLOW + "🚀 Запуск модуля дренирования кошельков")
     print(Fore.MAGENTA + "="*80)
-    
+
     # Выбор сети и получение RPC
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:
         print(Fore.RED + "❌ Не удалось получить данные сети")
         return
+
+    private_keys_file = 'data/private_keys.txt'
+    if not os.path.exists(private_keys_file):
+        print(Fore.RED + f"❌ Файл {private_keys_file} не найден")
+        return
+
+    with open(private_keys_file, 'r') as f:
+        private_keys = [line.strip() for line in f.readlines() if line.strip()]
+
+    if not private_keys:
+        print(Fore.RED + "❌ Приватные ключи не найдены")
+        return
+
+    print(Fore.GREEN + f"📂 Загружено {len(private_keys)} приватных ключей")
+
+    # Проверка главного кошелька
+    if not EVM_MAIN_WALLET:
+        print(Fore.RED + "❌ EVM_MAIN_WALLET не настроен в config.py")
+        return
+
+    if not Web3.is_address(EVM_MAIN_WALLET):
+        print(Fore.RED + "❌ Некорректный адрес главного кошелька")
+        return
+
+    print(Fore.CYAN + f"🎯 Главный кошелек: {EVM_MAIN_WALLET}")
+
+    result_file = 'result/result.csv'
+    os.makedirs('result', exist_ok=True)
+
+    results = []
+    successful_transactions = 0
+    failed_transactions = 0
+
+    # Настройка прогресс-бара
+    total_wallets = len(private_keys)
+    completed_wallets = 0
+    bar_length = 50
+    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    spinner_cycle = cycle(spinner)
     
+    print(Fore.MAGENTA + "\n" + "-"*80)
+    print(Fore.YELLOW + "🔄 Начинаем дренирование кошельков...")
+    print(Fore.MAGENTA + "-"*80)
+    
+    if rpc_urls_list == 'ALL_NETWORKS':
+        all_networks = network_type  # network_type содержит словарь сетей
+        print(Fore.CYAN + f"🌍 Проверка ВСЕХ сетей: {len(all_networks)}")
+        for network_name, rpc_list in all_networks.items():
+            clean_network = network_name.replace('🚀 ', '')
+            explorer_url = get_explorer_url(network_name)
+            print(Fore.MAGENTA + f"\n--- Сеть: {clean_network} ---")
+            # Для каждой сети - многопоточная обработка
+            with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+                future_to_wallet = {
+                    executor.submit(
+                        process_single_wallet,
+                        private_key,
+                        random.choice(rpc_list),
+                        explorer_url,
+                        i + 1,
+                        len(private_keys)
+                    ): (private_key, i + 1)
+                    for i, private_key in enumerate(private_keys)
+                }
+                for future in as_completed(future_to_wallet):
+                    private_key, wallet_index = future_to_wallet[future]
+                    try:
+                        result = future.result(timeout=600)
+                        result['network'] = clean_network
+                        results.append(result)
+                        if result['status'] == 'success':
+                            successful_transactions += 1
+                        else:
+                            failed_transactions += 1
+                    except Exception as e:
+                        failed_transactions += 1
+                        results.append({
+                            'wallet': 'unknown',
+                            'balance': '0',
+                            'status': 'exception',
+                            'tx_hash': '',
+                            'explorer_link': '',
+                            'error': str(e),
+                            'network': clean_network
+                        })
+        # Сохраняем результаты по всем сетям
+        print(Fore.CYAN + f"\n\n💾 Сохраняем результаты...")
+        with open(result_file, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['wallet', 'balance', 'status', 'tx_hash', 'explorer_link', 'error', 'amount_sent', 'network']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for result in results:
+                writer.writerow(result)
+        print(Fore.GREEN + f"💾 Результаты сохранены в {result_file}")
+        print(Fore.MAGENTA + "="*80 + "\n")
+        print(Fore.YELLOW + "📊 ИТОГИ ДРЕНИРОВАНИЯ:")
+        print(Fore.CYAN + f"📈 Всего кошельков обработано: {len(results)}")
+        print(Fore.GREEN + f"✅ Успешных транзакций: {successful_transactions}")
+        print(Fore.RED + f"❌ Неудачных транзакций: {failed_transactions}")
+        return
+
     # Выбираем случайный RPC из списка
     rpc_url = random.choice(rpc_urls_list)
     

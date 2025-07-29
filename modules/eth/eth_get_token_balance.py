@@ -356,6 +356,16 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     save_results_all_tokens(results, tokens_dict, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
+    
+    from modules.notifications import send_telegram_notification
+    result_file_path = project_root / 'result' / 'result.csv'
+    send_telegram_notification(
+        notif_type="success",
+        title="Проверка балансов всех токенов завершена",
+        message=f"Сеть: {clean_network} ({network_type})\nТокенов: {len(tokens_dict)}\nУспешно: {successful_count}\nОшибок: {failed_count}",
+        main_title="Баланс чек завершён",
+        file_path=str(result_file_path)
+    )
 
 def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbol, token_address):
     """Основная функция для проверки балансов токенов"""
@@ -460,3 +470,13 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
     save_results(results, token_symbol, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
+    
+    from modules.notifications import send_telegram_notification
+    result_file_path = project_root / 'result' / 'result.csv'
+    send_telegram_notification(
+        notif_type="success",
+        title=f"Проверка балансов токена {token_symbol.upper()} завершена",
+        message=f"Сеть: {clean_network} ({network_type})\nТокен: {token_symbol.upper()}\nУспешно: {successful_count}\nОшибок: {failed_count}",
+        main_title="Баланс чек завершён",
+        file_path=str(result_file_path)
+    )

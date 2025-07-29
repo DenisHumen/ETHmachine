@@ -35,6 +35,7 @@ def format_notification_message(
     explorer_url=None,
     balance=None,
     extra=None,
+    main_title="NONE",  # Новый параметр для главного заголовка
     **kwargs
 ):
     """
@@ -42,7 +43,8 @@ def format_notification_message(
     Все параметры опциональны.
     """
     emoji = TYPE_EMOJI.get(notif_type, TYPE_EMOJI["default"])
-    lines = [f"{emoji} <b>{notif_type.upper()}</b>\n"]
+    # Главный заголовок с эмодзи в начале и конце
+    lines = [f"✨ <b>{main_title}</b> ✨", f"{emoji} <b>{notif_type.upper()}</b>\n"]
 
     if title:
         lines.append(f"<b>{title}</b>")
@@ -52,7 +54,8 @@ def format_notification_message(
         lines.append(f"🟨 <b>Proxy:</b> <code>{proxy}</code>")
     if wallet_address:
         lines.append(f"👛 <b>Wallet:</b> <code>{wallet_address}</code>")
-    if status:
+    # Добавляем статус только если он не совпадает с типом уведомления
+    if status and status.lower() != notif_type.lower():
         lines.append(f"📋 <b>Status:</b> <b>{status}</b>")
     if balance is not None:
         lines.append(f"💰 <b>Balance:</b> <code>{balance}</code>")
@@ -83,6 +86,7 @@ def send_telegram_notification(
     balance=None,
     extra=None,
     file_path=None,  # Новый параметр для файла
+    main_title="NONE",  # Новый параметр для главного заголовка
     **kwargs
 ):
     """
@@ -104,29 +108,15 @@ def send_telegram_notification(
         explorer_url=explorer_url,
         balance=balance,
         extra=extra,
+        main_title=main_title,  # Передаём главный заголовок
         **kwargs
     )
 
     success = True
 
     for chat_id in TELEGRAM_CHAT_ID:
-        # Отправка текстового сообщения
-        url_msg = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        try:
-            resp = requests.post(url_msg, json=payload, timeout=10)
-            if resp.status_code != 200:
-                success = False
-        except Exception:
-            success = False
-
-        # Если указан файл, отправляем его как документ
         if file_path:
+            # Отправляем только файл с caption, не отправляем отдельное текстовое сообщение
             url_doc = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
             try:
                 with open(file_path, "rb") as f:
@@ -141,75 +131,20 @@ def send_telegram_notification(
                         success = False
             except Exception:
                 success = False
+        else:
+            # Отправляем только текстовое сообщение
+            url_msg = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True
+            }
+            try:
+                resp = requests.post(url_msg, json=payload, timeout=10)
+                if resp.status_code != 200:
+                    success = False
+            except Exception:
+                success = False
 
     return success
-
-# if __name__ == "__main__":
-#     # Тестовые вызовы для проверки всех типов уведомлений
-
-#     # Тест: info
-#     send_telegram_notification(
-#         notif_type="info",
-#         title="Информационное уведомление",
-#         message="Это тестовое информационное сообщение.",
-#         proxy="123.45.67.89:8080",
-#         wallet_address="0x1234567890abcdef1234567890abcdef12345678",
-#         status="info",
-#         balance="1.234 ETH",
-#         extra="Дополнительная информация",
-#         tx_hash="0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-#         explorer_url="https://etherscan.io/tx/",
-#         test_param="test_value"
-#     )
-
-#     # Тест: success
-#     send_telegram_notification(
-#         notif_type="success",
-#         title="Успех!",
-#         message="Транзакция прошла успешно.",
-#         proxy="proxy.example.com:3128",
-#         wallet_address="0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-#         status="success",
-#         balance="0.999 ETH",
-#         tx_hash="0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-#         explorer_url="https://etherscan.io/tx/",
-#         extra="Тест успешного уведомления"
-#     )
-
-#     # Тест: error
-#     send_telegram_notification(
-#         notif_type="error",
-#         title="Ошибка!",
-#         message="Произошла ошибка при обработке транзакции.",
-#         proxy="proxy.error.com:8080",
-#         wallet_address="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-#         status="error",
-#         balance="0.0 ETH",
-#         tx_hash="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-#         explorer_url="https://etherscan.io/tx/",
-#         extra="Ошибка: недостаточно средств"
-#     )
-
-#     # Тест: warning
-#     send_telegram_notification(
-#         notif_type="warning",
-#         title="Внимание!",
-#         message="Баланс кошелька низкий.",
-#         wallet_address="0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
-#         status="warning",
-#         balance="0.01 ETH",
-#         extra="Проверьте баланс перед отправкой"
-#     )
-
-#     # Тест: critical + файл
-#     test_file_path = "result/result.csv"
-#     send_telegram_notification(
-#         notif_type="critical",
-#         title="Критическая ошибка!",
-#         message="Сбой системы, требуется вмешательство.",
-#         wallet_address="0xfacefacefacefacefacefacefacefacefaceface",
-#         status="critical",
-#         balance="0.00 ETH",
-#         extra="Файл с логами прикреплен",
-#         file_path=test_file_path
-#     )

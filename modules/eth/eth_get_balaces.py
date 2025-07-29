@@ -411,6 +411,17 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     save_results(results, clean_network, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
+    
+    # Уведомление в Telegram с файлом
+    from modules.notifications import send_telegram_notification
+    result_file_path = project_root / 'result' / 'result.csv'
+    send_telegram_notification(
+        notif_type="success",
+        title="Проверка балансов завершена",
+        message=f"Сеть: {clean_network} ({network_type})\nУспешно: {successful_count}\nОшибок: {failed_count}",
+        main_title="Баланс чек завершён",
+        file_path=str(result_file_path)
+    )
 
 def check_wallet_balances_all_networks(all_networks):
     """Функция для проверки балансов во всех сетях"""
@@ -513,6 +524,17 @@ def check_wallet_balances_all_networks(all_networks):
     save_results_all_networks(results, all_networks, wallets)
     print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
     print(Fore.MAGENTA + "="*80 + "\n")
+    
+    # Уведомление в Telegram с файлом
+    from modules.notifications import send_telegram_notification
+    result_file_path = project_root / 'result' / 'result.csv'
+    send_telegram_notification(
+        notif_type="success",
+        title="Проверка балансов по всем сетям завершена",
+        message=f"Сетей: {len(all_networks)}\nУспешно: {successful_count}\nОшибок: {failed_count}",
+        main_title="Баланс чек завершён",
+        file_path=str(result_file_path)
+    )
 
 def check_wallet_balances_menu():
     """Главная функция для запуска проверки балансов кошельков"""
@@ -526,4 +548,4 @@ def check_wallet_balances_menu():
         check_wallet_balances_all_networks(network_type)
     else:
         check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
-    
+
