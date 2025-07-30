@@ -143,7 +143,15 @@ def check_and_create_files():
 def main_menu():
     check_and_create_files()
     try:
-        print(Fore.GREEN + "\nWelcome to ETHmachine! 🌟")
+        print(
+            Fore.GREEN + "\nWelcome to ETHmachine! 🌟 \n TG     🌟 - "
+            + Fore.MAGENTA + "https://t.me/DenisHumen"
+            + Fore.GREEN + " \n GitHub 🌟 - "
+            + Fore.MAGENTA + "https://github.com/DenisHumen"
+            + Fore.GREEN + "\n Steam  🌟 - "
+            + Fore.MAGENTA + "https://steamcommunity.com/id/Krokosha/"
+            + Fore.GREEN + "\n\n"
+        )
         while True:
             action = select(
                 f"Что вы хотите сделать?",
@@ -156,7 +164,8 @@ def main_menu():
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
                     #Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
-                    Choice('🔑 ETH/SOL convert tool         🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                    Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                    Choice('🧰 Miscellaneous                🌟 Разные удобные штуки', 'miscellaneous'),
                     #Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                     #Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
@@ -166,6 +175,24 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'miscellaneous':
+                    choices = select(
+                        "Выберите действие:",
+                        choices=[
+                            Choice('🗂️ password generator', 'password_generator'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    match choices:
+                        case 'password_generator':
+                            pass
+                            #password_generator_menu()
+                        case 'back':
+                            continue
+
                 case 'check_balances':
                     blockchain = select(
                         "Выберите блокчейн:",
