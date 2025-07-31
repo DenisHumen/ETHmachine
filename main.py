@@ -21,6 +21,7 @@ from modules.auto_backup import create_backup, list_backups
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balances_menu
+from modules.password_generator import password_generator_menu
 from modules.get_gas_price import check_all_gas_prices
 
 from modules.faucets.somnia import run_somnia_faucet
@@ -84,12 +85,12 @@ def check_and_create_files():
         'data/transfer_token.csv',
         'data/mnemonic.txt',
         'db/transfer_progress.json',
-        'db/spot_trade.sqlite',
         'data/one_time_intermediary.csv',
         'data/private_keys.txt',
         'data/twitter/twitters.csv',
         'result/twitter/result.csv',
-        'data/twitter/twitter_task.csv'
+        'data/twitter/twitter_task.csv',
+        'db/spot_trade.db'
     ]
     required_directories = [
         'result',
@@ -99,7 +100,8 @@ def check_and_create_files():
         'result/faucet',
         'result/twitter',
         'data/twitter',
-        'backups'
+        'backups',
+        'log'
     ]
 
     for directory in required_directories:
@@ -189,7 +191,7 @@ def main_menu():
                     match choices:
                         case 'password_generator':
                             pass
-                            #password_generator_menu()
+                            password_generator_menu()
                         case 'back':
                             continue
 
@@ -199,6 +201,7 @@ def main_menu():
                         choices=[
                             Choice('💲 ETH', 'ETH'),
                             Choice('💲 SOL', 'SOL'),
+                            Choice('💲 Eclipse', 'Eclipse'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',

@@ -2,6 +2,7 @@ import csv
 import random
 import time
 import os
+import logging
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import cycle
@@ -61,6 +62,16 @@ except ImportError:
 
 from web3 import Web3
 
+# === Простое логирование ===
+os.makedirs("log", exist_ok=True)
+logger = logging.getLogger("somnia_faucet")
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+if not logger.handlers:
+    fh = logging.FileHandler("log/somnia_faucet.log")
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
 class SomniaFaucet:
     def __init__(self):
         self.base_url = 'https://testnet.somnia.network/api/faucet'
@@ -118,9 +129,11 @@ class SomniaFaucet:
             # Используем точную логику обработки ответа из рабочего кода
             success = response.json()['success']
             if success:
+                logger.info(f"SUCCESS: Faucet request for {address} via {proxy}")
                 return True, "Успешно запрошены токены из крана"
             else:
                 error_msg = response.json().get("error", "Неизвестная ошибка")
+                logger.warning(f"FAIL: Faucet error for {address} via {proxy}: {error_msg}")
                 
                 # Проверяем сообщение о 24-часовом ожидании
                 if "Please wait 24 hours between requests" in error_msg:
@@ -129,6 +142,7 @@ class SomniaFaucet:
                 return False, f"Ошибка крана: {error_msg}"
 
         except requests.exceptions.RequestException as e:
+            logger.error(f"REQUEST ERROR: {address} via {proxy}: {str(e)}")
             return False, f"Ошибка запроса: {str(e)}"
         finally:
             # Закрываем сессию только если создали ее в этом методе
@@ -161,23 +175,30 @@ class SomniaFaucet:
             if response.status_code == 200:
                 return True, "OK"
             elif response.status_code == 407:
+                logger.warning(f"PROXY AUTH FAIL: {proxy}")
                 return False, "Неуспешная авторизация прокси"
             else:
+                logger.warning(f"PROXY HTTP ERROR: {proxy} HTTP {response.status_code}")
                 return False, f"HTTP {response.status_code}"
-                
         except requests.exceptions.ConnectTimeout:
+            logger.warning(f"PROXY TIMEOUT: {proxy}")
             return False, "Timeout подключения"
         except requests.exceptions.ProxyError as e:
+            logger.warning(f"PROXY ERROR: {proxy}: {str(e)}")
             if "407" in str(e):
                 return False, "Неуспешная авторизация прокси"
             return False, f"Proxy error: {str(e)[:50]}"
         except requests.exceptions.ConnectionError as e:
+            logger.warning(f"PROXY CONNECTION ERROR: {proxy}: {str(e)}")
             return False, f"Connection error: {str(e)[:50]}"
         except requests.exceptions.Timeout:
+            logger.warning(f"PROXY TIMEOUT: {proxy}")
             return False, "Timeout запроса"
         except requests.exceptions.RequestException as e:
+            logger.warning(f"PROXY REQUEST ERROR: {proxy}: {str(e)}")
             return False, f"Request error: {str(e)[:50]}"
         except Exception as e:
+            logger.warning(f"PROXY UNEXPECTED ERROR: {proxy}: {str(e)}")
             return False, f"Unexpected error: {str(e)[:50]}"
         finally:
             session.close()
@@ -480,18 +501,39 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
             # Проверяем прокси только для первой попытки или при смене прокси
             if attempt == 0 or current_proxy != proxies_to_try[attempt - 1]:
                 proxy_working, proxy_error = faucet.is_proxy_working(current_proxy, wallet)
-                
+                is_faucet_error = (
+                    "503" in str(proxy_error) or
+                    "internal server error" in str(proxy_error).lower()
+                )
                 if not proxy_working:
-                    if PRINT_FULL_ERRORS_MESSAGES:
-                        print(f"{Fore.YELLOW}[PROXY DEBUG] {wallet[:10]}... - Прокси: {current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy}: {proxy_error}{Style.RESET_ALL}")
-                    
-                    if attempt < len(proxies_to_try) - 1:
-                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный{Style.RESET_ALL}")
-                        continue
+                    if is_faucet_error:
+                        if PRINT_FULL_ERRORS_MESSAGES:
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                        if attempt < len(proxies_to_try) - 1:
+                            # --- Добавить задержку между попытками ---
+                            retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            print(f"{Fore.RED}[FAUCET ERROR] {wallet[:10]}... - {proxy_display} - кран ответил ошибкой ({proxy_error}),  [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            logger.error(f"ALL PROXIES FAILED: {wallet}")
+                            return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error}) [{attempt + 1}/{len(proxies_to_try)}]"
                     else:
-                        return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error})"
-
-            # Используем точную логику запроса из рабочего кода
+                        if PRINT_FULL_ERRORS_MESSAGES:
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                        if attempt < len(proxies_to_try) - 1:
+                            # --- Добавить задержку между попытками ---
+                            retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            logger.error(f"ALL PROXIES FAILED: {wallet}")
+                            return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error}) [{attempt + 1}/{len(proxies_to_try)}]"
+            # ...existing code...
             try:
                 success, message = faucet.drip(wallet, current_proxy, session)
                 
@@ -510,6 +552,7 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                         delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
                         time.sleep(delay)
                     
+                    logger.info(f"FAUCET SUCCESS: {wallet} via {current_proxy} | {message}")
                     return wallet, True, f"{message} (следующий запрос через {random_timeout_hours:.1f}ч)"
                 else:
                     # НЕ обновляем лог при ошибках - кошелек остается не запрошенным
@@ -521,65 +564,37 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                         log[wallet]['failure'] += 1
                         log[wallet]['last_attempt'] = datetime.now()
                         log[wallet]['status'] = 'не_подходит_под_кран'
-                        write_log(log_file, log)
+                        logger.warning(f"BOT DETECTED: {wallet} via {current_proxy}")
                         return wallet, False, "Кошелек не подходит под кран (Bot detected)"
-                    
-                    # Проверяем на серверные ошибки (Internal server error, 502, 503, 504)
                     if any(error in message.lower() for error in ["internal server error", "502", "503", "504", "server error"]):
+                        logger.warning(f"SERVER ERROR: {wallet} via {current_proxy}: {message}")
                         if attempt < len(proxies_to_try) - 1:
-                            # Генерируем рандомную задержку для этого кошелька
+                            # --- Добавить задержку между попытками ---
+                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {message}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                             retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
-                            
-                            # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
-                            if PRINT_FULL_ERRORS_MESSAGES:
-                                print(f"{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                            else:
-                                error_preview = f"{message[:30]}..."
-                                print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Серверная ошибка ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                            
                             time.sleep(retry_delay)
                             continue
                         else:
-                            # НЕ записываем в лог при финальной серверной ошибке
+                            print(f"{Fore.RED}[FAUCET ERROR] {wallet[:10]}... - {proxy_display} - кран ответил ошибкой ({message}),  [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            logger.error(f"SERVER ERRORS ON ALL PROXIES: {wallet}")
                             return wallet, False, f"Серверные ошибки на всех прокси: {message}"
-                    
-                    # Для других ошибок (не серверных)
                     if attempt < len(proxies_to_try) - 1:
-                        # Генерируем рандомную задержку для этого кошелька
+                        # --- Добавить задержку между попытками ---
                         retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
-                        
-                        # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
-                        if PRINT_FULL_ERRORS_MESSAGES and ("Rate limit" in message or "Ошибка крана:" in message):
-                            print(f"{Fore.RED}[ПОЛНАЯ ОШИБКА] {wallet[:10]}... | Прокси: {proxy_display} - {message}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                        else:
-                            error_preview = f"{message[:30]}..."
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Ошибка крана ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                        
                         time.sleep(retry_delay)
                         continue
                     else:
-                        # НЕ записываем в лог при финальной ошибке
+                        logger.warning(f"FAUCET FAIL: {wallet} via {current_proxy}: {message}")
                         return wallet, False, message
-
             except Exception as e:
+                logger.error(f"EXCEPTION: {wallet} via {current_proxy}: {str(e)}")
                 if attempt < len(proxies_to_try) - 1:
-                    # Генерируем рандомную задержку для этого кошелька
+                    # --- Добавить задержку между попытками ---
                     retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
-                    
-                    # Выводим ЛИБО полное сообщение, ЛИБО сокращенное с RETRY - не оба
-                    if PRINT_FULL_ERRORS_MESSAGES:
-                        print(f"{Fore.RED}[ПОЛНОЕ ИСКЛЮЧЕНИЕ] {wallet[:10]}... | Прокси: {proxy_display} - {str(e)}, ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                    else:
-                        error_preview = f"{str(e)[:30]}..."
-                        print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... | Прокси: {proxy_display} - Исключение ({error_preview}), ждем {retry_delay:.1f}с и пробуем следующий прокси{Style.RESET_ALL}")
-                    
                     time.sleep(retry_delay)
                     continue
                 else:
-                    # НЕ записываем в лог при финальном исключении
-                    error_msg = f"Исключение: {str(e)[:50]}..." if not PRINT_FULL_ERRORS_MESSAGES else f"Исключение: {str(e)}"
-                    return wallet, False, error_msg
-
+                    return wallet, False, f"Исключение: {str(e)[:50]}..."
         return wallet, False, "Не удалось выполнить запрос на всех прокси"
     
     finally:
@@ -588,7 +603,7 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
             try:
                 session.close()
             except Exception as e:
-                print(f"{Fore.YELLOW}[WARNING] Ошибка закрытия сессии для {wallet[:10]}...: {e}{Style.RESET_ALL}")
+                logger.warning(f"SESSION CLOSE ERROR: {wallet}: {str(e)}")
 
 def check_and_process_expired_wallets():
     """Проверяет ВСЕ кошельки в файле и создает полный план работ для обработки за один проход"""
@@ -869,16 +884,17 @@ def run_somnia_faucet_loop():
     cycle_count = 0
     total_processed = 0
     
+    logger.info("Somnia faucet loop started")
     try:
         while True:
             cycle_count += 1
             current_time = datetime.now().strftime("%H:%M:%S")
-            
-            print(f"\n{Fore.CYAN}[{current_time}] 🔄 Цикл #{cycle_count} - Анализ {len(wallets)} кошельков...{Style.RESET_ALL}")
+            logger.info(f"Cycle #{cycle_count} started")
             
             # Проверяем и обрабатываем ВСЕ просроченные кошельки за один проход
             processed_in_cycle = check_and_process_expired_wallets()
             total_processed += processed_in_cycle
+            logger.info(f"Cycle #{cycle_count} processed: {processed_in_cycle}, total: {total_processed}")
             
             if processed_in_cycle > 0:
                 print(f"{Fore.GREEN}📊 Обработано в цикле: {processed_in_cycle}, Всего: {total_processed}{Style.RESET_ALL}")
@@ -904,6 +920,7 @@ def run_somnia_faucet_loop():
                 print()  # Новая строка после обратного отсчета
             
     except KeyboardInterrupt:
+        logger.info(f"Stopped by user. Total processed: {total_processed} in {cycle_count} cycles")
         print(f"\n{Fore.YELLOW}🛑 Остановка процесса пользователем{Style.RESET_ALL}")
         print(f"{Fore.GREEN}📊 Итого обработано: {total_processed} кошельков за {cycle_count} циклов{Style.RESET_ALL}")
 
@@ -1018,24 +1035,26 @@ def run_somnia_faucet():
                 
                 if success:
                     successful_count += 1
+                    logger.info(f"FAUCET SUCCESS: {wallet_result} | {message}")
                     status_icon = "✅"
                     status_color = Fore.GREEN
                 elif "Пропущен" in message:
                     skipped_count += 1
+                    logger.info(f"SKIPPED: {wallet_result} | {message}")
                     status_icon = "⏭️"
                     status_color = Fore.YELLOW
                 else:
                     failed_count += 1
+                    logger.warning(f"FAUCET FAIL: {wallet_result} | {message}")
                     status_icon = "❌"
                     status_color = Fore.RED
-                
             except Exception as e:
                 failed_count += 1
+                logger.error(f"EXCEPTION: {wallet} | {str(e)}")
                 status_icon = "❌"
                 status_color = Fore.RED
                 message = f"Исключение: {str(e)}"
                 wallet_result = wallet
-            
             finally:
                 completed_wallets += 1
                 progress = int((completed_wallets / total_wallets) * bar_length)
@@ -1052,7 +1071,15 @@ def run_somnia_faucet():
                     flush=True,
                 )
 
+    logger.info(f"Somnia faucet run finished. Success: {successful_count}, Fail: {failed_count}, Skipped: {skipped_count}")
     print(Fore.MAGENTA + "\n\n" + "="*80)
+    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
+    print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")    
+    print(Fore.RED + f"❌ Ошибок: {failed_count}")    
+    print(Fore.YELLOW + f"⏭️ Пропущено (ожидание 25ч): {skipped_count}")
+    print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/(total_wallets-skipped_count)*100) if (total_wallets-skipped_count) > 0 else 0:.1f}%")
+    print(Fore.CYAN + f"💾 Лог сохранен в: result/faucet/somnia_process.csv")
+    print(Fore.MAGENTA + "="*80 + "\n")
     print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
     print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")    
     print(Fore.RED + f"❌ Ошибок: {failed_count}")    

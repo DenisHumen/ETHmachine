@@ -16,7 +16,9 @@ data/one_time_intermediary.csv
 data/private_keys.txt
 data/twitter/twitters.csv
 data/twitter/twitter_task.csv
-db/spot_trade.sqlite
+db/spot_trade.db
 config/cex_settings.py
 data/walletss_sol.txt
 backups/*
+result/password_generator.csv
+log/*
