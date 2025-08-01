@@ -16,9 +16,130 @@ import os
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer
 from config.explorer_url import get_explorer_url
+from modules.notifications import send_telegram_notification, send_telegram_file
 
+# Глобальная статистика
+TRANSFER_STATS = {
+    "start_time": None,
+    "end_time": None,
+    "total_transactions_attempted": 0,
+    "total_transactions_success": 0,
+    "total_transactions_failed": 0,
+    "total_amount_transferred_wei": 0,
+    "total_amount_transferred_eth": 0,
+    "wallets_processed": 0,
+    "wallets_failed": 0,
+    "cycles_completed": 0,
+    "errors": [],
+    "successful_txs": [],
+    "network": "",
+    "use_intermediary": False,
+    "loop_mode": False
+}
+
+def init_stats(network, use_intermediary=False, loop_mode=False):
+    """Инициализация статистики"""
+    global TRANSFER_STATS
+    TRANSFER_STATS["start_time"] = datetime.now()
+    TRANSFER_STATS["network"] = network
+    TRANSFER_STATS["use_intermediary"] = use_intermediary
+    TRANSFER_STATS["loop_mode"] = loop_mode
+    
+    # Отправляем уведомление о начале работы только если уровень >= 1
+    if TELEGRAM_LOG_LEVEL_transfer >= 1:
+        send_telegram_notification(
+            notif_type="info",
+            title="🚀 Запуск модуля переводов",
+            message=f"Начинаем обработку переводов кошельков",
+            network=network,
+            mode="Через посредника" if use_intermediary else "Напрямую",
+            loop_mode="Включен" if loop_mode else "Отключен",
+            main_title="ETHmachine Transfer"
+        )
+
+def update_stats(success=True, amount_wei=0, tx_hash=None, error_msg=None):
+    """Обновление статистики"""
+    global TRANSFER_STATS
+    TRANSFER_STATS["total_transactions_attempted"] += 1
+    
+    if success:
+        TRANSFER_STATS["total_transactions_success"] += 1
+        if amount_wei > 0:
+            TRANSFER_STATS["total_amount_transferred_wei"] += amount_wei
+            TRANSFER_STATS["total_amount_transferred_eth"] += Web3().from_wei(amount_wei, 'ether')
+        if tx_hash:
+            TRANSFER_STATS["successful_txs"].append(tx_hash)
+    else:
+        TRANSFER_STATS["total_transactions_failed"] += 1
+        if error_msg:
+            TRANSFER_STATS["errors"].append(error_msg)
+
+def finalize_stats():
+    """Завершение статистики и отправка в телеграм"""
+    global TRANSFER_STATS
+    TRANSFER_STATS["end_time"] = datetime.now()
+    
+    # Рассчитываем время работы
+    if TRANSFER_STATS["start_time"]:
+        duration = TRANSFER_STATS["end_time"] - TRANSFER_STATS["start_time"]
+        duration_str = str(duration).split('.')[0]  # Убираем микросекунды
+    else:
+        duration_str = "Неизвестно"
+    
+    # Рассчитываем процент успешных транзакций
+    success_rate = 0
+    if TRANSFER_STATS["total_transactions_attempted"] > 0:
+        success_rate = (TRANSFER_STATS["total_transactions_success"] / TRANSFER_STATS["total_transactions_attempted"]) * 100
+    
+    # Отправляем статистику только если уровень >= 1
+    if TELEGRAM_LOG_LEVEL_transfer >= 1:
+        # Формируем статистику
+        stats_message = f"""
+📊 <b>СТАТИСТИКА ПЕРЕВОДОВ</b>
+
+⏱️ <b>Время работы:</b> {duration_str}
+🌐 <b>Сеть:</b> {TRANSFER_STATS['network']}
+🔄 <b>Режим:</b> {'Через посредника' if TRANSFER_STATS['use_intermediary'] else 'Напрямую'}
+🔁 <b>Цикличность:</b> {'Включена' if TRANSFER_STATS['loop_mode'] else 'Отключена'}
+
+📈 <b>ТРАНЗАКЦИИ:</b>
+• Всего попыток: {TRANSFER_STATS['total_transactions_attempted']}
+• Успешных: {TRANSFER_STATS['total_transactions_success']}
+• Неудачных: {TRANSFER_STATS['total_transactions_failed']}
+• Процент успеха: {success_rate:.1f}%
+
+👛 <b>КОШЕЛЬКИ:</b>
+• Обработано: {TRANSFER_STATS['wallets_processed']}
+• С ошибками: {TRANSFER_STATS['wallets_failed']}
+
+💰 <b>ПЕРЕВЕДЕНО:</b>
+• Общая сумма: {TRANSFER_STATS['total_amount_transferred_eth']:.6f} ETH
+• В wei: {TRANSFER_STATS['total_amount_transferred_wei']}
+
+🔁 <b>ЦИКЛЫ:</b> {TRANSFER_STATS['cycles_completed']}
+
+🚨 <b>Ошибки:</b> {len(TRANSFER_STATS['errors'])}
+✅ <b>Успешные tx:</b> {len(TRANSFER_STATS['successful_txs'])}
+        """
+        
+        # Отправляем статистику
+        send_telegram_notification(
+            notif_type="success",
+            title="📊 Завершение работы модуля",
+            message=stats_message,
+            main_title="ETHmachine Transfer Completed"
+        )
+        
+        # Если есть result.csv, отправляем его как файл
+        result_file = "result/result.csv"
+        if os.path.exists(result_file):
+            send_telegram_file(
+                file_path=result_file,
+                caption="📄 Результаты переводов",
+                main_title="ETHmachine Results"
+            )
 
 def parse_percent_range(percent_str):
     try:
@@ -319,8 +440,12 @@ def get_to_wallet_address(to_wallet_value):
         except Exception as e:
             raise Exception(f"Ошибка создания аккаунта из приватного ключа: {e}")
     elif TYPE_VALUE_TO_WALLET == 1:
-        # to_wallet - это уже адрес
-        return to_wallet_value, None
+        # to_wallet - это уже адрес, но нужно преобразовать в checksum формат
+        try:
+            checksum_address = Web3.to_checksum_address(to_wallet_value)
+            return checksum_address, None
+        except Exception as e:
+            raise Exception(f"Ошибка преобразования адреса в checksum формат: {e}")
     else:
         raise Exception(f"Неизвестный тип TYPE_VALUE_TO_WALLET: {TYPE_VALUE_TO_WALLET}")
 
@@ -354,6 +479,16 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 
         except Exception as e:
             print(Fore.RED + f"Ошибка создания аккаунта: {e}")
+            update_stats(success=False, error_msg=f"Ошибка создания аккаунта: {e}")
+            # Отправляем уведомление об ошибке только если уровень = 2
+            if TELEGRAM_LOG_LEVEL_transfer == 2:
+                send_telegram_notification(
+                    notif_type="error",
+                    title="❌ Ошибка создания аккаунта",
+                    message=str(e),
+                    wallet_address=from_priv[:10] + "...",
+                    main_title="ETHmachine Transfer Error"
+                )
             return
 
         if use_proxy:
@@ -389,6 +524,17 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             time.sleep(3)
         else:
             print(Fore.RED + f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск")
+            update_stats(success=False, error_msg=f"Нулевой баланс кошелька {from_acc.address}")
+            # Отправляем уведомление только если уровень = 2
+            if TELEGRAM_LOG_LEVEL_transfer == 2:
+                send_telegram_notification(
+                    notif_type="warning",
+                    title="⚠️ Нулевой баланс",
+                    message="Кошелек имеет нулевой баланс",
+                    wallet_address=from_acc.address,
+                    balance="0 ETH",
+                    main_title="ETHmachine Transfer Warning"
+                )
             return
 
         percent_from, percent_to = parse_percent_range(amount)
@@ -465,13 +611,38 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     print(Fore.BLUE + f"[{dt_str}] Отправка from -> intermediary...")
                     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
                     print(Fore.YELLOW + f"✅ Успешно отправлено from -> intermediary. Tx hash: {w3.to_hex(tx_hash)}")
+                    
+                    # Уведомление об успешной отправке первой транзакции только если уровень = 2
+                    if TELEGRAM_LOG_LEVEL_transfer == 2:
+                        send_telegram_notification(
+                            notif_type="tx",
+                            title="📤 Транзакция отправлена (1/2)",
+                            message="from → intermediary",
+                            wallet_address=from_acc.address[:10] + "...",
+                            tx_hash=w3.to_hex(tx_hash)[:10] + "...",
+                            explorer_url=explorer_url,
+                            amount=f"{w3.from_wei(send_amount, 'ether'):.6f} ETH",
+                            main_title="ETHmachine Transfer"
+                        )
                     break
                 except Exception as e:
                     print(Fore.RED + f"❌ Ошибка отправки from -> intermediary (попытка {attempt+1}): {e}")
+                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
+                        update_stats(success=False, error_msg=f"Ошибка отправки from->intermediary: {e}")
+                        # Отправляем уведомление об ошибке только если уровень = 2
+                        if TELEGRAM_LOG_LEVEL_transfer == 2:
+                            send_telegram_notification(
+                                notif_type="error",
+                                title="❌ Ошибка транзакции (1/2)",
+                                message=f"from → intermediary: {e}",
+                                wallet_address=from_acc.address,
+                                main_title="ETHmachine Transfer Error"
+                            )
                     tx['nonce'] += 1
                     time.sleep(3)
             else:
                 print(Fore.RED + "❌ Не удалось отправить транзакцию from -> intermediary после нескольких попыток.")
+                return
 
             print(Fore.BLUE + "Ожидание подтверждения транзакции from -> intermediary...")
             time.sleep(WHAITE_TRANSACTION_PENDING)  
@@ -547,30 +718,38 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     print(Fore.BLUE + f"[{dt_str}] Отправка intermediary -> to...")
                     tx_hash2 = w3.eth.send_raw_transaction(signed_tx2.rawTransaction)
                     print(Fore.YELLOW + f"✅ Успешно отправлено intermediary -> to. Tx hash: {w3.to_hex(tx_hash2)}")
+                    
+                    # Уведомление об успешной отправке второй транзакции только если уровень = 2
+                    if TELEGRAM_LOG_LEVEL_transfer == 2:
+                        send_telegram_notification(
+                            notif_type="tx",
+                            title="📤 Транзакция отправлена (2/2)",
+                            message="intermediary → to",
+                            wallet_address=to_address[:10] + "...",
+                            tx_hash=w3.to_hex(tx_hash2)[:10] + "...",
+                            explorer_url=explorer_url,
+                            amount=f"{w3.from_wei(send_amount2, 'ether'):.6f} ETH",
+                            main_title="ETHmachine Transfer"
+                        )
                     break
                 except Exception as e:
                     print(Fore.RED + f"❌ Ошибка отправки intermediary -> to (попытка {attempt+1}): {e}")
+                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
+                        update_stats(success=False, error_msg=f"Ошибка отправки intermediary->to: {e}")
+                        # Отправляем уведомление об ошибке только если уровень = 2
+                        if TELEGRAM_LOG_LEVEL_transfer == 2:
+                            send_telegram_notification(
+                                notif_type="error",
+                                title="❌ Ошибка транзакции (2/2)",
+                                message=f"intermediary → to: {e}",
+                                wallet_address=to_address,
+                                main_title="ETHmachine Transfer Error"
+                            )
                     tx2['nonce'] += 1
                     time.sleep(3)
             else:
                 print(Fore.RED + "❌ Не удалось отправить транзакцию intermediary -> to после нескольких попытов.")
-
-            print(Fore.BLUE + "Ожидание подтверждения транзакции intermediary -> to...")
-            time.sleep(WHAITE_TRANSACTION_PENDING)  
-            for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
-                try:
-                    receipt = w3.eth.get_transaction_receipt(tx_hash2)
-                    if receipt and receipt.status == 1:
-                        print(Fore.GREEN + f"✅ Транзакция подтверждена. Tx hash: {w3.to_hex(tx_hash2)}")
-                        break
-                    elif receipt and receipt.status == 0:
-                        print(Fore.RED + f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash2)}")
-                        break
-                except Exception as e:
-                    print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
-                time.sleep(WHAITE_TRANSACTION_PENDING)
-            else:
-                print(Fore.RED + f"❌ Транзакция intermediary -> to остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
+                return
 
             append_result_csv({
                 "datetime": dt_str,
@@ -588,16 +767,26 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 "explorer_link_2": f"{explorer_url}{w3.to_hex(tx_hash2)}",
             })
 
-            to_wallet_balance = get_eth_balance_safe(w3, to_address)
-            to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
-
-            print(Fore.GREEN + "\n" + "=" * 60)
-            print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash)}")
-            print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash2)}")
-            print(Fore.YELLOW + f"\nfrom_wallet ({from_acc.address}) - {w3.from_wei(send_amount, 'ether')} ETH")
-            print(Fore.YELLOW + f"intermediary ({intermediary_acc.address}) - {w3.from_wei(send_amount2, 'ether')} ETH")
-            print(Fore.YELLOW + f"Баланс to_wallet ({to_address}) по завершению - {to_wallet_balance_eth} ETH")
-            print(Fore.GREEN + "=" * 60 + "\n")
+            # Обновляем статистику для успешных транзакций
+            update_stats(success=True, amount_wei=send_amount, tx_hash=w3.to_hex(tx_hash))
+            update_stats(success=True, amount_wei=send_amount2, tx_hash=w3.to_hex(tx_hash2))
+            
+            # Итоговое уведомление о завершении цепочки только если уровень >= 1
+            if TELEGRAM_LOG_LEVEL_transfer >= 1:
+                to_wallet_balance = get_eth_balance_safe(w3, to_address)
+                to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
+                
+                send_telegram_notification(
+                    notif_type="success",
+                    title="✅ Цепочка переводов завершена",
+                    message=f"from → intermediary → to",
+                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
+                    balance=f"{to_wallet_balance_eth:.6f} ETH",
+                    tx1=w3.to_hex(tx_hash)[:10] + "...",
+                    tx2=w3.to_hex(tx_hash2)[:10] + "...",
+                    total_amount=f"{w3.from_wei(send_amount, 'ether'):.6f} ETH",
+                    main_title="ETHmachine Transfer Success"
+                )
 
         else:
             # Новая логика: прямой перевод from -> to
@@ -655,9 +844,33 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     print(Fore.BLUE + f"[{dt_str}] Отправка from -> to...")
                     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
                     print(Fore.YELLOW + f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
+                    
+                    # Уведомление об успешной отправке прямой транзакции только если уровень = 2
+                    if TELEGRAM_LOG_LEVEL_transfer == 2:
+                        send_telegram_notification(
+                            notif_type="tx",
+                            title="📤 Прямая транзакция отправлена",
+                            message="from → to",
+                            wallet_address=from_acc.address[:10] + "...",
+                            tx_hash=w3.to_hex(tx_hash)[:10] + "...",
+                            explorer_url=explorer_url,
+                            amount=f"{w3.from_wei(value, 'ether'):.6f} ETH",
+                            main_title="ETHmachine Transfer"
+                        )
                     break
                 except Exception as e:
                     print(Fore.RED + f"❌ Ошибка отправки from -> to (попытка {attempt+1}): {e}")
+                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
+                        update_stats(success=False, error_msg=f"Ошибка прямого перевода: {e}")
+                        # Отправляем уведомление об ошибке только если уровень = 2
+                        if TELEGRAM_LOG_LEVEL_transfer == 2:
+                            send_telegram_notification(
+                                notif_type="error",
+                                title="❌ Ошибка прямой транзакции",
+                                message=f"from → to: {e}",
+                                wallet_address=from_acc.address,
+                                main_title="ETHmachine Transfer Error"
+                            )
                     tx['nonce'] += 1
                     time.sleep(3)
             else:
@@ -699,21 +912,42 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 "explorer_link_2": "",
             })
 
-            to_wallet_balance = get_eth_balance_safe(w3, to_address)
-            to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
+            # Обновляем статистику для успешной транзакции
+            update_stats(success=True, amount_wei=value, tx_hash=w3.to_hex(tx_hash))
+            
+            # Итоговое уведомление о завершении прямого перевода только если уровень >= 1
+            if TELEGRAM_LOG_LEVEL_transfer >= 1:
+                to_wallet_balance = get_eth_balance_safe(w3, to_address)
+                to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
+                
+                send_telegram_notification(
+                    notif_type="success",
+                    title="✅ Прямой перевод завершен",
+                    message=f"from → to",
+                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
+                    balance=f"{to_wallet_balance_eth:.6f} ETH",
+                    tx_hash=w3.to_hex(tx_hash)[:10] + "...",
+                    amount=f"{w3.from_wei(value, 'ether'):.6f} ETH",
+                    main_title="ETHmachine Transfer Success"
+                )
 
             print(Fore.GREEN + "\n" + "=" * 60)
             print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash)}")
             print(Fore.YELLOW + f"\nfrom_wallet ({from_acc.address}) - {w3.from_wei(value, 'ether')} ETH")
             print(Fore.YELLOW + f"Баланс to_wallet ({to_address}) по завершению - {to_wallet_balance_eth} ETH")
             print(Fore.GREEN + "=" * 60 + "\n")
-
     except Exception as e:
-        print(Fore.RED + f"Error: {e}")
-        print(Fore.YELLOW + "Переход к следующей паре кошельков...")
-    finally:
-        if session:
-            session.close()
+        print(Fore.RED + f"Ошибка в процессе перевода: {e}")
+        update_stats(success=False, error_msg=str(e))
+        # Отправляем уведомление об общей ошибке только если уровень = 2
+        if TELEGRAM_LOG_LEVEL_transfer == 2:
+            send_telegram_notification(
+                notif_type="error",
+                title="❌ Ошибка в процессе перевода",
+                message=str(e),
+                wallet_address=from_priv[:10] + "...",
+                main_title="ETHmachine Transfer Error"
+            )
 
 
 def save_failed_wallet(row):
@@ -852,10 +1086,18 @@ def check_wallet_balances_for_loop(transfer_data, network, proxies):
             w3, session = get_web3_with_proxy(rpc_url, proxy)
             
             from_acc = Account.from_key(row['from_wallet'])
-            to_acc = Account.from_key(row['to_wallet'])
+            
+            # Правильно обрабатываем to_wallet в зависимости от TYPE_VALUE_TO_WALLET
+            if TYPE_VALUE_TO_WALLET == 0:
+                # to_wallet - это приватный ключ
+                to_acc = Account.from_key(row['to_wallet'])
+                to_address = to_acc.address
+            else:
+                # to_wallet - это адрес, преобразуем в checksum формат
+                to_address = Web3.to_checksum_address(row['to_wallet'])
             
             from_balance = get_eth_balance_safe(w3, from_acc.address)
-            to_balance = get_eth_balance_safe(w3, to_acc.address)
+            to_balance = get_eth_balance_safe(w3, to_address)
             
             from_balance_eth = w3.from_wei(from_balance, 'ether')
             to_balance_eth = w3.from_wei(to_balance, 'ether')
@@ -863,9 +1105,9 @@ def check_wallet_balances_for_loop(transfer_data, network, proxies):
             # Проверяем условия
             if from_balance_eth >= min_from_balance and to_balance_eth <= max_to_balance:
                 valid_wallets.append(row)
-                print(Fore.GREEN + f"✅  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f})")
+                print(Fore.GREEN + f"✅  {from_acc.address[:10]}... -> {to_address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f})")
             else:
-                print(Fore.YELLOW + f"⏭️  {from_acc.address[:10]}... -> {to_acc.address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f}) - не подходит")
+                print(Fore.YELLOW + f"⏭️  {from_acc.address[:10]}... -> {to_address[:10]}... (from: {from_balance_eth:.6f}, to: {to_balance_eth:.6f}) - не подходит")
                 
         except Exception as e:
             print(Fore.RED + f"Ошибка проверки баланса кошелька: {e}")
@@ -884,6 +1126,9 @@ def process_wallets_transfer_normal(transfer_data, proxies, network, delay_betwe
     """
     Обычная обработка переводов без зацикливания (оригинальная логика)
     """
+    # Инициализируем статистику
+    init_stats(network, USE_INTERMEDIARY, False)
+    
     # Валидация данных перед началом обработки
     validation_errors = validate_transfer_data(transfer_data)
     if validation_errors:
@@ -949,6 +1194,7 @@ def process_wallets_transfer_normal(transfer_data, proxies, network, delay_betwe
                 print(Fore.RED + f"Ошибка записи прогресса: {e}")
 
         try:
+            TRANSFER_STATS["wallets_processed"] += 1
             transefer_wallets_to_wallets(
                 row['from_wallet'],
                 row['intermediary'],
@@ -963,6 +1209,7 @@ def process_wallets_transfer_normal(transfer_data, proxies, network, delay_betwe
             completed_txs += 2
         except Exception as e:
             print(Fore.RED + f"Ошибка обработки кошелька: {e}")
+            TRANSFER_STATS["wallets_failed"] += 1
             save_failed_wallet(row)  
 
         progress = int((completed_txs / total_tx) * bar_length)
@@ -996,7 +1243,10 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
         # Обычный режим работы без зацикливания
         return process_wallets_transfer_normal(transfer_data, proxies, network, delay_between, total_tx, progress_file, start_idx, completed_txs)
     
-    # Валидация данных перед началом циклической обработки
+    # Инициализируем статистику для циклического режима
+    init_stats(network, USE_INTERMEDIARY, True)
+    
+    # Валидация данных перед началом обработки
     validation_errors = validate_transfer_data(transfer_data)
     if validation_errors:
         print(Fore.RED + "❌ Ошибки валидации данных:")
@@ -1012,9 +1262,20 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
     cycle = 0
     while cycle < loop_transfer_count:
         cycle += 1
+        TRANSFER_STATS["cycles_completed"] = cycle
+        
         print(Fore.MAGENTA + f"\n{'='*60}")
         print(Fore.YELLOW + f"🔄 ЦИКЛ {cycle}/{loop_transfer_count}")
         print(Fore.MAGENTA + f"{'='*60}")
+        
+        # Уведомление о начале нового цикла
+        send_telegram_notification(
+            notif_type="info",
+            title=f"🔄 Начало цикла {cycle}/{loop_transfer_count}",
+            message="Проверяем балансы и ищем подходящие кошельки",
+            cycle=f"{cycle}/{loop_transfer_count}",
+            main_title="ETHmachine Transfer Cycle"
+        )
         
         # Проверяем доступность посреднических кошельков
         available_intermediaries = get_available_intermediary_wallets()
@@ -1035,10 +1296,33 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
             print(Fore.YELLOW + f"⏭️ Цикл {cycle}: Нет кошельков, подходящих под условия.")
             print(Fore.YELLOW + f"⏰ Текущее время: {current_time_str}")
             print(Fore.YELLOW + f"🔄 Следующий запуск: {completion_time_str} (через {local_sleep_time_between_loops} секунд)")
+            
+            # Уведомление о пропуске цикла только если уровень = 2
+            if TELEGRAM_LOG_LEVEL_transfer == 2:
+                send_telegram_notification(
+                    notif_type="warning",
+                    title=f"⏭️ Цикл {cycle} пропущен",
+                    message="Нет кошельков, подходящих под условия",
+                    next_check=completion_time_str,
+                    cycle=f"{cycle}/{loop_transfer_count}",
+                    main_title="ETHmachine Transfer Cycle"
+                )
             time.sleep(local_sleep_time_between_loops)
             continue
         
         print(Fore.GREEN + f"✅ Найдено {len(valid_wallets)} подходящих пар кошельков")
+        
+        # Уведомление о найденных кошельках только если уровень = 2
+        if TELEGRAM_LOG_LEVEL_transfer == 2:
+            send_telegram_notification(
+                notif_type="success",
+                title=f"✅ Цикл {cycle}: найдены кошельки",
+                message=f"Обрабатываем {len(valid_wallets)} подходящих пар",
+                wallets_found=len(valid_wallets),
+                intermediaries_available=len(available_intermediaries),
+                cycle=f"{cycle}/{loop_transfer_count}",
+                main_title="ETHmachine Transfer Cycle"
+            )
         
         # Проверяем, хватает ли посредников
         if len(available_intermediaries) < len(valid_wallets):
@@ -1051,6 +1335,17 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
         
         print(Fore.GREEN + f"✅ Цикл {cycle} завершен. Обработано {len(valid_wallets)} пар кошельков")
         
+        # Уведомление о завершении цикла только если уровень = 2
+        if TELEGRAM_LOG_LEVEL_transfer == 2:
+            send_telegram_notification(
+                notif_type="success",
+                title=f"✅ Цикл {cycle} завершен",
+                message=f"Обработано {len(valid_wallets)} пар кошельков",
+                cycle=f"{cycle}/{loop_transfer_count}",
+                processed_wallets=len(valid_wallets),
+                main_title="ETHmachine Transfer Cycle"
+            )
+        
         # Пауза между циклами (кроме последнего)
         if cycle < loop_transfer_count:
             local_sleep_time_between_loops = random.randint(sleep_time_between_loops[0], sleep_time_between_loops[1])
@@ -1061,6 +1356,9 @@ def process_wallets_transfer(transfer_data, proxies, network, delay_between, tot
         print(Fore.GREEN + f"🎉 Все {loop_transfer_count} циклов завершены!")
     else:
         print(Fore.RED + f"❌ Завершены не все циклы, выполнено - {cycle} из {loop_transfer_count} циклов.")
+    
+    # Завершаем статистику
+    finalize_stats()
 
 def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, available_intermediaries, proxies, network, delay_between, total_tx):
     """
@@ -1090,6 +1388,7 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
         print(Fore.CYAN + f"\n📋 Обработка пары {idx + 1}/{len(valid_wallets)}")
         
         try:
+            TRANSFER_STATS["wallets_processed"] += 1
             # Используем одноразового посредника вместо того, что в файле transfer_data
             transefer_wallets_to_wallets(
                 row['from_wallet'],
@@ -1110,6 +1409,7 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
             
         except Exception as e:
             print(Fore.RED + f"Ошибка обработки кошелька: {e}")
+            TRANSFER_STATS["wallets_failed"] += 1
             # Даже при ошибке отмечаем посредника как использованного
             mark_intermediary_as_used(intermediary['private_key'])
         
@@ -1136,3 +1436,4 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
             countdown_timer(int(delay_between), "Задержка до следующей пары")
     
     print(Fore.GREEN + f"\n✅ Завершена обработка всех {len(valid_wallets)} подходящих пар в текущем цикле")
+

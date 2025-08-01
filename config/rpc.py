@@ -15,7 +15,7 @@ Abstract = ['https://api.mainnet.abs.xyz']
 # Testnets
 sepolia = ['https://1rpc.io/sepolia']
 monad_testnet = ['https://testnet-rpc.monad.xyz']
-sahara_testnet = ['https://testnet.saharalabs.ai']
+#sahara_testnet = ['https://testnet.saharalabs.ai']
 somnia_testnet = ['https://dream-rpc.somnia.network']
 mega_eth_testnet = ['https://carrot.megaeth.com/rpc']
 pharos_testnet = ['https://testnet.dplabs-internal.com']

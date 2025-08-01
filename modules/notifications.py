@@ -148,3 +148,24 @@ def send_telegram_notification(
                 success = False
 
     return success
+
+def send_telegram_message(message, main_title="ETHmachine"):
+    """
+    Упрощенная функция для отправки текстового сообщения в Telegram
+    """
+    return send_telegram_notification(
+        notif_type="info",
+        message=message,
+        main_title=main_title
+    )
+
+def send_telegram_file(file_path, caption="", main_title="ETHmachine"):
+    """
+    Функция для отправки файла в Telegram с подписью
+    """
+    return send_telegram_notification(
+        notif_type="info",
+        message=caption,
+        file_path=file_path,
+        main_title=main_title
+    )
