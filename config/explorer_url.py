@@ -17,7 +17,7 @@ explorers = {
     '🚀 Sahara testnet': {'symbol': 'ETH', 'tx_url': "https://testnet-explorer.saharalabs.ai/tx/"},
     '🚀 Somnia Testnet': {'symbol': 'ETH', 'tx_url': "https://shannon-explorer.somnia.network/tx/"},
     '🚀 Mega ETH': {'symbol': 'ETH', 'tx_url': "https://www.oklink.com/ru/megaeth-testnet/tx/"},
-    '🚀 Pharos': {'symbol': 'ETH', 'tx_url': "https://testnet.pharosscan.xyz/tx/"},
+    '🚀 Pharos Testnet': {'symbol': 'ETH', 'tx_url': "https://testnet.pharosscan.xyz/tx/"},
     '🚀 Camp Testnet': {'symbol': 'ETH', 'tx_url': "https://explorer.camp-network-testnet.gelato.digital/tx/"},
 }
 
