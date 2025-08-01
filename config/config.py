@@ -49,7 +49,7 @@ MAIN_PROXY_TWITTER = ''  # Основной прокси для Twitter (есл�
 # amount - если "10-20%" то в процентах от баланса, если "10-20ETH" то рандомный диапазон от 10 до 20 в натике. (если просто 10-20 по умолчанию, %)
         # - amount заполняет в фале data/transfer_token.csv там же где и from_wallet, to_wallet, intermediary
 
-USE_INTERMEDIARY = False # Использовать посредника для отправки транзакций (
+USE_INTERMEDIARY = True # Использовать посредника для отправки транзакций (
     # TRUE отправляет через посредника, FALSE отправляет напрямую (ЕСЛИ FALSE ТОГДА intermediary ОСТАВИТЬ ПУСТЫМ пример ниже)
     # Пример: from_wallet, to_wallet, intermediary, amount
     # 0x1234...,0x5678...,,0.01

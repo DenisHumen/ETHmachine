@@ -1,7 +1,7 @@
 import os
 import time
 import json
-
+import csv
 
 from colorama import Fore, init
 from questionary import Choice, select
@@ -13,7 +13,7 @@ from config.rpc import (
 )
 from config.config import (
     expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
-    DISPLAY_LIST_BACKUPS
+    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
 )
 
 from modules.auto_backup import create_backup, list_backups
@@ -310,30 +310,36 @@ def main_menu():
                             if network == 'back':
                                 continue
 
-                            # читаем данные из transfer_token.csv
-                            import csv
                             transfer_data = []
                             try:
                                 with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
                                     reader = csv.DictReader(f)
                                     for row in reader:
-                                        if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
-                                            transfer_data.append(row)
+                                        if USE_INTERMEDIARY:
+                                            if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
+                                                transfer_data.append(row)
+                                        else:
+                                            if row['from_wallet'] and row['to_wallet'] and row['amount']:
+                                                if 'intermediary' not in row:
+                                                    row['intermediary'] = ''
+                                                transfer_data.append(row)
                             except Exception as e:
                                 print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
                                 continue
 
                             if not transfer_data:
-                                print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv")
-                                continue
+                                if USE_INTERMEDIARY:
+                                    print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv или не заполнено поле посредника (intermediary).")
+                                    continue
+                                else:
+                                    print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv.")
+                                    continue
 
-                            # --- Работа с прогресс-баром и прогресс-файлом ---
                             db_dir = "db"
                             if not os.path.exists(db_dir):
                                 os.makedirs(db_dir)
                             progress_file = os.path.join(db_dir, "transfer_progress.json")
 
-                            # Определяем прогресс
                             start_idx = 0
                             completed_txs = 0
                             resume = None
@@ -361,13 +367,11 @@ def main_menu():
                                 elif resume == "restart":
                                     start_idx = 0
                                     completed_txs = 0
-                                    # Удаляем старый прогресс-файл
                                     try:
                                         os.remove(progress_file)
                                     except Exception:
                                         pass
                             else:
-                                # Если файла нет, создать пустой прогресс-файл (для явности)
                                 with open(progress_file, "w", encoding="utf-8") as pf:
                                     json.dump({"last_idx": 0, "completed_txs": 0}, pf)
 
