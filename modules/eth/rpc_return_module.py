@@ -20,7 +20,7 @@ def get_network_rpc_selection():
         from config.rpc import (
             L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
             Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, 
-            monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth_testnet, 
+            monad_testnet, zora, somnia_testnet, mega_eth_testnet, 
             Abstract, pharos_testnet, camp_testnet
         )
         
@@ -42,7 +42,6 @@ def get_network_rpc_selection():
         testnet_rpc_urls = {
             '🚀 Sepolia': sepolia,
             '🚀 Monad Testnet (native token MON)': monad_testnet,
-            '🚀 Sahara testnet': sahara_testnet,
             '🚀 Somnia Testnet': somnia_testnet,
             '🚀 Mega ETH': mega_eth_testnet,
             '🚀 Pharos': pharos_testnet,

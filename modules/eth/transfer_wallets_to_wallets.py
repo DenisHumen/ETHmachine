@@ -142,18 +142,51 @@ def finalize_stats():
             )
 
 def parse_percent_range(percent_str):
+    """
+    Парсит строку с диапазоном для amount.
+    Поддерживает:
+    - "10-20%" или "10-20" - процент от баланса
+    - "10-20ETH" - фиксированная сумма в ETH
+    - "10%" или "10" - фиксированный процент
+    - "10ETH" - фиксированная сумма в ETH
+    """
     try:
-        parts = percent_str.split('-')
-        if len(parts) == 2:
-            return int(parts[0]), int(parts[1])
+        percent_str = percent_str.strip()
+        
+        # Проверяем, есть ли в строке "ETH" - значит фиксированная сумма
+        if percent_str.upper().endswith('ETH'):
+            # Убираем "ETH" и парсим как фиксированную сумму
+            amount_str = percent_str[:-3].strip()
+            if '-' in amount_str:
+                parts = amount_str.split('-')
+                if len(parts) == 2:
+                    return float(parts[0]), float(parts[1]), 'ETH'
+                else:
+                    val = float(parts[0])
+                    return val, val, 'ETH'
+            else:
+                val = float(amount_str)
+                return val, val, 'ETH'
         else:
-            val = int(parts[0])
-            return val, val
+            # Процентное значение (убираем % если есть)
+            if percent_str.endswith('%'):
+                percent_str = percent_str[:-1].strip()
+            
+            if '-' in percent_str:
+                parts = percent_str.split('-')
+                if len(parts) == 2:
+                    return int(parts[0]), int(parts[1]), 'PERCENT'
+                else:
+                    val = int(parts[0])
+                    return val, val, 'PERCENT'
+            else:
+                val = int(percent_str)
+                return val, val, 'PERCENT'
     except Exception:
-        return 100, 100  
+        return 100, 100, 'PERCENT'  # По умолчанию 100%
 
 def get_network_rpc(network):
-    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, sahara_testnet, zora, somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet
+    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora, somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet
     mainnet_rpc_urls = {
         '🚀 Ethereum Mainnet': L1,
         '🚀 Base': base,
@@ -171,7 +204,6 @@ def get_network_rpc(network):
     testnet_rpc_urls = {
         '🚀 Sepolia': sepolia,
         '🚀 Monad Testnet (native token MON)': monad_testnet,
-        '🚀 Sahara testnet': sahara_testnet,
         '🚀 Somnia Testnet': somnia_testnet,
         '🚀 Mega ETH': mega_eth_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
@@ -507,7 +539,6 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             print(Fore.CYAN + f"  INTERMEDIARY: priv - {intermediary_priv[:10]}... | wallet - {intermediary_acc.address[:10]}...")
         print(Fore.CYAN + f"  TO:           {'priv - ' + to_priv[:10] + '... | ' if to_priv else ''}wallet - {to_address[:10]}...")
         print(Fore.CYAN + f"  Сеть:         {network}")
-        print(Fore.CYAN + f"  Процент:      {amount}%")
         print(Fore.CYAN + f"  Используется прокси: {proxy_hidden}")
         print(Fore.CYAN + f"  Режим:        {'Через посредника' if use_intermediary else 'Напрямую'}")
         print(Fore.MAGENTA + "-"*61)
@@ -537,14 +568,52 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 )
             return
 
-        percent_from, percent_to = parse_percent_range(amount)
-        percent = random.randint(percent_from, percent_to)
-
+        # Обработка amount с поддержкой ETH и процентов
+        amount_from, amount_to, amount_type = parse_percent_range(amount)
+        
+        # Получаем цену газа заранее
         try:
             gas_price = w3.eth.gas_price
         except Exception as e:
             print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
             gas_price = int(w3.to_wei('30', 'gwei'))
+        
+        if amount_type == 'ETH':
+            # Фиксированная сумма в ETH - генерируем случайное значение в диапазоне
+            amount_eth = random.uniform(amount_from, amount_to)
+            amount_wei = w3.to_wei(amount_eth, 'ether')
+            
+            # Проверяем, что у нас достаточно средств
+            if amount_wei > balance:
+                print(Fore.YELLOW + f"⚠️ Недостаточно средств: запрошено {amount_eth:.6f} ETH, доступно {w3.from_wei(balance, 'ether'):.6f} ETH")
+                # Используем весь доступный баланс минус комиссия и MIN_FROM_BALANCE
+                estimated_gas = 21000 * 1.2  # Примерная оценка
+                fee = int(estimated_gas * gas_price * 1.2)
+                
+                min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
+                if trim_the_number_of_characters_enable:
+                    min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
+                min_balance_wei = w3.to_wei(min_balance_random, 'ether')
+                
+                amount_wei = balance - fee - min_balance_wei
+                if amount_wei <= 0:
+                    print(Fore.YELLOW + f"Транзакция пропущена, недостаточно средств после учета комиссии и MIN_FROM_BALANCE.")
+                    return
+                amount_eth = w3.from_wei(amount_wei, 'ether')
+                print(Fore.YELLOW + f"Будет отправлено {amount_eth:.6f} ETH (максимум доступно)")
+            
+            # Правильный вывод диапазона
+            if amount_from == amount_to:
+                print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (фиксированная)")
+            else:
+                print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (из диапазона {amount_from:.6f}-{amount_to:.6f} ETH)")
+        else:
+            # Процентное значение
+            percent = random.randint(int(amount_from), int(amount_to))
+            if amount_from == amount_to:
+                print(Fore.CYAN + f"  Процент:      {percent}% от баланса")
+            else:
+                print(Fore.CYAN + f"  Процент:      {percent}% (из диапазона {int(amount_from)}-{int(amount_to)}%) от баланса")
 
         if use_intermediary:
             # Старая логика с посредником
@@ -553,8 +622,16 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 print(Fore.RED + f"Не удалось получить nonce для {from_acc.address}, пропуск")
                 return
 
-            def get_send_amount(balance, percent, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
-                value = int(balance * percent / 100)
+            def get_send_amount(balance, amount_from, amount_to, amount_type, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
+                if amount_type == 'ETH':
+                    # Фиксированная сумма в ETH
+                    amount_eth = random.uniform(amount_from, amount_to)
+                    value = w3.to_wei(amount_eth, 'ether')
+                else:
+                    # Процент от баланса
+                    percent = random.randint(int(amount_from), int(amount_to))
+                    value = int(balance * percent / 100)
+                
                 tx = {
                     'type': 0x2,
                     'from': Web3.to_checksum_address(from_addr),
@@ -571,21 +648,31 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 gas = int(estimated_gas * 1.2)
                 fee = gas * int(gas_price * 1.2)
                 
-                min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
-                if trim_the_number_of_characters_enable:
-                    min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
-                min_balance_wei = w3.to_wei(min_balance_random, 'ether')
+                # Применяем MIN_FROM_BALANCE только для процентных переводов
+                if amount_type == 'PERCENT':
+                    min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
+                    if trim_the_number_of_characters_enable:
+                        min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
+                    min_balance_wei = w3.to_wei(min_balance_random, 'ether')
 
-                if value + fee > balance - min_balance_wei:
-                    original_value = value
-                    value = balance - fee - min_balance_wei
-                    if value < 0:
-                        value = 0
-                    print(Fore.YELLOW + f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
-                                        f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
+                    if value + fee > balance - min_balance_wei:
+                        original_value = value
+                        value = balance - fee - min_balance_wei
+                        if value < 0:
+                            value = 0
+                        print(Fore.YELLOW + f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
+                                            f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
+                else:
+                    # Для фиксированных сумм просто проверяем достаточность средств
+                    if value + fee > balance:
+                        print(Fore.YELLOW + f"⚠️ Недостаточно средств для отправки {w3.from_wei(value, 'ether')} ETH + комиссия {w3.from_wei(fee, 'ether')} ETH")
+                        value = balance - fee
+                        if value < 0:
+                            value = 0
+                
                 return value, gas
 
-            send_amount, gas = get_send_amount(balance, percent, w3, from_acc.address, intermediary_acc.address, gas_price, w3.eth.chain_id, from_priv)
+            send_amount, gas = get_send_amount(balance, amount_from, amount_to, amount_type, w3, from_acc.address, intermediary_acc.address, gas_price, w3.eth.chain_id, from_priv)
 
             if send_amount == 0:
                 print(Fore.YELLOW + f"Транзакция from -> intermediary пропущена, так как value = 0.")
@@ -797,8 +884,15 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 print(Fore.RED + f"Не удалось получить nonce для {from_acc.address}, пропуск")
                 return
 
-            # Рассчитываем сумму для прямого перевода
-            value = int(balance * percent / 100)
+            # Рассчитываем сумму для прямого перевода в зависимости от типа
+            if amount_type == 'ETH':
+                # Фиксированная сумма в ETH
+                amount_eth = random.uniform(amount_from, amount_to)
+                value = w3.to_wei(amount_eth, 'ether')
+            else:
+                # Процент от баланса
+                percent = random.randint(int(amount_from), int(amount_to))
+                value = int(balance * percent / 100)
             
             tx = {
                 'type': 0x2,
@@ -816,18 +910,27 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             gas = int(estimated_gas * 1.2)
             fee = gas * int(gas_price * 1.2)
             
-            min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
-            if trim_the_number_of_characters_enable:
-                min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
-            min_balance_wei = w3.to_wei(min_balance_random, 'ether')
+            # Применяем MIN_FROM_BALANCE только для процентных переводов
+            if amount_type == 'PERCENT':
+                min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
+                if trim_the_number_of_characters_enable:
+                    min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
+                min_balance_wei = w3.to_wei(min_balance_random, 'ether')
 
-            if value + fee > balance - min_balance_wei:
-                original_value = value
-                value = balance - fee - min_balance_wei
-                if value < 0:
-                    value = 0
-                print(Fore.YELLOW + f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
-                                    f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
+                if value + fee > balance - min_balance_wei:
+                    original_value = value
+                    value = balance - fee - min_balance_wei
+                    if value < 0:
+                        value = 0
+                    print(Fore.YELLOW + f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
+                                        f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
+            else:
+                # Для фиксированных сумм просто проверяем достаточность средств
+                if value + fee > balance:
+                    print(Fore.YELLOW + f"⚠️ Недостаточно средств для отправки {w3.from_wei(value, 'ether')} ETH + комиссия {w3.from_wei(fee, 'ether')} ETH")
+                    value = balance - fee
+                    if value < 0:
+                        value = 0
 
             if value == 0:
                 print(Fore.YELLOW + f"Транзакция пропущена, так как value = 0.")

@@ -14,7 +14,6 @@ explorers = {
     '🚀 Abstract': {'symbol': 'ETH', 'tx_url': "https://explorer.testnet.abs.xyz/tx/"},
     '🚀 Sepolia': {'symbol': 'ETH', 'tx_url': "https://sepolia.etherscan.io/tx/"},
     '🚀 Monad Testnet (native token MON)': {'symbol': 'MON', 'tx_url': "https://testnet.monvision.io/tx/"},
-    #'🚀 Sahara testnet': {'symbol': 'ETH', 'tx_url': "https://testnet-explorer.saharalabs.ai/tx/"},
     '🚀 Somnia Testnet': {'symbol': 'ETH', 'tx_url': "https://shannon-explorer.somnia.network/tx/"},
     '🚀 Mega ETH': {'symbol': 'ETH', 'tx_url': "https://www.oklink.com/ru/megaeth-testnet/tx/"},
     '🚀 Pharos Testnet': {'symbol': 'ETH', 'tx_url': "https://testnet.pharosscan.xyz/tx/"},
