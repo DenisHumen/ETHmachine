@@ -509,46 +509,41 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                 if not proxy_working:
                     if is_faucet_error:
                         if PRINT_FULL_ERRORS_MESSAGES:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            print(f"\n{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                         else:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            print(f"\n{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                         if attempt < len(proxies_to_try) - 1:
-                            # --- Добавить задержку между попытками ---
                             retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
                             time.sleep(retry_delay)
+                            print()  
                             continue
                         else:
-                            print(f"{Fore.RED}[FAUCET ERROR] {wallet[:10]}... - {proxy_display} - кран ответил ошибкой ({proxy_error}),  [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                             logger.error(f"ALL PROXIES FAILED: {wallet}")
                             return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error}) [{attempt + 1}/{len(proxies_to_try)}]"
                     else:
                         if PRINT_FULL_ERRORS_MESSAGES:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            print(f"\n{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                         else:
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            print(f"\n{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает ({proxy_error}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                         if attempt < len(proxies_to_try) - 1:
-                            # --- Добавить задержку между попытками ---
                             retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
                             time.sleep(retry_delay)
+                            print()  
                             continue
                         else:
                             logger.error(f"ALL PROXIES FAILED: {wallet}")
                             return wallet, False, f"Все прокси не работают (последняя ошибка: {proxy_error}) [{attempt + 1}/{len(proxies_to_try)}]"
-            # ...existing code...
             try:
                 success, message = faucet.drip(wallet, current_proxy, session)
                 
-                # Обновляем лог ТОЛЬКО при успехе
                 if wallet not in log:
                     log[wallet] = {'success': 0, 'failure': 0, 'last_attempt': datetime.now(), 'status': ''}
 
                 if success:
                     log[wallet]['success'] += 1
                     log[wallet]['last_attempt'] = datetime.now()
-                    # Не обновляем статус здесь, это будет сделано в check_balances_after_processing
                     write_log(log_file, log)
                     
-                    # Задержка после успешного запроса (только если не игнорируем)
                     if not IGNORE_TIME_SLEEP_BETWEEN_ACTIONS:
                         delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
                         time.sleep(delay)
@@ -571,7 +566,7 @@ def process_wallet_task(wallet, proxy, faucet, log, log_file, reserve_proxies=No
                         logger.warning(f"SERVER ERROR: {wallet} via {current_proxy}: {message}")
                         if attempt < len(proxies_to_try) - 1:
                             # --- Добавить задержку между попытами ---
-                            print(f"{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {message}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
+                            print(f"\n{Fore.YELLOW}[RETRY] {wallet[:10]}... - Прокси: {proxy_display} не работает (кран не отвечает: {message}), пробуем следующий резервный [{attempt + 1}/{len(proxies_to_try)}]{Style.RESET_ALL}")
                             retry_delay = random.uniform(DELAY_BETWEEN_REPETITIONS_somnia[0], DELAY_BETWEEN_REPETITIONS_somnia[1])
                             time.sleep(retry_delay)
                             continue
@@ -867,7 +862,7 @@ def run_somnia_faucet_loop():
             logger.info(f"Cycle #{cycle_count} processed: {processed_in_cycle}, total: {total_processed}")
             
             if processed_in_cycle > 0:
-                print(f"{Fore.GREEN}📊 Обработано в цикле: {processed_in_cycle}, Всего: {total_processed}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}📊 Обработано в цикле: {processed_in_cycle}{Style.RESET_ALL}")
             else:
                 print(f"{Fore.YELLOW}📊 Нет готовых кошельков (все ожидают {somnia_timeout[0]}-{somnia_timeout[1]}ч){Style.RESET_ALL}")
             

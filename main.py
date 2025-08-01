@@ -255,7 +255,7 @@ def main_menu():
                         "Выберите действие:",
                         choices=[
                             Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
-                            Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек (from_wallet,to_wallet,intermediary,amount)', 'transfer_wallets_to_wallets_call'),
+                            Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек или на прямую', 'transfer_wallets_to_wallets_call'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
