@@ -185,6 +185,17 @@ def parse_percent_range(percent_str):
     except Exception:
         return 100, 100, 'PERCENT'  # По умолчанию 100%
 
+def apply_trim_to_amount(amount_eth):
+    """
+    Применяет обрезку к сумме в ETH согласно настройкам trim_the_number_of_characters
+    """
+    if trim_the_number_of_characters_enable and trim_the_number_of_characters:
+        # Выбираем случайное количество символов для обрезки
+        trim_digits = random.choice(trim_the_number_of_characters)
+        # Обрезаем до указанного количества знаков после запятой
+        return round(amount_eth, trim_digits)
+    return amount_eth
+
 def get_network_rpc(network):
     from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora, somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet
     mainnet_rpc_urls = {
@@ -581,6 +592,10 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
         if amount_type == 'ETH':
             # Фиксированная сумма в ETH - генерируем случайное значение в диапазоне
             amount_eth = random.uniform(amount_from, amount_to)
+            
+            # Применяем обрезку если включена
+            amount_eth = apply_trim_to_amount(amount_eth)
+            
             amount_wei = w3.to_wei(amount_eth, 'ether')
             
             # Проверяем, что у нас достаточно средств
@@ -600,6 +615,9 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     print(Fore.YELLOW + f"Транзакция пропущена, недостаточно средств после учета комиссии и MIN_FROM_BALANCE.")
                     return
                 amount_eth = w3.from_wei(amount_wei, 'ether')
+                # Применяем обрезку к пересчитанной сумме
+                amount_eth = apply_trim_to_amount(amount_eth)
+                amount_wei = w3.to_wei(amount_eth, 'ether')
                 print(Fore.YELLOW + f"Будет отправлено {amount_eth:.6f} ETH (максимум доступно)")
             
             # Правильный вывод диапазона
@@ -626,6 +644,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 if amount_type == 'ETH':
                     # Фиксированная сумма в ETH
                     amount_eth = random.uniform(amount_from, amount_to)
+                    # Применяем обрезку
+                    amount_eth = apply_trim_to_amount(amount_eth)
                     value = w3.to_wei(amount_eth, 'ether')
                 else:
                     # Процент от баланса
@@ -888,6 +908,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             if amount_type == 'ETH':
                 # Фиксированная сумма в ETH
                 amount_eth = random.uniform(amount_from, amount_to)
+                # Применяем обрезку
+                amount_eth = apply_trim_to_amount(amount_eth)
                 value = w3.to_wei(amount_eth, 'ether')
             else:
                 # Процент от баланса
@@ -1325,12 +1347,19 @@ def process_wallets_transfer_normal(transfer_data, proxies, network, delay_betwe
         completion_time = datetime.now() + timedelta(seconds=estimated_time)
         completion_time_str = completion_time.strftime("%d.%m.%Y в %H:%M")  
 
-        print(
-            f"\r[{bar}] {completed_txs}/{total_tx} транзакций | Осталось пар: {remaining_wallets} | {spinner_frame} {Fore.CYAN}Последний:| Завершение: {completion_time_str}{Style.RESET_ALL}",
-            end="",
-            flush=True,
-        )
-        print() 
+        if USE_INTERMEDIARY:
+            print(
+                f"\r[{bar}] {completed_txs}/{total_tx} транзакций | Осталось пар: {remaining_wallets} | {spinner_frame} {Fore.CYAN}Последний:| Завершение: {completion_time_str}{Style.RESET_ALL}",
+                end="",
+                flush=True,
+            )
+            print() 
+        else:
+            print(
+                f"\r[{bar}] {completed_txs}/{total_tx/2} транзакций | Осталось кошельков: {remaining_wallets} | {spinner_frame} {Fore.CYAN}Последний:| Завершение: {completion_time_str}{Style.RESET_ALL}",
+                end="",
+                flush=True,
+            )
 
         if delay_between > 0 and idx < total_wallets - 1:
             countdown_timer(int(delay_between))
