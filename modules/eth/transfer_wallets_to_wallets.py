@@ -1615,7 +1615,7 @@ def process_wallets_transfer_multithreaded(transfer_data, proxies, network, dela
     """
     Многопоточная обработка переводов
     """
-    logger.info(f"\n🧵 Многопоточный режим включен. Потоков: {NUM_THREADS}")
+    logger.info(f"🧵 Многопоточный режим включен. Потоков: {NUM_THREADS}")
     logger.warning("📊 В процессе работы выводятся только результаты транзакций")
     logger.info("="*80)
     
