@@ -12,3 +12,4 @@ solders==0.26.0
 bip-utils==2.9.3
 base58==2.1.1
 fake-useragent==1.4.0
+loguru==0.7.0

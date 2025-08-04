@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import requests
 from colorama import Fore, Style, init
 from web3 import Web3
+from loguru import logger
 
 init()
 
@@ -83,7 +84,7 @@ def load_wallets():
             wallets = [line.strip() for line in f if line.strip()]
         return wallets
     except FileNotFoundError:
-        print(Fore.RED + "❌ Файл data/walletss.txt не найден!")
+        logger.error("❌ Файл data/walletss.txt не найден!")
         return []
 
 def load_proxies():
@@ -95,7 +96,7 @@ def load_proxies():
             proxies = [row[0] for row in reader if row]
         return proxies
     except FileNotFoundError:
-        print(Fore.YELLOW + "⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
+        logger.warning("⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
         return []
 
 def get_proxy_dict(proxy_string):
@@ -295,7 +296,84 @@ def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_n
     
     return wallet, wallet_results, True
 
-def save_results(results, network_name, wallets):
+def get_eth_price_usdt():
+    """Получает актуальный курс ETH в USDT"""
+    try:
+        # Пробуем несколько API для получения курса
+        apis = [
+            "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+            "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+            "https://api.coinbase.com/v2/exchange-rates?currency=ETH"
+        ]
+        
+        for api_url in apis:
+            try:
+                response = requests.get(api_url, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if "coingecko" in api_url:
+                        price = data.get('ethereum', {}).get('usd', 0)
+                    elif "binance" in api_url:
+                        price = float(data.get('price', 0))
+                    elif "coinbase" in api_url:
+                        rates = data.get('data', {}).get('rates', {})
+                        price = float(rates.get('USD', 0))
+                    else:
+                        continue
+                    
+                    if price > 0:
+                        logger.success(f"💰 Получен курс ETH: ${price:.2f} USDT")
+                        return float(price)
+                        
+            except Exception as e:
+                continue
+        
+        logger.warning("⚠️ Не удалось получить курс ETH, стоимость в USDT не будет рассчитана")
+        return 0
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка получения курса ETH: {e}")
+        return 0
+
+def is_mainnet_network(network_name):
+    """Проверяет, является ли сеть mainnet через модуль rpc_return_module"""
+    try:
+        from modules.eth.rpc_return_module import mainnet_rpc_urls
+        # Проверяем как по полному имени, так и по очищенному
+        clean_name = network_name.replace('🚀 ', '')
+        return network_name in mainnet_rpc_urls or clean_name in [net.replace('🚀 ', '') for net in mainnet_rpc_urls.keys()]
+    except ImportError:
+        # Fallback список mainnet сетей
+        mainnet_networks = [
+            '🚀 Ethereum Mainnet',
+            'Ethereum Mainnet',
+            '🚀 Base', 
+            'Base',
+            '🚀 Arbitrum One',
+            'Arbitrum One',
+            '🚀 Optimism',
+            'Optimism',
+            '🚀 Soneium',
+            'Soneium',
+            '🚀 Polygon',
+            'Polygon',
+            '🚀 Binance Smart Chain',
+            'Binance Smart Chain',
+            '🚀 Avalanche',
+            'Avalanche',
+            '🚀 Fantom',
+            'Fantom',
+            '🚀 Gravity Alpha Mainnet',
+            'Gravity Alpha Mainnet',
+            '🚀 Zora',
+            'Zora',
+            '🚀 Abstract',
+            'Abstract'
+        ]
+        return network_name in mainnet_networks
+
+def save_results(results, network_name, wallets, network_type=None):
     """Сохраняет результаты в CSV файл с сохранением порядка"""
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
@@ -306,19 +384,41 @@ def save_results(results, network_name, wallets):
     for wallet, balance, success in results:
         results_dict[wallet] = (balance, success)
     
+    # Получаем курс ETH для mainnet сетей - используем network_type если передан
+    eth_price = 0
+    is_mainnet = network_type == "mainnet" if network_type else is_mainnet_network(network_name)
+    
+    if is_mainnet:
+        eth_price = get_eth_price_usdt()
+    
     with open(result_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['address', 'balance', 'network'])
+        
+        # Определяем заголовки в зависимости от типа сети
+        if is_mainnet and eth_price > 0:
+            writer.writerow(['address', 'balance_eth', 'balance_usdt', 'network'])
+        else:
+            writer.writerow(['address', 'balance_eth', 'network'])
         
         for wallet in wallets:
             if wallet in results_dict:
                 balance, success = results_dict[wallet]
                 if success:
-                    writer.writerow([wallet, balance, network_name])
+                    if is_mainnet and eth_price > 0:
+                        balance_usdt = balance * eth_price
+                        writer.writerow([wallet, balance, f"{balance_usdt:.2f}", network_name])
+                    else:
+                        writer.writerow([wallet, balance, network_name])
+                else:
+                    if is_mainnet and eth_price > 0:
+                        writer.writerow([wallet, 0, "0.00", network_name])
+                    else:
+                        writer.writerow([wallet, 0, network_name])
+            else:
+                if is_mainnet and eth_price > 0:
+                    writer.writerow([wallet, 0, "0.00", network_name])
                 else:
                     writer.writerow([wallet, 0, network_name])
-            else:
-                writer.writerow([wallet, 0, network_name])
 
 def save_results_all_networks(results, all_networks, wallets):
     """Сохраняет результаты всех сетей в CSV файл с сохранением порядка"""
@@ -331,11 +431,27 @@ def save_results_all_networks(results, all_networks, wallets):
     for wallet, network_balances, success in results:
         results_dict[wallet] = (network_balances, success)
     
+    # Получаем курс ETH для расчета USDT
+    eth_price = get_eth_price_usdt()
+    
+    # Определяем какие сети являются mainnet
+    mainnet_networks = []
+    for network_name in all_networks.keys():
+        if is_mainnet_network(network_name):
+            mainnet_networks.append(network_name)
+    
     with open(result_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         
         # Создаем заголовок с названиями сетей
-        header = ['address'] + [network_name.replace('🚀 ', '') for network_name in all_networks.keys()]
+        header = ['address']
+        for network_name in all_networks.keys():
+            clean_network_name = network_name.replace('🚀 ', '')
+            header.append(f"{clean_network_name}_ETH")
+            # Добавляем колонку USDT для mainnet сетей
+            if is_mainnet_network(network_name) and eth_price > 0:
+                header.append(f"{clean_network_name}_USDT")
+        
         writer.writerow(header)
         
         for wallet in wallets:
@@ -346,12 +462,26 @@ def save_results_all_networks(results, all_networks, wallets):
                     for network_name in all_networks.keys():
                         balance = network_balances.get(network_name, 0)
                         row.append(balance)
+                        # Добавляем стоимость в USDT для mainnet сетей
+                        if is_mainnet_network(network_name) and eth_price > 0:
+                            balance_usdt = balance * eth_price
+                            row.append(f"{balance_usdt:.2f}")
                     writer.writerow(row)
                 else:
-                    row = [wallet] + [0] * len(all_networks)
+                    row = [wallet]
+                    for network_name in all_networks.keys():
+                        row.append(0)
+                        # Добавляем 0 USDT для mainnet сетей
+                        if is_mainnet_network(network_name) and eth_price > 0:
+                            row.append("0.00")
                     writer.writerow(row)
             else:
-                row = [wallet] + [0] * len(all_networks)
+                row = [wallet]
+                for network_name in all_networks.keys():
+                    row.append(0)
+                    # Добавляем 0 USDT для mainnet сетей
+                    if is_mainnet_network(network_name) and eth_price > 0:
+                        row.append("0.00")
                 writer.writerow(row)
 
 def format_time_remaining(seconds):
@@ -376,31 +506,41 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     """Функция для проверки балансов в одной сети"""
     
     # Настраиваем логирование ошибок
-    logger = setup_error_logging()
+    error_logger = setup_error_logging()
     
     if not rpc_urls_list:
         error_msg = f"RPC URLs для сети {clean_network} не найдены!"
-        print(Fore.RED + f"❌ {error_msg}")
-        if logger:
-            logger.error(f"Configuration Error: {error_msg}")
+        logger.error(f"❌ {error_msg}")
+        if error_logger:
+            error_logger.error(f"Configuration Error: {error_msg}")
         return
     
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + f"🚀 Начинаем проверку балансов нативных токенов")
-    print(Fore.CYAN + f"🌐 Сеть: {clean_network} ({network_type})")
-    print(Fore.CYAN + f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
-    print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
-    print(Fore.MAGENTA + "="*80)
+    logger.info("="*80)
+    logger.info(f"🚀 Начинаем проверку балансов нативных токенов")
+    logger.info(f"🌐 Сеть: {clean_network} ({network_type})")
+    
+    # Показываем информацию о mainnet и курсе - используем network_type для определения
+    if network_type == "mainnet" or is_mainnet_network(clean_network):
+        logger.success(f"💎 Mainnet сеть - будет добавлена стоимость в USDT")
+        eth_price = get_eth_price_usdt()
+        if eth_price > 0:
+            logger.success(f"💰 Курс ETH: ${eth_price:.2f} USDT")
+    else:
+        logger.warning(f"🔧 Testnet сеть - только баланс в ETH")
+    
+    logger.info(f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
+    logger.info(f"🧵 Потоков: {NUM_THREADS}")
+    logger.info("="*80)
     
     wallets = load_wallets()
     proxies_list = load_proxies()
     
     if not wallets:
-        print(Fore.RED + "❌ Нет кошельков для обработки!")
+        logger.error("❌ Нет кошельков для обработки!")
         return
     
-    print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
-    print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
+    logger.success(f"📂 Загружено {len(wallets)} кошельков")
+    logger.success(f"🔗 Загружено {len(proxies_list)} прокси")
     
     total_wallets = len(wallets)
     completed_wallets = 0
@@ -415,9 +555,9 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     # Для расчета времени
     start_time = time.time()
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info("-"*80)
+    logger.info("🔄 Начинаем обработку кошельков...")
+    logger.info("-"*80)
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         future_to_wallet = {
@@ -487,19 +627,19 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
                     flush=True,
                 )
 
-    print(Fore.MAGENTA + "\n\n" + "="*80)
-    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
-    print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
-    print(Fore.RED + f"❌ Ошибок: {failed_count}")
-    print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
+    logger.info("\n" + "="*80)
+    logger.info("📊 ИТОГОВАЯ СТАТИСТИКА:")
+    logger.success(f"✅ Успешно обработано: {successful_count}")
+    logger.error(f"❌ Ошибок: {failed_count}")
+    logger.info(f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
     
     total_time = time.time() - start_time
-    print(Fore.CYAN + f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
+    logger.info(f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
     
-    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results(results, clean_network, wallets)
-    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
-    print(Fore.MAGENTA + "="*80 + "\n")
+    logger.info("\n💾 Сохраняем результаты...")
+    save_results(results, clean_network, wallets, network_type)
+    logger.success("✅ Результаты сохранены в result/result.csv")
+    logger.info("="*80 + "\n")
     
     # Уведомление в Telegram с файлом
     from modules.notifications import send_telegram_notification
@@ -516,23 +656,34 @@ def check_wallet_balances_all_networks(all_networks):
     """Функция для проверки балансов во всех сетях"""
     
     # Настраиваем логирование ошибок
-    logger = setup_error_logging()
+    error_logger = setup_error_logging()
     
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + f"🚀 Начинаем проверку балансов во ВСЕХ сетях")
-    print(Fore.CYAN + f"🌐 Количество сетей: {len(all_networks)}")
-    print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
-    print(Fore.MAGENTA + "="*80)
+    logger.info("="*80)
+    logger.info(f"🚀 Начинаем проверку балансов во ВСЕХ сетях")
+    logger.info(f"🌐 Количество сетей: {len(all_networks)}")
+    
+    # Показываем информацию о mainnet сетях
+    mainnet_count = sum(1 for network in all_networks.keys() if is_mainnet_network(network))
+    testnet_count = len(all_networks) - mainnet_count
+    
+    logger.success(f"💎 Mainnet сетей: {mainnet_count}")
+    logger.warning(f"🔧 Testnet сетей: {testnet_count}")
+    
+    if mainnet_count > 0:
+        logger.success(f"💰 Для mainnet сетей будет добавлена стоимость в USDT")
+    
+    logger.info(f"🧵 Потоков: {NUM_THREADS}")
+    logger.info("="*80)
     
     wallets = load_wallets()
     proxies_list = load_proxies()
     
     if not wallets:
-        print(Fore.RED + "❌ Нет кошельков для обработки!")
+        logger.error("❌ Нет кошельков для обработки!")
         return
     
-    print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
-    print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
+    logger.success(f"📂 Загружено {len(wallets)} кошельков")
+    logger.success(f"🔗 Загружено {len(proxies_list)} прокси")
     
     total_wallets = len(wallets)
     completed_wallets = 0
@@ -547,9 +698,9 @@ def check_wallet_balances_all_networks(all_networks):
     # Для расчета времени
     start_time = time.time()
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info("-"*80)
+    logger.info("🔄 Начинаем обработку кошельков...")
+    logger.info("-"*80)
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         future_to_wallet = {
@@ -613,11 +764,11 @@ def check_wallet_balances_all_networks(all_networks):
                     flush=True,
                 )
     # Сохраняем результаты после обработки всех кошельков
-    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
+    logger.info("💾 Сохраняем результаты...")
     save_results_all_networks(results, all_networks, wallets)
-    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
-    print(Fore.MAGENTA + "="*80 + "\n")
-    
+    logger.success("✅ Результаты сохранены в result/result.csv")
+    #logger.info("="*80 + "\n")
+    logger.info("💬 Отправляем уведомление в Telegram...")
     # Уведомление в Telegram с файлом
     from modules.notifications import send_telegram_notification
     result_file_path = project_root / 'result' / 'result.csv'
