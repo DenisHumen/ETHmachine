@@ -2,6 +2,7 @@ import csv
 import random
 import time
 import sys
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import cycle
 from pathlib import Path
@@ -17,6 +18,62 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
+
+def setup_error_logging():
+    """Настраивает логирование ошибок в директорию log/"""
+    log_dir = project_root / 'log'
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'balance_check_errors_{timestamp}.log'
+    
+    # Настройка логгера
+    logger = logging.getLogger('balance_checker')
+    logger.setLevel(logging.ERROR)
+    
+    # Очищаем существующие обработчики
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Создаем обработчик для записи в файл
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.ERROR)
+    
+    # Форматирование логов
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    
+    return logger
+
+def log_error(logger, wallet, error, proxy=None, rpc_url=None, network=None, attempt=None):
+    """Записывает детальную информацию об ошибке в лог"""
+    error_details = {
+        'wallet': wallet,
+        'error': str(error),
+        'short_error': get_short_error_message(str(error)),
+        'proxy': proxy[:20] + '...' if proxy and len(proxy) > 20 else proxy,
+        'rpc_url': rpc_url,
+        'network': network,
+        'attempt': attempt,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    log_message = (
+        f"Wallet: {error_details['wallet']} | "
+        f"Network: {error_details['network']} | "
+        f"Attempt: {error_details['attempt']} | "
+        f"Proxy: {error_details['proxy']} | "
+        f"RPC: {error_details['rpc_url']} | "
+        f"Error: {error_details['short_error']} | "
+        f"Full Error: {error_details['error']}"
+    )
+    
+    logger.error(log_message)
 
 def load_wallets():
     """Загружает адреса кошельков из файла data/walletss.txt"""
@@ -116,7 +173,18 @@ def get_short_error_message(error_str):
         # Возвращаем первые 30 символов оригинальной ошибки
         return error_str[:30] + '...' if len(error_str) > 30 else error_str
 
-def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None):
+def get_random_proxy_except_current(proxies_list, current_proxy):
+    """Возвращает случайную прокси, отличную от текущей"""
+    if not proxies_list:
+        return None
+    
+    if len(proxies_list) <= 1:
+        return proxies_list[0] if proxies_list else None
+    
+    available_proxies = [proxy for proxy in proxies_list if proxy != current_proxy]
+    return random.choice(available_proxies) if available_proxies else random.choice(proxies_list)
+
+def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None, logger=None, network_name=None):
     """Получает баланс нативного токена для кошелька через Web3 с перебором всех RPC"""
     
     proxies_list = load_proxies()
@@ -145,18 +213,22 @@ def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None):
                 return float(balance_eth)
                 
             except Exception as e:
+                # Логируем ошибку
+                if logger:
+                    log_error(logger, wallet_address, e, current_proxy, rpc_url, network_name, f"{attempt+1}/{RETRY_COUNT+1}")
+                
                 if attempt < RETRY_COUNT:
-                    # Меняем прокси при ошибке
+                    # Меняем прокси при ошибке на случайную, отличную от текущей
                     if proxies_list:
-                        current_proxy = random.choice(proxies_list)
-                    time.sleep(1)
+                        current_proxy = get_random_proxy_except_current(proxies_list, current_proxy)
+                    time.sleep(random.uniform(1, 2))  # Добавляем случайную задержку
                     continue
                 else:
                     # Если все попытки для текущего RPC исчерпаны, переходим к следующему RPC
                     if rpc_attempt < len(rpc_urls) - 1:
-                        # Меняем прокси для следующего RPC
+                        # Меняем прокси для следующего RPC на случайную
                         if proxies_list:
-                            current_proxy = random.choice(proxies_list)
+                            current_proxy = get_random_proxy_except_current(proxies_list, current_proxy)
                         break
                     else:
                         # Все RPC исчерпаны
@@ -167,21 +239,25 @@ def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None):
     # Если дошли до сюда, значит все RPC не сработали
     raise Exception("Все RPC недоступны")
 
-def process_wallet_task(wallet_index, wallet, assigned_proxy, rpc_urls, reserve_proxies):
+def process_wallet_task(wallet_index, wallet, assigned_proxy, rpc_urls, reserve_proxies, logger=None, network_name=None):
     """Обрабатывает один кошелек с повторными попытками"""
     
     current_proxy = assigned_proxy
     
     for attempt in range(RETRY_COUNT + 1):
         try:
-            balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy)
+            balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy, logger, network_name)
             return wallet, balance, True
         
         except Exception as e:
+            # Логируем ошибку на уровне задачи
+            if logger:
+                log_error(logger, wallet, e, current_proxy, None, network_name, f"Task attempt {attempt+1}/{RETRY_COUNT+1}")
+            
             if attempt < RETRY_COUNT:
-                # При ошибке используем резервную прокси
-                current_proxy = get_reserve_proxy(reserve_proxies)
-                time.sleep(1)
+                # При ошибке используем случайную прокси, отличную от текущей
+                current_proxy = get_random_proxy_except_current(reserve_proxies, current_proxy)
+                time.sleep(random.uniform(1, 3))  # Случайная задержка между попытками
                 continue
             else:
                 error_msg = get_short_error_message(str(e))
@@ -189,7 +265,7 @@ def process_wallet_task(wallet_index, wallet, assigned_proxy, rpc_urls, reserve_
     
     return wallet, 0, False
 
-def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_networks, reserve_proxies):
+def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_networks, reserve_proxies, logger=None):
     """Обрабатывает один кошелек для всех сетей"""
     
     wallet_results = {}
@@ -199,14 +275,19 @@ def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_n
         
         for attempt in range(RETRY_COUNT + 1):
             try:
-                balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy)
+                balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy, logger, network_name)
                 wallet_results[network_name] = balance
                 break
                 
             except Exception as e:
+                # Логируем ошибку для конкретной сети
+                if logger:
+                    log_error(logger, wallet, e, current_proxy, None, network_name, f"Network attempt {attempt+1}/{RETRY_COUNT+1}")
+                
                 if attempt < RETRY_COUNT:
-                    current_proxy = get_reserve_proxy(reserve_proxies)
-                    time.sleep(1)
+                    # При ошибке используем случайную прокси, отличную от текущей
+                    current_proxy = get_random_proxy_except_current(reserve_proxies, current_proxy)
+                    time.sleep(random.uniform(1, 2))  # Случайная задержка между попытками
                     continue
                 else:
                     wallet_results[network_name] = 0
@@ -294,8 +375,14 @@ def get_estimated_completion_time(seconds_remaining):
 def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network):
     """Функция для проверки балансов в одной сети"""
     
+    # Настраиваем логирование ошибок
+    logger = setup_error_logging()
+    
     if not rpc_urls_list:
-        print(Fore.RED + f"❌ RPC URLs для сети {clean_network} не найдены!")
+        error_msg = f"RPC URLs для сети {clean_network} не найдены!"
+        print(Fore.RED + f"❌ {error_msg}")
+        if logger:
+            logger.error(f"Configuration Error: {error_msg}")
         return
     
     print(Fore.MAGENTA + "\n" + "="*80)
@@ -340,7 +427,9 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
                 wallet,
                 get_assigned_proxy(i, proxies_list),
                 rpc_urls_list,
-                proxies_list
+                proxies_list,
+                logger,
+                clean_network
             ): wallet
             for i, wallet in enumerate(wallets)
         }
@@ -426,6 +515,9 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
 def check_wallet_balances_all_networks(all_networks):
     """Функция для проверки балансов во всех сетях"""
     
+    # Настраиваем логирование ошибок
+    logger = setup_error_logging()
+    
     print(Fore.MAGENTA + "\n" + "="*80)
     print(Fore.YELLOW + f"🚀 Начинаем проверку балансов во ВСЕХ сетях")
     print(Fore.CYAN + f"🌐 Количество сетей: {len(all_networks)}")
@@ -467,7 +559,8 @@ def check_wallet_balances_all_networks(all_networks):
                 wallet,
                 get_assigned_proxy(i, proxies_list),
                 all_networks,
-                proxies_list
+                proxies_list,
+                logger
             ): wallet
             for i, wallet in enumerate(wallets)
         }
