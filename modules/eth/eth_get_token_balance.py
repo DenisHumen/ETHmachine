@@ -508,11 +508,10 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
                     f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
                     f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
                     f"Осталось: {remaining_wallets} | {status_color}{status_icon} {wallet_result[:10]}...{wallet_result[-6:]} | {balance_info}{Style.RESET_ALL}",
-                    end="",
+                    end="\n" if progress_percent >= 100 else "",
                     flush=True,
                 )
-    
-    logger.info(Fore.MAGENTA + "\n\n")
+
     logger.info(Fore.MAGENTA + "="*80)
     logger.info(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
     logger.info(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
