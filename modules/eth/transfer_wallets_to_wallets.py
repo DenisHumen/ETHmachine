@@ -11,12 +11,13 @@ from itertools import cycle
 from colorama import Style
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Настройка путей для импорта
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer
+from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer, MULTI_THREADING, NUM_THREADS
 from config.explorer_url import get_explorer_url
 from modules.notifications import send_telegram_notification, send_telegram_file
 
@@ -468,7 +469,6 @@ def validate_transfer_data(transfer_data):
         if not is_valid:
             wallet_type_name = "приватный ключ" if TYPE_VALUE_TO_WALLET == 0 else "адрес кошелька"
             errors.append(f"Строка {idx}, поле 'to_wallet' (ожидается {wallet_type_name}): {error_msg}")
-    
     return errors
 
 def get_to_wallet_address(to_wallet_value):
@@ -521,9 +521,11 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 use_intermediary = False
                 
         except Exception as e:
-            print(Fore.RED + f"Ошибка создания аккаунта: {e}")
-            update_stats(success=False, error_msg=f"Ошибка создания аккаунта: {e}")
-            # Отправляем уведомление об ошибке только если уровень = 2
+            error_msg = f"Ошибка создания аккаунта: {e}"
+            # В многопоточном режиме не выводим детальные сообщения
+            if not MULTI_THREADING:
+                print(Fore.RED + error_msg)
+            update_stats(success=False, error_msg=error_msg)
             if TELEGRAM_LOG_LEVEL_transfer == 2:
                 send_telegram_notification(
                     notif_type="error",
@@ -543,16 +545,18 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
         else:
             proxy_hidden = "Нет доступных прокси"
 
-        print(Fore.MAGENTA + "\n" + "="*61)
-        print(Fore.YELLOW + f"[{dt_str}] Запуск {'цепочки' if use_intermediary else 'прямого'} перевода:")
-        print(Fore.CYAN + f"  FROM:         priv - {from_priv[:10]}... | wallet - {from_acc.address[:10]}...")
-        if use_intermediary:
-            print(Fore.CYAN + f"  INTERMEDIARY: priv - {intermediary_priv[:10]}... | wallet - {intermediary_acc.address[:10]}...")
-        print(Fore.CYAN + f"  TO:           {'priv - ' + to_priv[:10] + '... | ' if to_priv else ''}wallet - {to_address[:10]}...")
-        print(Fore.CYAN + f"  Сеть:         {network}")
-        print(Fore.CYAN + f"  Используется прокси: {proxy_hidden}")
-        print(Fore.CYAN + f"  Режим:        {'Через посредника' if use_intermediary else 'Напрямую'}")
-        print(Fore.MAGENTA + "-"*61)
+        # В многопоточном режиме не выводим детальную информацию о запуске
+        if not MULTI_THREADING:
+            print(Fore.MAGENTA + "\n" + "="*61)
+            print(Fore.YELLOW + f"[{dt_str}] Запуск {'цепочки' if use_intermediary else 'прямого'} перевода:")
+            print(Fore.CYAN + f"  FROM:         priv - {from_priv[:10]}... | wallet - {from_acc.address[:10]}...")
+            if use_intermediary:
+                print(Fore.CYAN + f"  INTERMEDIARY: priv - {intermediary_priv[:10]}... | wallet - {intermediary_acc.address[:10]}...")
+            print(Fore.CYAN + f"  TO:           {'priv - ' + to_priv[:10] + '... | ' if to_priv else ''}wallet - {to_address[:10]}...")
+            print(Fore.CYAN + f"  Сеть:         {network}")
+            print(Fore.CYAN + f"  Используется прокси: {proxy_hidden}")
+            print(Fore.CYAN + f"  Режим:        {'Через посредника' if use_intermediary else 'Напрямую'}")
+            print(Fore.MAGENTA + "-"*61)
         
         w3, session = get_web3_with_proxy(rpc_url, use_proxy)
         explorer_url = get_explorer_url(network)
@@ -562,12 +566,14 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             balance = get_eth_balance_safe(w3, from_acc.address)
             if balance > 0:
                 break
-            print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
+            if not MULTI_THREADING:
+                print(Fore.YELLOW + f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
             time.sleep(3)
         else:
-            print(Fore.RED + f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск")
+            error_msg = f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск"
+            if not MULTI_THREADING:
+                print(Fore.RED + error_msg)
             update_stats(success=False, error_msg=f"Нулевой баланс кошелька {from_acc.address}")
-            # Отправляем уведомление только если уровень = 2
             if TELEGRAM_LOG_LEVEL_transfer == 2:
                 send_telegram_notification(
                     notif_type="warning",
@@ -586,7 +592,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
         try:
             gas_price = w3.eth.gas_price
         except Exception as e:
-            print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
+            if not MULTI_THREADING:
+                print(Fore.YELLOW + f"Ошибка получения цены газа: {e}")
             gas_price = int(w3.to_wei('30', 'gwei'))
         
         if amount_type == 'ETH':
@@ -600,7 +607,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             
             # Проверяем, что у нас достаточно средств
             if amount_wei > balance:
-                print(Fore.YELLOW + f"⚠️ Недостаточно средств: запрошено {amount_eth:.6f} ETH, доступно {w3.from_wei(balance, 'ether'):.6f} ETH")
+                if not MULTI_THREADING:
+                    print(Fore.YELLOW + f"⚠️ Недостаточно средств: запрошено {amount_eth:.6f} ETH, доступно {w3.from_wei(balance, 'ether'):.6f} ETH")
                 # Используем весь доступный баланс минус комиссия и MIN_FROM_BALANCE
                 estimated_gas = 21000 * 1.2  # Примерная оценка
                 fee = int(estimated_gas * gas_price * 1.2)
@@ -612,26 +620,30 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 
                 amount_wei = balance - fee - min_balance_wei
                 if amount_wei <= 0:
-                    print(Fore.YELLOW + f"Транзакция пропущена, недостаточно средств после учета комиссии и MIN_FROM_BALANCE.")
+                    if not MULTI_THREADING:
+                        print(Fore.YELLOW + f"Транзакция пропущена, недостаточно средств после учета комиссии и MIN_FROM_BALANCE.")
                     return
                 amount_eth = w3.from_wei(amount_wei, 'ether')
                 # Применяем обрезку к пересчитанной сумме
                 amount_eth = apply_trim_to_amount(amount_eth)
                 amount_wei = w3.to_wei(amount_eth, 'ether')
-                print(Fore.YELLOW + f"Будет отправлено {amount_eth:.6f} ETH (максимум доступно)")
+                if not MULTI_THREADING:
+                    print(Fore.YELLOW + f"Будет отправлено {amount_eth:.6f} ETH (максимум доступно)")
             
-            # Правильный вывод диапазона
-            if amount_from == amount_to:
-                print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (фиксированная)")
-            else:
-                print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (из диапазона {amount_from:.6f}-{amount_to:.6f} ETH)")
+            # Правильный вывод диапазона только в однопоточном режиме
+            if not MULTI_THREADING:
+                if amount_from == amount_to:
+                    print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (фиксированная)")
+                else:
+                    print(Fore.CYAN + f"  Сумма:        {amount_eth:.6f} ETH (из диапазона {amount_from:.6f}-{amount_to:.6f} ETH)")
         else:
             # Процентное значение
             percent = random.randint(int(amount_from), int(amount_to))
-            if amount_from == amount_to:
-                print(Fore.CYAN + f"  Процент:      {percent}% от баланса")
-            else:
-                print(Fore.CYAN + f"  Процент:      {percent}% (из диапазона {int(amount_from)}-{int(amount_to)}%) от баланса")
+            if not MULTI_THREADING:
+                if amount_from == amount_to:
+                    print(Fore.CYAN + f"  Процент:      {percent}% от баланса")
+                else:
+                    print(Fore.CYAN + f"  Процент:      {percent}% (из диапазона {int(amount_from)}-{int(amount_to)}%) от баланса")
 
         if use_intermediary:
             # Старая логика с посредником
@@ -763,7 +775,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                         print(Fore.RED + f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash)}")
                         break
                 except Exception as e:
-                    print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
+                    if not MULTI_THREADING:
+                        print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
                 time.sleep(WHAITE_TRANSACTION_PENDING)
             else:
                 print(Fore.RED + f"❌ Транзакция from -> intermediary остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
@@ -897,7 +910,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
 
         else:
             # Новая логика: прямой перевод from -> to
-            print(Fore.BLUE + f"[{dt_str}] Прямой перевод from -> to...")
+            if not MULTI_THREADING:
+                print(Fore.BLUE + f"[{dt_str}] Прямой перевод from -> to...")
             
             nonce_from = get_nonce_safe(w3, from_acc.address)
             if nonce_from is None:
@@ -966,9 +980,11 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             for attempt in range(TX_SEND_ATTEMPTS):
                 try:
                     signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
-                    print(Fore.BLUE + f"[{dt_str}] Отправка from -> to...")
+                    if not MULTI_THREADING:
+                        print(Fore.BLUE + f"[{dt_str}] Отправка from -> to...")
                     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                    print(Fore.YELLOW + f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
+                    if not MULTI_THREADING:
+                        print(Fore.YELLOW + f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
                     
                     # Уведомление об успешной отправке прямой транзакции только если уровень = 2
                     if TELEGRAM_LOG_LEVEL_transfer == 2:
@@ -1003,7 +1019,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 return
 
             # Ждем подтверждения
-            print(Fore.BLUE + "Ожидание подтверждения транзакции from -> to...")
+            if not MULTI_THREADING:
+                print(Fore.BLUE + "Ожидание подтверждения транзакции from -> to...")
             time.sleep(WHAITE_TRANSACTION_PENDING)
             for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
                 try:
@@ -1015,7 +1032,8 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                         print(Fore.RED + f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash)}")
                         break
                 except Exception as e:
-                    print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
+                    if not MULTI_THREADING:
+                        print(Fore.YELLOW + f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
                 time.sleep(WHAITE_TRANSACTION_PENDING)
             else:
                 print(Fore.RED + f"❌ Транзакция from -> to остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
@@ -1056,7 +1074,11 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     main_title="ETHmachine Transfer Success"
                 )
 
-            print(Fore.GREEN + "\n" + "=" * 60)
+            # Получаем баланс для финального вывода
+            to_wallet_balance = get_eth_balance_safe(w3, to_address)
+            to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
+            if not MULTI_THREADING:
+                print(Fore.GREEN + "\n" + "=" * 60)
             print(Fore.CYAN + f"{explorer_url}{w3.to_hex(tx_hash)}")
             print(Fore.YELLOW + f"\nfrom_wallet ({from_acc.address}) - {w3.from_wei(value, 'ether')} ETH")
             print(Fore.YELLOW + f"Баланс to_wallet ({to_address}) по завершению - {to_wallet_balance_eth} ETH")
@@ -1265,6 +1287,11 @@ def process_wallets_transfer_normal(transfer_data, proxies, network, delay_betwe
 
     print(Fore.GREEN + "✅ Валидация данных прошла успешно")
     
+    # Проверяем, включена ли многопоточность
+    if MULTI_THREADING:
+        return process_wallets_transfer_multithreaded(transfer_data, proxies, network, delay_between, total_tx, progress_file, start_idx, completed_txs)
+    
+    # Оригинальная логика для однопоточного режима
     spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
     bar_length = 80 
     total_wallets = len(transfer_data)
@@ -1537,6 +1564,8 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
             # Отмечаем посредника как использованного
             mark_intermediary_as_used(intermediary['private_key'])
             
+
+            
             completed_txs += 2
             
         except Exception as e:
@@ -1551,7 +1580,7 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
         spinner_frame = next(spinner_cycle)
         
         remaining_tx = total_tx - completed_txs
-        remaining_wallets = len(valid_wallets) - idx - 1
+        remaining_wallets = len(valid_wallets) - idx -  1
         estimated_time = remaining_tx * delay_between + remaining_wallets * 13
         completion_time = datetime.now() + timedelta(seconds=estimated_time)
         completion_time_str = completion_time.strftime("%d.%m.%Y в %H:%M")
@@ -1568,4 +1597,212 @@ def process_wallets_transfer_with_one_time_intermediaries(valid_wallets, availab
             countdown_timer(int(delay_between), "Задержка до следующей пары")
     
     print(Fore.GREEN + f"\n✅ Завершена обработка всех {len(valid_wallets)} подходящих пар в текущем цикле")
+def process_single_wallet_transfer(args):
+    """
+    Обрабатывает один кошелек для многопоточного режима
+    """
+    row, proxy, network, delay_between, tx_counter, total_tx = args
+    
+    try:
+        TRANSFER_STATS["wallets_processed"] += 1
+        
+        # Выполняем перевод
+        result = transefer_wallets_to_wallets(
+            row['from_wallet'],
+            row['intermediary'],
+            row['to_wallet'],
+            network,
+            row['amount'],
+            proxy,
+            delay_between,
+            tx_counter,
+            total_tx
+        )
+        
+        return {"success": True, "row": row, "result": result}
+        
+    except Exception as e:
+        TRANSFER_STATS["wallets_failed"] += 1
+        return {"success": False, "row": row, "error": str(e)}
+
+def process_wallets_transfer_multithreaded(transfer_data, proxies, network, delay_between, total_tx, progress_file=None, start_idx=0, completed_txs=0):
+    """
+    Многопоточная обработка переводов
+    """
+    print(Fore.MAGENTA + f"\n🧵 Многопоточный режим включен. Потоков: {NUM_THREADS}")
+    print(Fore.YELLOW + "📊 В процессе работы выводятся только результаты транзакций")
+    print(Fore.MAGENTA + "="*80)
+    
+    # Используем переданные параметры прогресса
+    if start_idx > 0:
+        print(Fore.GREEN + f"▶️ Продолжаем с кошелька #{start_idx}, завершено транзакций: {completed_txs}")
+        # Обрезаем список кошельков до непроцессированных
+        transfer_data = transfer_data[start_idx:]
+    
+    # Обработка зафейленных кошельков
+    failed_wallets = load_failed_wallets()
+    if failed_wallets:
+        print(Fore.YELLOW + f"\n📋 Обработка зафейленных кошельков ({len(failed_wallets)} строк)...")
+        for failed_row in failed_wallets:
+            proxy = random.choice(proxies) if proxies else None
+            try:
+                transefer_wallets_to_wallets(
+                    failed_row['from_wallet'],
+                    failed_row['intermediary'],
+                    failed_row['to_wallet'],
+                    network,
+                    failed_row['amount'],
+                    proxy,
+                    delay_between,
+                    completed_txs,
+                    total_tx
+                )
+                remove_failed_wallet(failed_row)
+                completed_txs += 2
+                print(Fore.GREEN + f"✅ Зафейленный кошелек успешно обработан")
+            except Exception as e:
+                print(Fore.RED + f"❌ Ошибка обработки зафейленного кошелька: {e}")
+    
+    # Подготавливаем аргументы для каждого кошелька
+    tasks = []
+    for idx, row in enumerate(transfer_data):
+        proxy = random.choice(proxies) if proxies else None
+        tx_counter = (start_idx + idx) * 2  # Учитываем начальный индекс
+        tasks.append((row, proxy, network, delay_between, tx_counter, total_tx, start_idx + idx))
+    
+    successful_transfers = 0
+    failed_transfers = 0
+    completed_tasks = 0
+    total_tasks = len(tasks)
+    
+    # Инициализируем прогресс бар
+    bar_length = 50
+    spinner_cycle = cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+    
+    def update_progress_bar():
+        progress = int((completed_tasks / total_tasks) * bar_length)
+        bar = "█" * progress + "░" * (bar_length - progress)
+        percentage = (completed_tasks / total_tasks) * 100
+        spinner_frame = next(spinner_cycle)
+        
+        print(f"\r{spinner_frame} [{bar}] {completed_tasks}/{total_tasks} ({percentage:.1f}%) | ✅{successful_transfers} ❌{failed_transfers}", end="", flush=True)
+    
+    def save_progress(current_idx):
+        """Сохраняет текущий прогресс"""
+        if progress_file:
+            try:
+                os.makedirs(os.path.dirname(progress_file), exist_ok=True)
+                with open(progress_file, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "last_idx": current_idx,
+                        "completed_txs": completed_txs + (completed_tasks * 2)
+                    }, f, indent=2)
+            except Exception as e:
+                print(f"\n{Fore.RED}Ошибка сохранения прогресса: {e}")
+    
+    # Выполняем многопоточную обработку
+    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        future_to_task = {executor.submit(process_single_wallet_transfer_with_progress, task): task for task in tasks}
+        
+        for future in as_completed(future_to_task):
+            task = future_to_task[future]
+            row = task[0]
+            wallet_idx = task[6]  # Индекс кошелька
+            completed_tasks += 1
+            
+            # Сохраняем прогресс каждые 5 кошельков
+            if completed_tasks % 5 == 0:
+                save_progress(wallet_idx + 1)
+            
+            try:
+                result = future.result()
+                
+                if result["success"]:
+                    successful_transfers += 1
+                    # Краткий вывод успешной транзакции
+                    from_acc = Account.from_key(row['from_wallet'])
+                    to_address, _ = get_to_wallet_address(row['to_wallet'])
+                    
+                    # Обновляем прогресс бар
+                    update_progress_bar()
+                    if not MULTI_THREADING:
+                        print(f"\n{Fore.GREEN}✅ Успешно отправлено from -> to (#{wallet_idx + 1})")
+                    print(Fore.CYAN + f"   - from: {from_acc.address}")
+                    print(Fore.CYAN + f"   - to: {to_address}")
+                    print(Fore.CYAN + f"   - amount: {row['amount']}")
+                    if 'tx_hash' in str(result.get('result', '')):
+                        print(Fore.LIGHTBLUE_EX + f"   - Tx: {result.get('result', 'N/A')}")
+                else:
+                    failed_transfers += 1
+                    # Краткий вывод неудачной транзакции
+                    from_acc = Account.from_key(row['from_wallet'])
+                    to_address, _ = get_to_wallet_address(row['to_wallet'])
+                    
+                    # Обновляем прогресс бар
+                    update_progress_bar()
+                    print(f"\n{Fore.RED}❌ Ошибка перевода from -> to (#{wallet_idx + 1})")
+                    print(Fore.CYAN + f"   - from: {from_acc.address}")
+                    print(Fore.CYAN + f"   - to: {to_address}")
+                    print(Fore.RED + f"   - error: {result['error']}")
+                    
+                    # Сохраняем неудачную попытку
+                    save_failed_wallet(result["row"])
+                    
+            except Exception as e:
+                failed_transfers += 1
+                from_acc = Account.from_key(row['from_wallet'])
+                to_address, _ = get_to_wallet_address(row['to_wallet'])
+                
+                # Обновляем прогресс бар
+                update_progress_bar()
+                print(f"\n{Fore.RED}❌ Исключение при обработке кошелька (#{wallet_idx + 1})")
+                print(Fore.CYAN + f"   - from: {from_acc.address}")
+                print(Fore.CYAN + f"   - to: {to_address}")
+                print(Fore.RED + f"   - exception: {str(e)}")
+                
+                save_failed_wallet(row)
+    
+    # Финальное обновление прогресс бара
+    update_progress_bar()
+    
+    # Удаляем файл прогресса после завершения
+    if progress_file and os.path.exists(progress_file):
+        os.remove(progress_file)
+    
+    # Выводим итоговую статистику
+    print(Fore.MAGENTA + "\n\n" + "="*80)
+    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА МНОГОПОТОЧНОГО РЕЖИМА:")
+    print(Fore.GREEN + f"✅ Успешных переводов: {successful_transfers}")
+    print(Fore.RED + f"❌ Неудачных переводов: {failed_transfers}")
+    if (successful_transfers + failed_transfers) > 0:
+        print(Fore.CYAN + f"📈 Общий процент успеха: {(successful_transfers/(successful_transfers+failed_transfers)*100):.1f}%")
+    print(Fore.MAGENTA + "="*80)
+
+def process_single_wallet_transfer_with_progress(args):
+    """
+    Обрабатывает один кошелек для многопоточного режима с поддержкой прогресса
+    """
+    row, proxy, network, delay_between, tx_counter, total_tx, wallet_idx = args
+    
+    try:
+        TRANSFER_STATS["wallets_processed"] += 1
+        
+        # Выполняем перевод
+        result = transefer_wallets_to_wallets(
+            row['from_wallet'],
+            row['intermediary'],
+            row['to_wallet'],
+            network,
+            row['amount'],
+            proxy,
+            delay_between,
+            tx_counter,
+            total_tx
+        )
+        
+        return {"success": True, "row": row, "result": result, "wallet_idx": wallet_idx}
+        
+    except Exception as e:
+        TRANSFER_STATS["wallets_failed"] += 1
+        return {"success": False, "row": row, "error": str(e), "wallet_idx": wallet_idx}
 
