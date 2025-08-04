@@ -39,9 +39,9 @@ def setup_error_logging():
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setLevel(logging.ERROR)
     
-    # Форматирование логов
+    # Форматирование логов с информацией о количестве попыток
     formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)s | %(message)s',
+        f'%(asctime)s | %(levelname)s | RETRY_COUNT={RETRY_COUNT} | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     file_handler.setFormatter(formatter)
