@@ -2,6 +2,7 @@ import csv
 import random
 import time
 import sys
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import cycle
 from pathlib import Path
@@ -9,8 +10,7 @@ from pathlib import Path
 import requests
 from colorama import Fore, Style, init
 from web3 import Web3
-
-# добавить сбор цены токенов и обющую цену
+from loguru import logger
 
 init()
 
@@ -19,6 +19,36 @@ from pathlib import Path
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
+
+# Настройка логгера
+log_dir = project_root / 'log'
+log_dir.mkdir(exist_ok=True)
+
+# Удаляем стандартный обработчик и добавляем свои
+logger.remove()
+
+# Консольный вывод с цветами
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
+
+# Файловый вывод для ошибок
+logger.add(
+    log_dir / "eth_token_balance_errors.log",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="ERROR",
+    rotation="10 MB"
+)
+
+# Общий файловый вывод
+logger.add(
+    log_dir / "eth_token_balance.log",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="DEBUG",
+    rotation="50 MB"
+)
 
 from config.config import NUM_THREADS, RETRY_COUNT
 import config.token_address_erc20 as token_addresses
@@ -56,7 +86,7 @@ def load_wallets():
             wallets = [line.strip() for line in f if line.strip()]
         return wallets
     except FileNotFoundError:
-        print(Fore.RED + "❌ Файл data/walletss.txt не найден!")
+        logger.error("❌ Файл data/walletss.txt не найден!")
         return []
 
 def load_proxies():
@@ -68,7 +98,7 @@ def load_proxies():
             proxies = [row[0] for row in reader if row]
         return proxies
     except FileNotFoundError:
-        print(Fore.YELLOW + "⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
+        logger.warning("⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
         return []
 
 def get_proxy_dict(proxy_string):
@@ -150,7 +180,7 @@ def process_wallet_task(wallet, proxy, rpc_urls, token_address):
                 time.sleep(1)
                 continue
             else:
-                print(Fore.RED + f"❌ Ошибка для кошелька {wallet[:10]}...: {e}")
+                logger.error(f"❌ Ошибка для кошелька {wallet[:10]}...: {e}")
                 return wallet, 0, False
     
     return wallet, 0, False
@@ -183,62 +213,73 @@ def process_wallet_task_all_tokens(wallet, proxy, rpc_urls, tokens_dict):
     return wallet, wallet_results, True
 
 def save_results(results, token_symbol, wallets):
-    """Сохраняет результаты в CSV файл с сохранением порядка"""
-    result_dir = project_root / 'result'
-    result_dir.mkdir(exist_ok=True)
-    
-    result_file = result_dir / 'result.csv'
-    
-    results_dict = {}
-    for wallet, balance, success in results:
-        results_dict[wallet] = (balance, success)
-    
-    with open(result_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['address', 'balance', 'token'])
+    try:
+        """Сохраняет результаты в CSV файл с сохранением порядка"""
+        result_dir = project_root / 'result'
+        result_dir.mkdir(exist_ok=True)
         
-        for wallet in wallets:
-            if wallet in results_dict:
-                balance, success = results_dict[wallet]
-                if success:
-                    writer.writerow([wallet, balance, token_symbol])
+        result_file = result_dir / 'result.csv'
+        
+        results_dict = {}
+        for wallet, balance, success in results:
+            results_dict[wallet] = (balance, success)
+        
+        with open(result_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['address', 'balance', 'token'])
+            
+            for wallet in wallets:
+                if wallet in results_dict:
+                    balance, success = results_dict[wallet]
+                    if success:
+                        writer.writerow([wallet, balance, token_symbol])
+                    else:
+                        writer.writerow([wallet, 0, token_symbol])
                 else:
                     writer.writerow([wallet, 0, token_symbol])
-            else:
-                writer.writerow([wallet, 0, token_symbol])
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
+        raise
 
 def save_results_all_tokens(results, tokens_dict, wallets):
-    """Сохраняет результаты всех токенов в CSV файл (каждый кошелек в одной строке) с сохранением порядка"""
-    result_dir = project_root / 'result'
-    result_dir.mkdir(exist_ok=True)
-    
-    result_file = result_dir / 'result.csv'
-    
-    results_dict = {}
-    for wallet, token_balances, success in results:
-        results_dict[wallet] = (token_balances, success)
-    
-    with open(result_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
+    try:
+        """Сохраняет результаты всех токенов в CSV файл (каждый кошелек в одной строке) с сохранением порядка"""
+        result_dir = project_root / 'result'
+        result_dir.mkdir(exist_ok=True)
         
-        header = ['address'] + [token_symbol.upper() for token_symbol in tokens_dict.keys()]
-        writer.writerow(header)
+        result_file = result_dir / 'result.csv'
         
-        for wallet in wallets:
-            if wallet in results_dict:
-                token_balances, success = results_dict[wallet]
-                if success and isinstance(token_balances, dict):
-                    row = [wallet]
-                    for token_symbol in tokens_dict.keys():
-                        balance = token_balances.get(token_symbol, 0)
-                        row.append(balance)
-                    writer.writerow(row)
+        results_dict = {}
+        for wallet, token_balances, success in results:
+            results_dict[wallet] = (token_balances, success)
+        
+        with open(result_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            header = ['address'] + [token_symbol.upper() for token_symbol in tokens_dict.keys()]
+            writer.writerow(header)
+            
+            for wallet in wallets:
+                if wallet in results_dict:
+                    token_balances, success = results_dict[wallet]
+                    if success and isinstance(token_balances, dict):
+                        row = [wallet]
+                        for token_symbol in tokens_dict.keys():
+                            balance = token_balances.get(token_symbol, 0)
+                            row.append(balance)
+                        writer.writerow(row)
+                    else:
+                        row = [wallet] + [0] * len(tokens_dict)
+                        writer.writerow(row)
                 else:
                     row = [wallet] + [0] * len(tokens_dict)
                     writer.writerow(row)
-            else:
-                row = [wallet] + [0] * len(tokens_dict)
-                writer.writerow(row)
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
+        raise
+
 
 def check_token_balances_menu():
     """Меню для выбора сети и проверки балансов токенов"""
@@ -261,26 +302,26 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     """Функция для проверки балансов всех токенов"""
     
     if not rpc_urls_list:
-        print(Fore.RED + f"❌ RPC URLs для сети {clean_network} не найдены!")
+        logger.error(f"❌ RPC URLs для сети {clean_network} не найдены!")
         return
     
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + f"🚀 Начинаем проверку балансов ВСЕХ токенов")
-    print(Fore.CYAN + f"🌐 Сеть: {clean_network} ({network_type})")
-    print(Fore.CYAN + f"🪙 Количество токенов: {len(tokens_dict)}")
-    print(Fore.CYAN + f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
-    print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
-    print(Fore.MAGENTA + "="*80)
+    logger.info(Fore.MAGENTA + "="*80)
+    logger.info(Fore.YELLOW + f"🚀 Начинаем проверку балансов ВСЕХ токенов")
+    logger.info(Fore.CYAN + f"🌐 Сеть: {clean_network} ({network_type})")
+    logger.info(Fore.CYAN + f"🪙 Количество токенов: {len(tokens_dict)}")
+    logger.info(Fore.CYAN + f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
+    logger.info(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
+    logger.info(Fore.MAGENTA + "="*80)
     
     wallets = load_wallets()
     proxies_list = load_proxies()
     
     if not wallets:
-        print(Fore.RED + "❌ Нет кошельков для обработки!")
+        logger.error("❌ Нет кошельков для обработки!")
         return
     
-    print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
-    print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
+    logger.info(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
+    logger.info(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
     
     total_wallets = len(wallets)
     completed_wallets = 0
@@ -292,9 +333,9 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
     successful_count = 0
     failed_count = 0
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info(Fore.MAGENTA + "-"*80)
+    logger.info(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
+    logger.info(Fore.MAGENTA + "\n" + "-"*80)
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         future_to_wallet = {
@@ -328,6 +369,7 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
                 results.append((wallet, {}, False))
                 status_info = f"Исключение: {str(e)[:20]}..."
                 wallet_result = wallet
+                logger.error(f"Исключение при обработке кошелька {wallet}: {e}")
             
             finally:
                 completed_wallets += 1
@@ -342,55 +384,64 @@ def check_all_tokens_balances(rpc_urls_list, network_type, clean_network, tokens
                     f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
                     f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
                     f"Осталось: {remaining_wallets} | {wallet_result[:10]}...{wallet_result[-6:]} | {status_info}{Style.RESET_ALL}",
-                    end="",
+                    end="\n" if progress_percent >= 100 else "",
                     flush=True,
                 )
+                
+                if progress_percent >= 100:
+                    print()
     
-    print(Fore.MAGENTA + "\n\n" + "="*80)
-    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
-    print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
-    print(Fore.RED + f"❌ Ошибок: {failed_count}")
-    print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
+    logger.info(Fore.MAGENTA + "\n" + "="*80)
+    logger.info(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
+    logger.info(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
+    logger.info(Fore.RED + f"❌ Ошибок: {failed_count}")
+    logger.info(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
     
-    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results_all_tokens(results, tokens_dict, wallets)
-    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
-    print(Fore.MAGENTA + "="*80 + "\n")
+    logger.info(Fore.CYAN + "💾 Сохраняем результаты...")
+    saved = save_results_all_tokens(results, tokens_dict, wallets)
+    if saved:
+        logger.info(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
+    else:
+        logger.error("❌ Не удалось сохранить результаты!")
+    logger.info(Fore.MAGENTA + "="*80 + "\n")
     
-    from modules.notifications import send_telegram_notification
-    result_file_path = project_root / 'result' / 'result.csv'
-    send_telegram_notification(
-        notif_type="success",
-        title="Проверка балансов всех токенов завершена",
-        message=f"Сеть: {clean_network} ({network_type})\nТокенов: {len(tokens_dict)}\nУспешно: {successful_count}\nОшибок: {failed_count}",
-        main_title="Баланс чек завершён",
-        file_path=str(result_file_path)
-    )
+    try:
+        from modules.notifications import send_telegram_notification
+        result_file_path = project_root / 'result' / 'result.csv'
+        send_telegram_notification(
+            notif_type="success",
+            title="Проверка балансов всех токенов завершена",
+            message=f"Сеть: {clean_network} ({network_type})\nТокенов: {len(tokens_dict)}\nУспешно: {successful_count}\nОшибок: {failed_count}",
+            main_title="Баланс чек завершён",
+            file_path=str(result_file_path)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления: {e}")
 
 def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbol, token_address):
     """Основная функция для проверки балансов токенов"""
     
     if not rpc_urls_list:
-        print(Fore.RED + f"❌ RPC URLs для сети {clean_network} не найдены!")
+        logger.error(f"❌ RPC URLs для сети {clean_network} не найдены!")
         return
     
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + f"🚀 Начинаем проверку балансов токена:")
-    print(f"   🪙 {Fore.GREEN}{token_symbol.upper()}{Fore.RESET} ({Fore.BLUE}{token_address}{Fore.RESET})")
-    print(Fore.CYAN + f"🌐 Сеть: {clean_network} ({network_type})")
-    print(Fore.CYAN + f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
-    print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
-    print(Fore.MAGENTA + "="*80)
+    logger.info(Fore.MAGENTA + "="*80)
+    logger.info(Fore.YELLOW + f"🚀 Начинаем проверку балансов токена:")
+    logger.info(f"🪙 {Fore.GREEN}{token_symbol.upper()}{Fore.RESET} ({Fore.BLUE}{token_address}{Fore.RESET})")
+    logger.info(Fore.CYAN + f"🌐 Сеть: {clean_network} ({network_type})")
+    logger.info(Fore.CYAN + f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
+    logger.info(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
+    logger.info(Fore.MAGENTA + "="*80)
     
     wallets = load_wallets()
     proxies_list = load_proxies()
     
     if not wallets:
-        print(Fore.RED + "❌ Нет кошельков для обработки!")
+        logger.error("❌ Нет кошельков для обработки!")
         return
     
-    print(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
-    print(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
+    logger.info(Fore.GREEN + f"📂 Загружено {len(wallets)} кошельков")
+    logger.info(Fore.GREEN + f"🔗 Загружено {len(proxies_list)} прокси")
     
     total_wallets = len(wallets)
     completed_wallets = 0
@@ -402,9 +453,9 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
     successful_count = 0
     failed_count = 0
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info(Fore.MAGENTA + "-"*80)
+    logger.info(Fore.YELLOW + "🔄 Начинаем обработку кошельков...")
+    logger.info(Fore.MAGENTA + "-"*80 + "\n")
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         future_to_wallet = {
@@ -442,6 +493,7 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
                 status_color = Fore.RED
                 balance_info = f"Необработанное исключение: {e}"
                 wallet_result = wallet
+                logger.error(f"Исключение при обработке кошелька {wallet}: {e}")
             
             finally:
                 completed_wallets += 1
@@ -460,23 +512,30 @@ def check_token_balances(rpc_urls_list, network_type, clean_network, token_symbo
                     flush=True,
                 )
     
-    print(Fore.MAGENTA + "\n\n" + "="*80)
-    print(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
-    print(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
-    print(Fore.RED + f"❌ Ошибок: {failed_count}")
-    print(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
+    logger.info(Fore.MAGENTA + "\n\n")
+    logger.info(Fore.MAGENTA + "="*80)
+    logger.info(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА:")
+    logger.info(Fore.GREEN + f"✅ Успешно обработано: {successful_count}")
+    logger.info(Fore.RED + f"❌ Ошибок: {failed_count}")
+    logger.info(Fore.CYAN + f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
     
-    print(Fore.CYAN + "\n💾 Сохраняем результаты...")
-    save_results(results, token_symbol, wallets)
-    print(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
-    print(Fore.MAGENTA + "="*80 + "\n")
+    logger.info(Fore.CYAN + "💾 Сохраняем результаты...")
+    saved = save_results(results, token_symbol, wallets)
+    if saved:
+        logger.info(Fore.GREEN + "✅ Результаты сохранены в result/result.csv")
+    else:
+        logger.error("❌ Не удалось сохранить результаты!")
+    logger.info(Fore.MAGENTA + "="*80 + "\n")
     
-    from modules.notifications import send_telegram_notification
-    result_file_path = project_root / 'result' / 'result.csv'
-    send_telegram_notification(
-        notif_type="success",
-        title=f"Проверка балансов токена {token_symbol.upper()} завершена",
-        message=f"Сеть: {clean_network} ({network_type})\nТокен: {token_symbol.upper()}\nУспешно: {successful_count}\nОшибок: {failed_count}",
-        main_title="Баланс чек завершён",
-        file_path=str(result_file_path)
-    )
+    try:
+        from modules.notifications import send_telegram_notification
+        result_file_path = project_root / 'result' / 'result.csv'
+        send_telegram_notification(
+            notif_type="success",
+            title=f"Проверка балансов токена {token_symbol.upper()} завершена",
+            message=f"Сеть: {clean_network} ({network_type})\nТокен: {token_symbol.upper()}\nУспешно: {successful_count}\nОшибок: {failed_count}",
+            main_title="Баланс чек завершён",
+            file_path=str(result_file_path)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления: {e}")
