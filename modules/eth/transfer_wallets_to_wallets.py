@@ -987,17 +987,17 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                         print(Fore.YELLOW + f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
                     
                     # Уведомление об успешной отправке прямой транзакции только если уровень = 2
-                    if TELEGRAM_LOG_LEVEL_transfer == 2:
-                        send_telegram_notification(
-                            notif_type="tx",
-                            title="📤 Прямая транзакция отправлена",
-                            message="from → to",
-                            wallet_address=from_acc.address[:10] + "...",
-                            tx_hash=w3.to_hex(tx_hash)[:10] + "...",
-                            explorer_url=explorer_url,
-                            amount=f"{w3.from_wei(value, 'ether'):.6f} ETH",
-                            main_title="ETHmachine Transfer"
-                        )
+                    # if TELEGRAM_LOG_LEVEL_transfer == 2:
+                    #     send_telegram_notification(
+                    #         notif_type="tx",
+                    #         title="📤 Прямая транзакция отправлена",
+                    #         message="from → to",
+                    #         wallet_address=from_acc.address[:10] + "...",
+                    #         tx_hash=w3.to_hex(tx_hash)[:10] + "...",
+                    #         explorer_url=explorer_url,
+                    #         amount=f"{w3.from_wei(value, 'ether'):.6f} ETH",
+                    #         main_title="ETHmachine Transfer"
+                    #     )
                     break
                 except Exception as e:
                     print(Fore.RED + f"❌ Ошибка отправки from -> to (попытка {attempt+1}): {e}")
