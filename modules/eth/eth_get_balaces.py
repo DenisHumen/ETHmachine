@@ -374,99 +374,113 @@ def is_mainnet_network(network_name):
         return network_name in mainnet_networks
 
 def save_results(results, network_name, wallets, network_type=None):
-    """Сохраняет результаты в CSV файл с сохранением порядка"""
-    result_dir = project_root / 'result'
-    result_dir.mkdir(exist_ok=True)
-    
-    result_file = result_dir / 'result.csv'
-    
-    results_dict = {}
-    for wallet, balance, success in results:
-        results_dict[wallet] = (balance, success)
-    
-    # Получаем курс ETH для mainnet сетей - используем network_type если передан
-    eth_price = 0
-    is_mainnet = network_type == "mainnet" if network_type else is_mainnet_network(network_name)
-    
-    if is_mainnet:
-        eth_price = get_eth_price_usdt()
-    
-    with open(result_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
+    try:
+        """Сохраняет результаты в CSV файл с сохранением порядка"""
+        result_dir = project_root / 'result'
+        result_dir.mkdir(exist_ok=True)
         
-        # Определяем заголовки в зависимости от типа сети
-        if is_mainnet and eth_price > 0:
-            writer.writerow(['address', 'balance_eth', 'balance_usdt', 'network'])
-        else:
-            writer.writerow(['address', 'balance_eth', 'network'])
+        result_file = result_dir / 'result.csv'
         
-        for wallet in wallets:
-            if wallet in results_dict:
-                balance, success = results_dict[wallet]
-                if success:
-                    if is_mainnet and eth_price > 0:
-                        balance_usdt = balance * eth_price
-                        writer.writerow([wallet, balance, f"{balance_usdt:.2f}", network_name])
+        results_dict = {}
+        for wallet, balance, success in results:
+            results_dict[wallet] = (balance, success)
+        
+        # Получаем курс ETH для mainnet сетей - используем network_type если передан
+        eth_price = 0
+        is_mainnet = network_type == "mainnet" if network_type else is_mainnet_network(network_name)
+        
+        if is_mainnet:
+            eth_price = get_eth_price_usdt()
+        
+        with open(result_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            # Определяем заголовки в зависимости от типа сети
+            if is_mainnet and eth_price > 0:
+                writer.writerow(['address', 'balance_eth', 'balance_usdt', 'network'])
+            else:
+                writer.writerow(['address', 'balance_eth', 'network'])
+            
+            for wallet in wallets:
+                if wallet in results_dict:
+                    balance, success = results_dict[wallet]
+                    if success:
+                        if is_mainnet and eth_price > 0:
+                            balance_usdt = balance * eth_price
+                            writer.writerow([wallet, balance, f"{balance_usdt:.2f}", network_name])
+                        else:
+                            writer.writerow([wallet, balance, network_name])
                     else:
-                        writer.writerow([wallet, balance, network_name])
+                        if is_mainnet and eth_price > 0:
+                            writer.writerow([wallet, 0, "0.00", network_name])
+                        else:
+                            writer.writerow([wallet, 0, network_name])
                 else:
                     if is_mainnet and eth_price > 0:
                         writer.writerow([wallet, 0, "0.00", network_name])
                     else:
                         writer.writerow([wallet, 0, network_name])
-            else:
-                if is_mainnet and eth_price > 0:
-                    writer.writerow([wallet, 0, "0.00", network_name])
-                else:
-                    writer.writerow([wallet, 0, network_name])
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
+        raise
 
 def save_results_all_networks(results, all_networks, wallets):
-    """Сохраняет результаты всех сетей в CSV файл с сохранением порядка"""
-    result_dir = project_root / 'result'
-    result_dir.mkdir(exist_ok=True)
-    
-    result_file = result_dir / 'result.csv'
-    
-    results_dict = {}
-    for wallet, network_balances, success in results:
-        results_dict[wallet] = (network_balances, success)
-    
-    # Получаем курс ETH для расчета USDT
-    eth_price = get_eth_price_usdt()
-    
-    # Определяем какие сети являются mainnet
-    mainnet_networks = []
-    for network_name in all_networks.keys():
-        if is_mainnet_network(network_name):
-            mainnet_networks.append(network_name)
-    
-    with open(result_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
+    try:
+        """Сохраняет результаты всех сетей в CSV файл с сохранением порядка"""
+        result_dir = project_root / 'result'
+        result_dir.mkdir(exist_ok=True)
         
-        # Создаем заголовок с названиями сетей
-        header = ['address']
+        result_file = result_dir / 'result.csv'
+        
+        results_dict = {}
+        for wallet, network_balances, success in results:
+            results_dict[wallet] = (network_balances, success)
+        
+        # Получаем курс ETH для расчета USDT
+        eth_price = get_eth_price_usdt()
+        
+        # Определяем какие сети являются mainnet
+        mainnet_networks = []
         for network_name in all_networks.keys():
-            clean_network_name = network_name.replace('🚀 ', '')
-            header.append(f"{clean_network_name}_ETH")
-            # Добавляем колонку USDT для mainnet сетей
-            if is_mainnet_network(network_name) and eth_price > 0:
-                header.append(f"{clean_network_name}_USDT")
+            if is_mainnet_network(network_name):
+                mainnet_networks.append(network_name)
         
-        writer.writerow(header)
-        
-        for wallet in wallets:
-            if wallet in results_dict:
-                network_balances, success = results_dict[wallet]
-                if success and isinstance(network_balances, dict):
-                    row = [wallet]
-                    for network_name in all_networks.keys():
-                        balance = network_balances.get(network_name, 0)
-                        row.append(balance)
-                        # Добавляем стоимость в USDT для mainnet сетей
-                        if is_mainnet_network(network_name) and eth_price > 0:
-                            balance_usdt = balance * eth_price
-                            row.append(f"{balance_usdt:.2f}")
-                    writer.writerow(row)
+        with open(result_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            # Создаем заголовок с названиями сетей
+            header = ['address']
+            for network_name in all_networks.keys():
+                clean_network_name = network_name.replace('🚀 ', '')
+                header.append(f"{clean_network_name}_ETH")
+                # Добавляем колонку USDT для mainnet сетей
+                if is_mainnet_network(network_name) and eth_price > 0:
+                    header.append(f"{clean_network_name}_USDT")
+            
+            writer.writerow(header)
+            
+            for wallet in wallets:
+                if wallet in results_dict:
+                    network_balances, success = results_dict[wallet]
+                    if success and isinstance(network_balances, dict):
+                        row = [wallet]
+                        for network_name in all_networks.keys():
+                            balance = network_balances.get(network_name, 0)
+                            row.append(balance)
+                            # Добавляем стоимость в USDT для mainnet сетей
+                            if is_mainnet_network(network_name) and eth_price > 0:
+                                balance_usdt = balance * eth_price
+                                row.append(f"{balance_usdt:.2f}")
+                        writer.writerow(row)
+                    else:
+                        row = [wallet]
+                        for network_name in all_networks.keys():
+                            row.append(0)
+                            # Добавляем 0 USDT для mainnet сетей
+                            if is_mainnet_network(network_name) and eth_price > 0:
+                                row.append("0.00")
+                        writer.writerow(row)
                 else:
                     row = [wallet]
                     for network_name in all_networks.keys():
@@ -475,15 +489,11 @@ def save_results_all_networks(results, all_networks, wallets):
                         if is_mainnet_network(network_name) and eth_price > 0:
                             row.append("0.00")
                     writer.writerow(row)
-            else:
-                row = [wallet]
-                for network_name in all_networks.keys():
-                    row.append(0)
-                    # Добавляем 0 USDT для mainnet сетей
-                    if is_mainnet_network(network_name) and eth_price > 0:
-                        row.append("0.00")
-                writer.writerow(row)
-
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
+        raise
+    
 def format_time_remaining(seconds):
     """Форматирует оставшееся время в читаемый вид"""
     if seconds < 60:
@@ -557,7 +567,7 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     
     logger.info("-"*80)
     logger.info("🔄 Начинаем обработку кошельков...")
-    logger.info("-"*80)
+    logger.info("-"*80+ "\n")
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         future_to_wallet = {
@@ -623,11 +633,11 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
                     f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
                     f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
                     f"Осталось: {remaining_wallets} | {time_info} | {status_color}{status_icon} {wallet_result[:10]}...{wallet_result[-6:]} | {balance_info}{Style.RESET_ALL}",
-                    end="",
+                    end="\n" if progress_percent >= 100 else "",
                     flush=True,
                 )
 
-    logger.info("\n" + "="*80)
+    logger.info("" + "="*80)
     logger.info("📊 ИТОГОВАЯ СТАТИСТИКА:")
     logger.success(f"✅ Успешно обработано: {successful_count}")
     logger.error(f"❌ Ошибок: {failed_count}")
@@ -636,9 +646,10 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     total_time = time.time() - start_time
     logger.info(f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
     
-    logger.info("\n💾 Сохраняем результаты...")
-    save_results(results, clean_network, wallets, network_type)
-    logger.success("✅ Результаты сохранены в result/result.csv")
+    logger.info("💾 Сохраняем результаты...")
+    saved_result = save_results(results, clean_network, wallets, network_type)
+    if saved_result:
+        logger.success("✅ Результаты сохранены в result/result.csv")
     logger.info("="*80 + "\n")
     
     # Уведомление в Telegram с файлом
@@ -699,7 +710,7 @@ def check_wallet_balances_all_networks(all_networks):
     start_time = time.time()
     
     logger.info("-"*80)
-    logger.info("🔄 Начинаем обработку кошельков...")
+    logger.info("🔄 Начинаем обработку кошельков...\n")
     logger.info("-"*80)
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
@@ -764,7 +775,6 @@ def check_wallet_balances_all_networks(all_networks):
                     flush=True,
                 )
     # Сохраняем результаты после обработки всех кошельков
-    logger.info("💾 Сохраняем результаты...")
     save_results_all_networks(results, all_networks, wallets)
     logger.success("✅ Результаты сохранены в result/result.csv")
     #logger.info("="*80 + "\n")
