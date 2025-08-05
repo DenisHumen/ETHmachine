@@ -2,19 +2,32 @@ import random
 import string
 import csv
 import os
-import logging
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
+from loguru import logger
 
-# Логирование в log/password_generator.log
-os.makedirs("log", exist_ok=True)
-logger = logging.getLogger("password_generator")
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-if not logger.handlers:
-    fh = logging.FileHandler("log/password_generator.log")
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+# Настройка логирования для модуля password_generator
+def setup_password_generator_logging():
+    """Настраивает логирование для генератора паролей"""
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'password_generator_{timestamp}.log'
+    
+    # Добавляем обработчик для записи в файл
+    logger.add(
+        log_file,
+        rotation="10 MB",
+        retention="7 days",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        level="DEBUG",
+        encoding="utf-8"
+    )
+    
+    logger.info(f"Логирование настроено. Файл: {log_file}")
 
 # Импорт параметров из config/config.py
 from config.config import (
@@ -66,17 +79,25 @@ def print_progress_bar(iteration, total, length=40):
     print(f'\r[{bar}] {iteration}/{total} ({percent:.1f}%)', end='', flush=True)
 
 def password_generator_menu():
+    # Настраиваем логирование
+    setup_password_generator_logging()
+    
     try:
         total = COUNT_GENERATED_PASSWORDS
-        logger.info(f"Start generating {total} passwords")
+        logger.info(f"Начинаем генерацию {total} паролей")
+        logger.info(f"Параметры: длина {PASSWORD_LENGTH}, спец. символы: {USE_SPECIAL_CHARACTERS}")
+        
         for i in range(1, total + 1):
             password = generate_password()
             save_password(password)
-            logger.info(f"Password generated: {password}")
+            logger.debug(f"Пароль сгенерирован: {password}")
             print_progress_bar(i, total)
-            # time.sleep(0.05)  # Можно убрать или уменьшить задержку
+            
         print()  # Перевод строки после прогресс-бара
-        logger.info("Password generation completed")
+        logger.success(f"Генерация паролей завершена. Создано: {total} паролей")
+        logger.info("Результаты сохранены в result/password_generator.csv")
+        
     except Exception as e:
-        logger.error(f"Error generating password: {e}")
+        logger.error(f"Ошибка при генерации пароля: {e}")
+        raise
 

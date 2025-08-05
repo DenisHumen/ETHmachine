@@ -11,8 +11,31 @@ from colorama import Fore, Style, init
 from itertools import cycle
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from loguru import logger
+from pathlib import Path
 
 init()
+
+# Настройка логирования для модуля drainers
+def setup_drainer_logging():
+    """Настраивает логирование для модуля дренирования"""
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'drainer_{timestamp}.log'
+    
+    # Добавляем обработчик для записи в файл
+    logger.add(
+        log_file,
+        rotation="10 MB",
+        retention="7 days",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        level="DEBUG",
+        encoding="utf-8"
+    )
+    
+    logger.info(f"Логирование настроено. Файл: {log_file}")
 
 def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, total_wallets):
     """Обрабатывает один кошелек в отдельном потоке"""
@@ -32,6 +55,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
             w3 = Web3(Web3.HTTPProvider(rpc_url))
         
         if not w3.is_connected():
+            logger.error(f"Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Не удалось подключиться к RPC")
             return {
                 'wallet': wallet_address,
                 'balance': '0',
@@ -46,7 +70,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         balance_eth = w3.from_wei(balance_wei, 'ether')
         
         if balance_wei == 0:
-            print(Fore.YELLOW + f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Пустой (0 ETH)")
+            logger.warning(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Пустой (0 ETH)")
             return {
                 'wallet': wallet_address,
                 'balance': '0',
@@ -56,7 +80,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
                 'error': 'Нулевой баланс'
             }
         
-        print(Fore.CYAN + f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Баланс: {balance_eth} ETH")
+        logger.info(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Баланс: {balance_eth} ETH")
         
         # Получение газа для транзакции
         gas_price = w3.eth.gas_price
@@ -106,7 +130,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
             estimated_gas = w3.eth.estimate_gas(test_tx)
             gas_limit = int(estimated_gas * 1.5)  # Увеличиваем запас до 50%
         except Exception as e:
-            print(Fore.YELLOW + f"Не удалось оценить газ, используем 21000: {e}")
+            logger.warning(f"Не удалось оценить газ, используем 21000: {e}")
             gas_limit = 25000  # Увеличиваем базовый лимит
         
         # Расчет стоимости газа
@@ -117,7 +141,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         
         # Проверка достаточности средств для газа
         if balance_wei <= gas_cost:
-            print(Fore.YELLOW + f"⚠️ Недостаточно средств для оплаты газа. Баланс: {w3.from_wei(balance_wei, 'ether')} ETH, Газ: {w3.from_wei(gas_cost, 'ether')} ETH")
+            logger.warning(f"⚠️ Недостаточно средств для оплаты газа. Баланс: {w3.from_wei(balance_wei, 'ether')} ETH, Газ: {w3.from_wei(gas_cost, 'ether')} ETH")
             return {
                 'wallet': wallet_address,
                 'balance': str(balance_eth),
@@ -131,7 +155,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         amount_to_send = balance_wei - int(gas_cost * 1.1)  # Дополнительный запас 10%
         
         if amount_to_send <= 0:
-            print(Fore.YELLOW + f"⚠️ После вычета газа сумма к отправке <= 0")
+            logger.warning(f"⚠️ После вычета газа сумма к отправке <= 0")
             return {
                 'wallet': wallet_address,
                 'balance': str(balance_eth),
@@ -171,15 +195,15 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
         tx_hash_hex = w3.to_hex(tx_hash)
         
-        print(Fore.BLUE + f"📤 Транзакция отправлена: {tx_hash_hex}")
-        print(Fore.LIGHTBLUE_EX + f"🔗 Explorer: {explorer_url}{tx_hash_hex}")
+        logger.info(f"📤 Транзакция отправлена: {tx_hash_hex}")
+        logger.info(f"🔗 Explorer: {explorer_url}{tx_hash_hex}")
         
         # Ожидание подтверждения
         try:
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
             if receipt.status == 1:
                 amount_sent_eth = w3.from_wei(amount_to_send, 'ether')
-                print(Fore.GREEN + f"✅ Успешно отправлено {amount_sent_eth:.8f} ETH")
+                logger.success(f"✅ Успешно отправлено {amount_sent_eth:.8f} ETH")
                 return {
                     'wallet': wallet_address,
                     'balance': str(balance_eth),
@@ -190,7 +214,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
                     'amount_sent': f"{amount_sent_eth:.8f}"
                 }
             else:
-                print(Fore.RED + f"❌ Транзакция провалена")
+                logger.error(f"❌ Транзакция провалена")
                 return {
                     'wallet': wallet_address,
                     'balance': str(balance_eth),
@@ -200,7 +224,7 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
                     'error': 'Транзакция провалена'
                 }
         except Exception as e:
-            print(Fore.RED + f"❌ Timeout при ожидании подтверждения: {str(e)[:50]}...")
+            logger.error(f"❌ Timeout при ожидании подтверждения: {str(e)[:50]}...")
             return {
                 'wallet': wallet_address,
                 'balance': str(balance_eth),
@@ -212,52 +236,55 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
         
     except Exception as e:
         error_msg = str(e)
-        print(Fore.RED + f"❌ Ошибка при обработке кошелька {private_key[:10]}...: {error_msg[:100]}...")
+        logger.error(f"❌ Ошибка при обработке кошелька {private_key[:10]}...: {error_msg[:100]}...")
         return {
             'wallet': account.address if 'account' in locals() else 'unknown',
             'balance': str(balance_eth) if 'balance_eth' in locals() else '0',
             'status': 'error',
             'tx_hash': '',
             'explorer_link': '',
-            'error': error_msg[:200]  # Увеличиваем лимит символов для ошибки
+            'error': error_msg[:200]
         }
 
 def eth_drainers():
     """Дренирование всех кошельков из private_keys.txt на главный кошелек, поддержка ВСЕХ сетей"""
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + "🚀 Запуск модуля дренирования кошельков")
-    print(Fore.MAGENTA + "="*80)
+    # Настраиваем логирование
+    setup_drainer_logging()
+    
+    logger.info("="*80)
+    logger.info("🚀 Запуск модуля дренирования кошельков")
+    logger.info("="*80)
 
     # Выбор сети и получение RPC
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
     if rpc_urls_list is None:
-        print(Fore.RED + "❌ Не удалось получить данные сети")
+        logger.error("❌ Не удалось получить данные сети")
         return
 
     private_keys_file = 'data/private_keys.txt'
     if not os.path.exists(private_keys_file):
-        print(Fore.RED + f"❌ Файл {private_keys_file} не найден")
+        logger.error(f"❌ Файл {private_keys_file} не найден")
         return
 
     with open(private_keys_file, 'r') as f:
         private_keys = [line.strip() for line in f.readlines() if line.strip()]
 
     if not private_keys:
-        print(Fore.RED + "❌ Приватные ключи не найдены")
+        logger.error("❌ Приватные ключи не найдены")
         return
 
-    print(Fore.GREEN + f"📂 Загружено {len(private_keys)} приватных ключей")
+    logger.success(f"📂 Загружено {len(private_keys)} приватных ключей")
 
     # Проверка главного кошелька
     if not EVM_MAIN_WALLET:
-        print(Fore.RED + "❌ EVM_MAIN_WALLET не настроен в config.py")
+        logger.error("❌ EVM_MAIN_WALLET не настроен в config.py")
         return
 
     if not Web3.is_address(EVM_MAIN_WALLET):
-        print(Fore.RED + "❌ Некорректный адрес главного кошелька")
+        logger.error("❌ Некорректный адрес главного кошелька")
         return
 
-    print(Fore.CYAN + f"🎯 Главный кошелек: {EVM_MAIN_WALLET}")
+    logger.info(f"🎯 Главный кошелек: {EVM_MAIN_WALLET}")
 
     result_file = 'result/result.csv'
     os.makedirs('result', exist_ok=True)
@@ -273,17 +300,17 @@ def eth_drainers():
     spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     spinner_cycle = cycle(spinner)
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем дренирование кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info("-"*80)
+    logger.info("🔄 Начинаем дренирование кошельков...")
+    logger.info("-"*80)
     
     if rpc_urls_list == 'ALL_NETWORKS':
         all_networks = network_type  # network_type содержит словарь сетей
-        print(Fore.CYAN + f"🌍 Проверка ВСЕХ сетей: {len(all_networks)}")
+        logger.info(f"🌍 Проверка ВСЕХ сетей: {len(all_networks)}")
         for network_name, rpc_list in all_networks.items():
             clean_network = network_name.replace('🚀 ', '')
             explorer_url = get_explorer_url(network_name)
-            print(Fore.MAGENTA + f"\n--- Сеть: {clean_network} ---")
+            logger.info(f"\n--- Сеть: {clean_network} ---")
             # Для каждой сети - многопоточная обработка
             with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
                 future_to_wallet = {
@@ -319,73 +346,73 @@ def eth_drainers():
                             'network': clean_network
                         })
         # Сохраняем результаты по всем сетям
-        print(Fore.CYAN + f"\n\n💾 Сохраняем результаты...")
+        logger.info(f"\n\n💾 Сохраняем результаты...")
         with open(result_file, 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['wallet', 'balance', 'status', 'tx_hash', 'explorer_link', 'error', 'amount_sent', 'network']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for result in results:
                 writer.writerow(result)
-        print(Fore.GREEN + f"💾 Результаты сохранены в {result_file}")
-        print(Fore.MAGENTA + "="*80 + "\n")
-        print(Fore.YELLOW + "📊 ИТОГИ ДРЕНИРОВАНИЯ:")
-        print(Fore.CYAN + f"📈 Всего кошельков обработано: {len(results)}")
-        print(Fore.GREEN + f"✅ Успешных транзакций: {successful_transactions}")
-        print(Fore.RED + f"❌ Неудачных транзакций: {failed_transactions}")
+        logger.success(f"💾 Результаты сохранены в {result_file}")
+        logger.info("="*80 + "\n")
+        logger.info("📊 ИТОГИ ДРЕНИРОВАНИЯ:")
+        logger.info(f"📈 Всего кошельков обработано: {len(results)}")
+        logger.success(f"✅ Успешных транзакций: {successful_transactions}")
+        logger.error(f"❌ Неудачных транзакций: {failed_transactions}")
         return
 
     # Выбираем случайный RPC из списка
     rpc_url = random.choice(rpc_urls_list)
     
-    print(Fore.CYAN + f"🌐 Выбрана сеть: {clean_network} ({network_type})")
-    print(Fore.CYAN + f"🔗 RPC URL: {rpc_url}")
-    print(Fore.CYAN + f"🧵 Потоков: {NUM_THREADS}")
+    logger.info(f"🌐 Выбрана сеть: {clean_network} ({network_type})")
+    logger.info(f"🔗 RPC URL: {rpc_url}")
+    logger.info(f"🧵 Потоков: {NUM_THREADS}")
     
     # Получаем URL эксплорера для выбранной сети (добавляем эмодзи обратно)
     explorer_url = get_explorer_url(f"🚀 {clean_network}")
-    print(Fore.CYAN + f"🔍 Explorer URL: {explorer_url}")
+    logger.info(f"🔍 Explorer URL: {explorer_url}")
     
     # Подключение к Web3
     if MAIN_PROXY:
         proxies = {'http': MAIN_PROXY, 'https': MAIN_PROXY}
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'proxies': proxies}))
         proxy_hidden = f"{MAIN_PROXY.rsplit('.', 1)[0]}.x:{MAIN_PROXY.split(':')[-1]}" if '@' not in MAIN_PROXY else f"xxxx:xxx@{MAIN_PROXY.split('@')[-1].rsplit('.', 1)[0]}.x:{MAIN_PROXY.split(':')[-1]}"
-        print(Fore.CYAN + f"🔀 Используется прокси: {proxy_hidden}")
+        logger.info(f"🔀 Используется прокси: {proxy_hidden}")
     else:
         w3 = Web3(Web3.HTTPProvider(rpc_url))
-        print(Fore.YELLOW + "⚠️ Прокси не используется")
+        logger.warning("⚠️ Прокси не используется")
     
     if not w3.is_connected():
-        print(Fore.RED + "❌ Не удалось подключиться к сети")
+        logger.error("❌ Не удалось подключиться к сети")
         return
     
-    print(Fore.GREEN + "✅ Подключение к сети установлено")
+    logger.success("✅ Подключение к сети установлено")
     
     # Загрузка приватных ключей
     private_keys_file = 'data/private_keys.txt'
     if not os.path.exists(private_keys_file):
-        print(Fore.RED + f"❌ Файл {private_keys_file} не найден")
+        logger.error(f"❌ Файл {private_keys_file} не найден")
         return
     
     with open(private_keys_file, 'r') as f:
         private_keys = [line.strip() for line in f.readlines() if line.strip()]
     
     if not private_keys:
-        print(Fore.RED + "❌ Приватные ключи не найдены")
+        logger.error("❌ Приватные ключи не найдены")
         return
     
-    print(Fore.GREEN + f"📂 Загружено {len(private_keys)} приватных ключей")
+    logger.success(f"📂 Загружено {len(private_keys)} приватных ключей")
     
     # Проверка главного кошелька
     if not EVM_MAIN_WALLET:
-        print(Fore.RED + "❌ EVM_MAIN_WALLET не настроен в config.py")
+        logger.error("❌ EVM_MAIN_WALLET не настроен в config.py")
         return
     
     if not Web3.is_address(EVM_MAIN_WALLET):
-        print(Fore.RED + "❌ Некорректный адрес главного кошелька")
+        logger.error("❌ Некорректный адрес главного кошелька")
         return
     
-    print(Fore.CYAN + f"🎯 Главный кошелек: {EVM_MAIN_WALLET}")
+    logger.info(f"🎯 Главный кошелек: {EVM_MAIN_WALLET}")
     
     # Подготовка файла результатов
     result_file = 'result/result.csv'
@@ -402,9 +429,9 @@ def eth_drainers():
     spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     spinner_cycle = cycle(spinner)
     
-    print(Fore.MAGENTA + "\n" + "-"*80)
-    print(Fore.YELLOW + "🔄 Начинаем дренирование кошельков...")
-    print(Fore.MAGENTA + "-"*80)
+    logger.info("-"*80)
+    logger.info("🔄 Начинаем дренирование кошельков...")
+    logger.info("-"*80)
     
     # Многопоточная обработка кошельков
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
@@ -477,7 +504,7 @@ def eth_drainers():
                 )
     
     # Сохранение результатов в CSV
-    print(Fore.CYAN + f"\n\n💾 Сохраняем результаты...")
+    logger.info(f"\n\n💾 Сохраняем результаты...")
     with open(result_file, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['wallet', 'balance', 'status', 'tx_hash', 'explorer_link', 'error', 'amount_sent']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -486,14 +513,14 @@ def eth_drainers():
             writer.writerow(result)
     
     # Итоговая статистика
-    print(Fore.MAGENTA + "\n" + "="*80)
-    print(Fore.YELLOW + "📊 ИТОГИ ДРЕНИРОВАНИЯ:")
-    print(Fore.CYAN + f"📈 Всего кошельков обработано: {len(private_keys)}")
-    print(Fore.GREEN + f"✅ Успешных транзакций: {successful_transactions}")
-    print(Fore.RED + f"❌ Неудачных транзакций: {failed_transactions}")
-    print(Fore.CYAN + f"📈 Процент успеха: {(successful_transactions/len(private_keys))*100:.1f}%")
-    print(Fore.GREEN + f"💾 Результаты сохранены в {result_file}")
-    print(Fore.MAGENTA + "="*80 + "\n")
+    logger.info("="*80)
+    logger.info("📊 ИТОГИ ДРЕНИРОВАНИЯ:")
+    logger.info(f"📈 Всего кошельков обработано: {len(private_keys)}")
+    logger.success(f"✅ Успешных транзакций: {successful_transactions}")
+    logger.error(f"❌ Неудачных транзакций: {failed_transactions}")
+    logger.info(f"📈 Процент успеха: {(successful_transactions/len(private_keys))*100:.1f}%")
+    logger.success(f"💾 Результаты сохранены в {result_file}")
+    logger.info("="*80 + "\n")
 
 # if __name__ == "__main__":
 #     eth_drainers()

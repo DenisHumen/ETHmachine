@@ -1,209 +1,250 @@
 import os
-import zipfile
 import shutil
-import sys
-from pathlib import Path
+import zipfile
 from datetime import datetime
-from colorama import Fore, Style, init
+from pathlib import Path
+from loguru import logger
 
-init()
-
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
-
-from config.config import MAX_BACKUPS_TO_KEEP, DIRECTORIES_TO_BACKUP
+# Настройка логирования для модуля auto_backup
+def setup_backup_logging():
+    """Настраивает логирование для модуля резервного копирования"""
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'auto_backup_{timestamp}.log'
+    
+    # Добавляем обработчик для записи в файл
+    logger.add(
+        log_file,
+        rotation="10 MB",
+        retention="7 days",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        level="DEBUG",
+        encoding="utf-8"
+    )
+    
+    logger.info(f"Логирование настроено. Файл: {log_file}")
 
 def create_backup():
-    """
-    Создает архив backup с важными данными проекта
-    """
-    print(Fore.MAGENTA + "\n" + "="*60)
-    print(Fore.YELLOW + "🗂️ Запуск модуля автоматического резервного копирования")
-    print(Fore.MAGENTA + "="*60)
-    
-    backup_dir = project_root / 'backups'
-    backup_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_filename = f"backup_{timestamp}.zip"
-    backup_path = backup_dir / backup_filename
-    
-    dirs_to_backup = DIRECTORIES_TO_BACKUP
-    
-    print(Fore.CYAN + f"📁 Директории для архивирования: {', '.join(dirs_to_backup)}")
-    
-    print(Fore.CYAN + "🔍 Проверка существующих архивов backup...")
-    existing_backups = sorted(backup_dir.glob("backup_*.zip"), key=lambda x: x.stat().st_ctime)
-    
-    backups_to_remove = len(existing_backups) - (MAX_BACKUPS_TO_KEEP - 1)
-    old_backups_removed = 0
-    
-    if backups_to_remove > 0:
-        for backup_file in existing_backups[:backups_to_remove]:
-            try:
-                backup_file.unlink()
-                old_backups_removed += 1
-                print(Fore.YELLOW + f"🗑️ Удален старый архив: {backup_file.name}")
-            except Exception as e:
-                print(Fore.RED + f"❌ Ошибка удаления {backup_file.name}: {e}")
-    
-    if old_backups_removed == 0:
-        print(Fore.GREEN + f"✅ Удаление не требуется (лимит: {MAX_BACKUPS_TO_KEEP} архивов)")
-    else:
-        print(Fore.GREEN + f"✅ Удалено {old_backups_removed} старых архивов (лимит: {MAX_BACKUPS_TO_KEEP})")
-    
-    print(Fore.CYAN + f"\n📦 Создание нового архива: {backup_filename}")
-    
-    files_added = 0
-    dirs_found = 0
-    total_files_per_dir = {}
+    """Создает резервную копию важных файлов"""
+    setup_backup_logging()
     
     try:
-        with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for dir_path in dirs_to_backup:
-                full_dir_path = project_root / dir_path
-                
-                if not full_dir_path.exists():
-                    print(Fore.YELLOW + f"⚠️ Директория не найдена: {dir_path}")
-                    total_files_per_dir[dir_path] = 0
-                    continue
-                
-                if not full_dir_path.is_dir():
-                    print(Fore.YELLOW + f"⚠️ Путь не является директорией: {dir_path}")
-                    total_files_per_dir[dir_path] = 0
-                    continue
-                
-                dirs_found += 1
-                files_in_dir = 0
-                print(Fore.GREEN + f"📁 Архивирование директории: {dir_path}")
-                
-                for root, dirs, files in os.walk(full_dir_path):
-                    for file in files:
-                        file_path = Path(root) / file
-                        arcname = file_path.relative_to(project_root)
-                        
-                        try:
-                            zipf.write(file_path, arcname)
-                            files_added += 1
-                            files_in_dir += 1
-                            
-                            if files_added % 50 == 0:
-                                print(Fore.BLUE + f"  📄 Добавлено файлов: {files_added}", end='\r')
-                        except Exception as e:
-                            print(Fore.RED + f"\n❌ Ошибка добавления файла {file_path}: {e}")
-                
-                total_files_per_dir[dir_path] = files_in_dir
-                if files_in_dir > 0:
-                    print(Fore.BLUE + f"  📄 Файлов в {dir_path}: {files_in_dir}")
-                else:
-                    print(Fore.YELLOW + f"  📭 Директория {dir_path} пуста")
+        # Создаем директорию для бэкапов
+        backup_dir = Path("backups")
+        backup_dir.mkdir(exist_ok=True)
         
-        backup_size = backup_path.stat().st_size
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = backup_dir / f"backup_{timestamp}.zip"
+        
+        logger.info("🔄 Начинаем создание резервной копии...")
+        
+        # Список директорий и файлов для бэкапа
+        items_to_backup = [
+            "config/",
+            "data/",
+            "result/",
+            "db/",
+            "README.md"
+        ]
+        
+        with zipfile.ZipFile(backup_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for item in items_to_backup:
+                item_path = Path(item)
+                
+                if item_path.is_file():
+                    if item_path.exists():
+                        zipf.write(item_path, item_path)
+                        logger.info(f"📄 Добавлен файл: {item}")
+                    else:
+                        logger.warning(f"⚠️ Файл не найден: {item}")
+                        
+                elif item_path.is_dir():
+                    if item_path.exists():
+                        for file_path in item_path.rglob('*'):
+                            if file_path.is_file():
+                                # Относительный путь для архива
+                                arcname = file_path.relative_to('.')
+                                zipf.write(file_path, arcname)
+                        logger.info(f"📁 Добавлена директория: {item}")
+                    else:
+                        logger.warning(f"⚠️ Директория не найдена: {item}")
+        
+        # Проверяем размер созданного архива
+        backup_size = backup_filename.stat().st_size
         backup_size_mb = backup_size / (1024 * 1024)
         
-        print(Fore.MAGENTA + "\n" + "-"*60)
-        print(Fore.GREEN + "✅ Резервное копирование завершено успешно!")
-        print(Fore.CYAN + f"📦 Имя архива: {backup_filename}")
-        print(Fore.CYAN + f"📊 Размер архива: {backup_size_mb:.2f} MB")
-        print(Fore.CYAN + f"📁 Директорий обработано: {dirs_found}/{len(dirs_to_backup)}")
-        print(Fore.CYAN + f"📄 Файлов заархивировано: {files_added}")
-        print(Fore.CYAN + f"💾 Путь к архиву: {backup_path}")
+        logger.success(f"✅ Резервная копия создана: {backup_filename}")
+        logger.info(f"📦 Размер архива: {backup_size_mb:.2f} MB")
         
-        print(Fore.CYAN + "\n📋 Детализация по директориям:")
-        for dir_name, file_count in total_files_per_dir.items():
-            status = "✅" if file_count > 0 else ("⚠️" if file_count == 0 else "❌")
-            print(Fore.CYAN + f"  {status} {dir_name}: {file_count} файлов")
+        # Очистка старых бэкапов (оставляем только последние 5)
+        cleanup_old_backups(backup_dir)
         
-        if dirs_found == 0:
-            print(Fore.YELLOW + "\n⚠️ Ни одна из указанных директорий не найдена!")
-            print(Fore.YELLOW + "💡 Убедитесь, что существуют директории:")
-            for dir_path in dirs_to_backup:
-                print(Fore.YELLOW + f"   - {dir_path}")
-        elif files_added == 0:
-            print(Fore.YELLOW + "\n⚠️ В найденных директориях нет файлов для архивирования!")
-        
-        print(Fore.MAGENTA + "="*60 + "\n")
-        
-        return str(backup_path)
+        return str(backup_filename)
         
     except Exception as e:
-        print(Fore.RED + f"\n❌ Ошибка создания архива: {e}")
-        
-        if backup_path.exists():
-            try:
-                backup_path.unlink()
-                print(Fore.YELLOW + "🗑️ Поврежденный архив удален")
-            except Exception as cleanup_error:
-                print(Fore.RED + f"❌ Ошибка удаления поврежденного архива: {cleanup_error}")
-        
-        print(Fore.MAGENTA + "="*60 + "\n")
-        return None
+        logger.error(f"❌ Ошибка при создании резервной копии: {e}")
+        raise
 
-def get_backup_info():
-    """
-    Возвращает информацию о существующих архивах backup
-    """
-    backup_dir = project_root / 'backups'
-    if not backup_dir.exists():
-        return None
+def cleanup_old_backups(backup_dir, keep_count=5):
+    """Удаляет старые бэкапы, оставляя только последние keep_count"""
+    try:
+        backup_files = list(backup_dir.glob("backup_*.zip"))
         
-    backup_files = list(backup_dir.glob("backup_*.zip"))
+        if len(backup_files) <= keep_count:
+            logger.info(f"📁 Всего бэкапов: {len(backup_files)}, очистка не требуется")
+            return
+        
+        # Сортируем по времени создания (старые первыми)
+        backup_files.sort(key=lambda x: x.stat().st_mtime)
+        
+        # Удаляем старые файлы
+        files_to_delete = backup_files[:-keep_count]
+        
+        for file_path in files_to_delete:
+            file_path.unlink()
+            logger.info(f"🗑️ Удален старый бэкап: {file_path.name}")
+        
+        logger.info(f"🧹 Очистка завершена. Удалено: {len(files_to_delete)} файлов")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при очистке старых бэкапов: {e}")
+
+def restore_backup(backup_path):
+    """Восстанавливает данные из резервной копии"""
+    setup_backup_logging()
     
-    if not backup_files:
-        return None
-    
-    backup_info = []
-    for backup_file in sorted(backup_files, key=lambda x: x.stat().st_ctime, reverse=True):
+    try:
+        backup_file = Path(backup_path)
+        
+        if not backup_file.exists():
+            logger.error(f"❌ Файл бэкапа не найден: {backup_path}")
+            return False
+        
+        logger.info(f"🔄 Начинаем восстановление из: {backup_path}")
+        
+        # Создаем временную директорию для распаковки
+        temp_dir = Path("temp_restore")
+        temp_dir.mkdir(exist_ok=True)
+        
         try:
-            stat = backup_file.stat()
-            size_mb = stat.st_size / (1024 * 1024)
-            creation_time = datetime.fromtimestamp(stat.st_ctime)
+            with zipfile.ZipFile(backup_file, 'r') as zipf:
+                zipf.extractall(temp_dir)
             
-            backup_info.append({
-                'filename': backup_file.name,
-                'path': str(backup_file),
-                'size_mb': size_mb,
-                'created': creation_time
-            })
-        except Exception as e:
-            print(Fore.RED + f"❌ Ошибка получения информации о {backup_file.name}: {e}")
+            logger.info("📦 Архив успешно распакован")
+            
+            # Перемещаем файлы на свои места
+            for item in temp_dir.rglob('*'):
+                if item.is_file():
+                    relative_path = item.relative_to(temp_dir)
+                    target_path = Path(relative_path)
+                    
+                    # Создаем директории если нужно
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Копируем файл
+                    shutil.copy2(item, target_path)
+                    logger.debug(f"📄 Восстановлен: {relative_path}")
+            
+            logger.success("✅ Восстановление завершено успешно")
+            return True
+            
+        finally:
+            # Удаляем временную директорию
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+                logger.info("🧹 Временные файлы удалены")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при восстановлении: {e}")
+        return False
+
+def auto_backup_menu():
+    """Главное меню модуля резервного копирования"""
+    setup_backup_logging()
     
-    return backup_info
+    try:
+        logger.info("🚀 Запуск модуля автоматического резервного копирования")
+        
+        while True:
+            logger.info("\n" + "="*50)
+            logger.info("🔧 МЕНЮ РЕЗЕРВНОГО КОПИРОВАНИЯ")
+            logger.info("="*50)
+            logger.info("1. 💾 Создать резервную копию")
+            logger.info("2. 📂 Просмотреть существующие бэкапы")
+            logger.info("3. 🔄 Восстановить из бэкапа")
+            logger.info("4. 🧹 Очистить старые бэкапы")
+            logger.info("5. 🚪 Выход")
+            
+            choice = input("\nВыберите действие (1-5): ").strip()
+            
+            if choice == '1':
+                backup_file = create_backup()
+                logger.success(f"✅ Бэкап создан: {backup_file}")
+                
+            elif choice == '2':
+                list_backups()
+                
+            elif choice == '3':
+                backup_path = input("Введите путь к файлу бэкапа: ").strip()
+                if restore_backup(backup_path):
+                    logger.success("✅ Восстановление завершено")
+                else:
+                    logger.error("❌ Ошибка восстановления")
+                    
+            elif choice == '4':
+                backup_dir = Path("backups")
+                if backup_dir.exists():
+                    cleanup_old_backups(backup_dir, keep_count=3)
+                else:
+                    logger.warning("⚠️ Директория бэкапов не найдена")
+                    
+            elif choice == '5':
+                logger.info("👋 Выход из модуля резервного копирования")
+                break
+                
+            else:
+                logger.warning("⚠️ Неверный выбор. Попробуйте снова.")
+                
+    except KeyboardInterrupt:
+        logger.info("\n👋 Выход из программы по запросу пользователя")
+    except Exception as e:
+        logger.error(f"❌ Неожиданная ошибка: {e}")
 
 def list_backups():
-    """
-    Выводит список существующих архивов backup
-    """
-    print(Fore.MAGENTA + "\n" + "="*60)
-    print(Fore.YELLOW + f"📋 Список существующих архивов backup (лимит: {MAX_BACKUPS_TO_KEEP})")
-    print(Fore.MAGENTA + "="*60)
-    
-    backup_info = get_backup_info()
-    
-    if not backup_info:
-        print(Fore.YELLOW + "📭 Архивы backup не найдены")
-        print(Fore.CYAN + f"📁 Директория: {project_root / 'backups'}")
-        print(Fore.MAGENTA + "="*60 + "\n")
-        return
-    
-    print(Fore.CYAN + f"📁 Директория: {project_root / 'backups'}")
-    print(Fore.CYAN + f"📊 Найдено архивов: {len(backup_info)}/{MAX_BACKUPS_TO_KEEP}")
-    print()
-    
-    for i, info in enumerate(backup_info, 1):
-        status_marker = ""
-        if len(backup_info) > MAX_BACKUPS_TO_KEEP and i == len(backup_info):
-            status_marker = f" {Fore.RED}[БУДЕТ УДАЛЕН ПРИ СЛЕДУЮЩЕМ BACKUP]{Fore.RESET}"
+    """Показывает список доступных бэкапов"""
+    try:
+        backup_dir = Path("backups")
         
-        print(Fore.CYAN + f"{i}. {info['filename']}{status_marker}")
-        print(Fore.GREEN + f"   📊 Размер: {info['size_mb']:.2f} MB")
-        print(Fore.GREEN + f"   📅 Создан: {info['created'].strftime('%Y-%m-%d %H:%M:%S')}")
-        print(Fore.BLUE + f"   📁 Путь: {info['path']}")
-        if i < len(backup_info):
-            print()
-    
-    if len(backup_info) > MAX_BACKUPS_TO_KEEP:
-        excess = len(backup_info) - MAX_BACKUPS_TO_KEEP
-        print(Fore.YELLOW + f"\n⚠️ Превышен лимит на {excess} архив(ов). Лишние будут удалены при следующем backup.")
-    
-    print(Fore.MAGENTA + "="*60 + "\n")
+        if not backup_dir.exists():
+            logger.warning("⚠️ Директория бэкапов не найдена")
+            return
+        
+        backup_files = list(backup_dir.glob("backup_*.zip"))
+        
+        if not backup_files:
+            logger.warning("⚠️ Бэкапы не найдены")
+            return
+        
+        # Сортируем по времени создания (новые первыми)
+        backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        logger.info(f"\n📁 Найдено бэкапов: {len(backup_files)}")
+        logger.info("-" * 50)
+        
+        for i, backup_file in enumerate(backup_files, 1):
+            stat = backup_file.stat()
+            size_mb = stat.st_size / (1024 * 1024)
+            mtime = datetime.fromtimestamp(stat.st_mtime)
+            
+            logger.info(f"{i}. {backup_file.name}")
+            logger.info(f"   📅 Создан: {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"   📦 Размер: {size_mb:.2f} MB")
+            logger.info("")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка при получении списка бэкапов: {e}")
+
+if __name__ == "__main__":
+    auto_backup_menu()

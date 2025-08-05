@@ -31,6 +31,8 @@ from modules.cex.okx import withdraw_from_okx, get_balances_okx
 from modules.cex.binance import withdraw_from_binance, get_balances_binance
 from modules.GitHub.check_version import check_version
 
+from modules.check_proxy import check_proxy_menu
+
 from modules.eth.eth_wallet_generator import eth_generate_wallets
 from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
@@ -167,7 +169,6 @@ def main_menu():
                     #Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🧰 Miscellaneous                🌟 Разные удобные штуки', 'miscellaneous'),
-                    #Choice('🔍 Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                     #Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
@@ -181,6 +182,7 @@ def main_menu():
                         "Выберите действие:",
                         choices=[
                             Choice('🗂️ password generator', 'password_generator'),
+                            Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -189,8 +191,9 @@ def main_menu():
 
                     match choices:
                         case 'password_generator':
-                            pass
                             password_generator_menu()
+                        case 'check_proxy':
+                            check_proxy_menu()
                         case 'back':
                             continue
 
@@ -543,8 +546,7 @@ def main_menu():
                                 break
 
                 case 'check_proxy':
-                    print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
-                    time.sleep(3)
+                    check_proxy_menu()
                     continue
 
                 case 'exit':
