@@ -283,7 +283,6 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
         'ETH_LlamaRPC': 'https://eth.llamarpc.com',
         'ETH_MEVBlocker': 'https://rpc.mevblocker.io',
         'ETH_DRPC': 'https://eth.drpc.org',
-        'ETH_Payload': 'https://rpc.payload.de',
         'ETH_Blockrazor': 'https://eth.blockrazor.xyz'
     }
     
