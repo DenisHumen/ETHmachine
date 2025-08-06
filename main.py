@@ -147,7 +147,9 @@ def main_menu():
     check_and_create_files()
     try:
         print(
-            Fore.GREEN + "\nWelcome to ETHmachine! 🌟 \n TG     🌟 - "
+            Fore.GREEN + "\nWelcome to ETHmachine! 🌟 \n ERC20  🌟 - "
+            + Fore.MAGENTA + "0xa24fbbd57720ec580395aedba3ad37f6a6067727"
+            + Fore.GREEN + " \n TG     🌟 - "
             + Fore.MAGENTA + "https://t.me/DenisHumen"
             + Fore.GREEN + " \n GitHub 🌟 - "
             + Fore.MAGENTA + "https://github.com/DenisHumen"

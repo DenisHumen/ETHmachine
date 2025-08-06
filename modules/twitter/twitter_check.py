@@ -15,6 +15,27 @@ sys.path.append(str(project_root))
 
 from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS
 
+# Настройка логирования для модуля twitter_check
+def setup_twitter_logging():
+    """Настраивает логирование для модуля проверки Twitter"""
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'twitter_check_{timestamp}.log'
+    
+    # Добавляем обработчик для записи в файл
+    logger.add(
+        log_file,
+        rotation="10 MB",
+        retention="7 days",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        level="DEBUG",
+        encoding="utf-8"
+    )
+    
+    logger.info(f"Логирование настроено. Файл: {log_file}")
+
 class Constants:
     BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
@@ -274,23 +295,23 @@ async def check_single_nickname(nickname: str, checker: TwitterFollowersChecker,
     Returns:
         dict: Результат проверки
     """
-    print(f"{Fore.CYAN}[{index+1}/{total}] Checking @{nickname}...{Style.RESET_ALL}")
+    logger.info(f"[{index+1}/{total}] Checking @{nickname}...")
     
     try:
         user_info = await checker.get_user_followers_count(nickname)
         
         if user_info:
             if user_info['status'] == 'success':
-                print(f"{Fore.GREEN}✅ @{nickname}: {user_info['followers_count']:,} followers{Style.RESET_ALL}")
+                logger.success(f"✅ @{nickname}: {user_info['followers_count']:,} followers")
             else:
-                print(f"{Fore.RED}❌ @{nickname}: {user_info['status']}{Style.RESET_ALL}")
+                logger.error(f"❌ @{nickname}: {user_info['status']}")
             return user_info
         else:
-            print(f"{Fore.RED}❌ No data returned for @{nickname}{Style.RESET_ALL}")
+            logger.error(f"❌ No data returned for @{nickname}")
             return checker._create_error_result(nickname, "No data returned")
             
     except Exception as e:
-        print(f"{Fore.RED}❌ Error checking @{nickname}: {e}{Style.RESET_ALL}")
+        logger.error(f"❌ Error checking @{nickname}: {e}")
         return checker._create_error_result(nickname, f"Exception: {str(e)}")
 
 async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_batches: int):
@@ -305,7 +326,7 @@ async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_b
     Returns:
         list: Результаты проверки
     """
-    print(f"{Fore.BLUE}🔄 Обработка пакета {batch_num}/{total_batches} ({len(nicknames_batch)} аккаунтов){Style.RESET_ALL}")
+    logger.info(f"🔄 Обработка пакета {batch_num}/{total_batches} ({len(nicknames_batch)} аккаунтов)")
     
     batch_results = []
     
@@ -327,10 +348,10 @@ async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_b
         for i, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 nickname = nicknames_batch[i]
-                print(f"{Fore.RED}❌ Exception for @{nickname}: {result}{Style.RESET_ALL}")
+                logger.error(f"❌ Exception for @{nickname}: {result}")
                 batch_results[i] = checker._create_error_result(nickname, f"Exception: {str(result)}")
     
-    print(f"{Fore.GREEN}✅ Пакет {batch_num}/{total_batches} завершен{Style.RESET_ALL}")
+    logger.success(f"✅ Пакет {batch_num}/{total_batches} завершен")
     return batch_results
 
 def run_twitter_check(os_type: str = 'linux'):
@@ -349,57 +370,60 @@ async def main(os_type: str = 'linux'):
     Args:
         os_type (str): Тип операционной системы для выбора разделителя CSV
     """
+    # Настраиваем логирование
+    setup_twitter_logging()
+    
     if os_type.lower() == 'windows':
         csv_delimiter = ';'
-        os_display = f"{Fore.CYAN}Windows{Style.RESET_ALL}"
+        os_display = "Windows"
     elif os_type.lower() in ['linux', 'macos']:
         csv_delimiter = ','
-        os_display = f"{Fore.GREEN}{os_type}{Style.RESET_ALL}"
+        os_display = os_type
     else:
         csv_delimiter = ','
-        os_display = f"{Fore.YELLOW}{os_type} (unknown, using Linux defaults){Style.RESET_ALL}"
+        os_display = f"{os_type} (unknown, using Linux defaults)"
 
     INPUT_FILE = project_root / "data" / "twitter" / "twitters.csv"
     OUTPUT_FILE = project_root / "result" / "twitter" / "result.csv"
 
-    print(f"{Fore.CYAN}🚀 Twitter Followers Checker{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}={'=' * 50}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Current Date and Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Current User's Login: DenisHumen{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Operating System: {os_display}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}CSV Delimiter: {Fore.MAGENTA}'{csv_delimiter}'{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Threads: {Fore.MAGENTA}{NUM_THREADS}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Delay between requests: {Fore.MAGENTA}{SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]}s{Style.RESET_ALL}")
-    print(f"{Fore.GREEN}Proxy: {MAIN_PROXY_TWITTER if MAIN_PROXY_TWITTER else 'No proxy'}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}={'=' * 50}{Style.RESET_ALL}")
+    logger.info("🚀 Twitter Followers Checker")
+    logger.info("=" * 50)
+    logger.info(f"Current Date and Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Current User's Login: DenisHumen")
+    logger.info(f"Operating System: {os_display}")
+    logger.info(f"CSV Delimiter: '{csv_delimiter}'")
+    logger.info(f"Threads: {NUM_THREADS}")
+    logger.info(f"Delay between requests: {SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]}s")
+    logger.info(f"Proxy: {MAIN_PROXY_TWITTER if MAIN_PROXY_TWITTER else 'No proxy'}")
+    logger.info("=" * 50)
     
     if not MAIN_AUTH_TOKEN or MAIN_AUTH_TOKEN == "":
-        print(f"{Fore.RED}❌ ОШИБКА: Необходимо указать MAIN_AUTH_TOKEN в config/config.py!{Style.RESET_ALL}")
-        print(f"\n{Fore.CYAN}📋 Как получить MAIN_AUTH_TOKEN:{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}1.{Style.RESET_ALL} {Fore.WHITE}Откройте браузер и войдите в Twitter/X{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}2.{Style.RESET_ALL} {Fore.WHITE}Нажмите {Fore.MAGENTA}F12{Style.RESET_ALL} {Fore.WHITE}(Developer Tools){Style.RESET_ALL}")
-        print(f"{Fore.GREEN}3.{Style.RESET_ALL} {Fore.WHITE}Перейдите на вкладку {Fore.MAGENTA}Application/Storage{Style.RESET_ALL} {Fore.WHITE}→ {Fore.MAGENTA}Cookies{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}4.{Style.RESET_ALL} {Fore.WHITE}Найдите cookie с именем {Fore.MAGENTA}'auth_token'{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}5.{Style.RESET_ALL} {Fore.WHITE}Скопируйте его значение и вставьте в {Fore.MAGENTA}MAIN_AUTH_TOKEN{Style.RESET_ALL} {Fore.WHITE}в {Fore.CYAN}config/config.py{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}💡 Пример: MAIN_AUTH_TOKEN = 'ваш_длинный_токен_здесь'{Style.RESET_ALL}")
+        logger.error("❌ ОШИБКА: Необходимо указать MAIN_AUTH_TOKEN в config/config.py!")
+        logger.info("\n📋 Как получить MAIN_AUTH_TOKEN:")
+        logger.info("="*60)
+        logger.info("1. Откройте браузер и войдите в Twitter/X")
+        logger.info("2. Нажмите F12 (Developer Tools)")
+        logger.info("3. Перейдите на вкладку Application/Storage → Cookies")
+        logger.info("4. Найдите cookie с именем 'auth_token'")
+        logger.info("5. Скопируйте его значение и вставьте в MAIN_AUTH_TOKEN в config/config.py")
+        logger.info("="*60)
+        logger.info("💡 Пример: MAIN_AUTH_TOKEN = 'ваш_длинный_токен_здесь'")
         return
     
     nicknames = load_nicknames_from_csv(INPUT_FILE)
     if not nicknames:
-        print(f"{Fore.RED}❌ No nicknames found in {INPUT_FILE}{Style.RESET_ALL}")
-        print(f"\n{Fore.CYAN}📋 Создайте файл {Fore.MAGENTA}{INPUT_FILE}{Style.RESET_ALL} {Fore.CYAN}с форматом:{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}{'='*40}{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}nickname,auth_token,ct0{Style.RESET_ALL}")
-        print(f"{Fore.WHITE}s_nakotomo,,,{Style.RESET_ALL}")
-        print(f"{Fore.WHITE}elonmusk,,,{Style.RESET_ALL}")
-        print(f"{Fore.WHITE}twitter,,,{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}{'='*40}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}💡 Скрипт использует только колонку 'nickname'{Style.RESET_ALL}")
+        logger.error(f"❌ No nicknames found in {INPUT_FILE}")
+        logger.info(f"\n📋 Создайте файл {INPUT_FILE} с форматом:")
+        logger.info("="*40)
+        logger.info("nickname,auth_token,ct0")
+        logger.info("s_nakotomo,,,")
+        logger.info("elonmusk,,,")
+        logger.info("twitter,,,")
+        logger.info("="*40)
+        logger.info("💡 Скрипт использует только колонку 'nickname'")
         return
     
-    print(f"{Fore.GREEN}📋 Found {len(nicknames)} nicknames to check{Style.RESET_ALL}")
+    logger.success(f"📋 Found {len(nicknames)} nicknames to check")
     
     batch_size = max(1, len(nicknames) // NUM_THREADS)
     if len(nicknames) % NUM_THREADS != 0:
@@ -410,7 +434,7 @@ async def main(os_type: str = 'linux'):
         batch = nicknames[i:i + batch_size]
         batches.append(batch)
     
-    print(f"{Fore.BLUE}🔄 Разделено на {len(batches)} пакетов по ~{batch_size} аккаунтов{Style.RESET_ALL}")
+    logger.info(f"🔄 Разделено на {len(batches)} пакетов по ~{batch_size} аккаунтов")
     
     all_results = []
     
@@ -421,11 +445,11 @@ async def main(os_type: str = 'linux'):
             
             if batch_num < len(batches):
                 delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0] * 2, SLEEP_BETWEEN_ACTIONS[1] * 2)  # Увеличенная задержка между пакетами
-                print(f"{Fore.BLUE}⏳ Пауза {delay:.1f}с между пакетами...{Style.RESET_ALL}")
+                logger.info(f"⏳ Пауза {delay:.1f}с между пакетами...")
                 await asyncio.sleep(delay)
                 
         except Exception as e:
-            print(f"{Fore.RED}❌ Ошибка обработки пакета {batch_num}: {e}{Style.RESET_ALL}")
+            logger.error(f"❌ Ошибка обработки пакета {batch_num}: {e}")
             for nickname in batch:
                 error_result = {
                     "nickname": nickname,
@@ -447,11 +471,11 @@ async def main(os_type: str = 'linux'):
     if all_results:
         save_results_to_csv(all_results, OUTPUT_FILE, csv_delimiter)
         
-        print(f"\n{Fore.CYAN}{'='*80}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}РЕЗУЛЬТАТЫ ПРОВЕРКИ ({len(all_results)} аккаунтов){Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'='*80}{Style.RESET_ALL}")
-        print(f"{Fore.MAGENTA}{'Nickname':<20}{Style.RESET_ALL} | {Fore.MAGENTA}{'Name':<25}{Style.RESET_ALL} | {Fore.MAGENTA}{'Followers':<12}{Style.RESET_ALL} | {Fore.MAGENTA}{'Status':<15}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'-'*80}{Style.RESET_ALL}")
+        logger.info("="*80)
+        logger.info(f"РЕЗУЛЬТАТЫ ПРОВЕРКИ ({len(all_results)} аккаунтов)")
+        logger.info("="*80)
+        logger.info(f"{'Nickname':<20} | {'Name':<25} | {'Followers':<12} | {'Status':<15}")
+        logger.info("-"*80)
         
         successful_checks = 0
         total_followers = 0
@@ -460,23 +484,17 @@ async def main(os_type: str = 'linux'):
             if user['status'] == 'success':
                 successful_checks += 1
                 total_followers += user['followers_count']
-                status_display = f"{Fore.GREEN}✅ Success{Style.RESET_ALL}"
-                nickname_color = Fore.GREEN
-                name_color = Fore.WHITE
-                followers_color = Fore.CYAN
+                status_display = "✅ Success"
             else:
-                status_display = f"{Fore.RED}❌ Error{Style.RESET_ALL}"
-                nickname_color = Fore.RED
-                name_color = Fore.WHITE
-                followers_color = Fore.RED
+                status_display = "❌ Error"
             
-            print(f"{nickname_color}@{user['nickname']:<19}{Style.RESET_ALL} | {name_color}{user['name'][:24]:<25}{Style.RESET_ALL} | {followers_color}{user['followers_count']:>10,}{Style.RESET_ALL} | {status_display}")
+            logger.info(f"@{user['nickname']:<19} | {user['name'][:24]:<25} | {user['followers_count']:>10,} | {status_display}")
         
-        print(f"{Fore.CYAN}{'-'*80}{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}Успешно проверено: {successful_checks}/{len(all_results)} аккаунтов{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Общее количество подписчиков: {total_followers:,}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}Время проверки: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC{Style.RESET_ALL}")
-        print(f"{Fore.MAGENTA}Результаты сохранены в: {OUTPUT_FILE} (разделитель: '{csv_delimiter}'){Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'='*80}{Style.RESET_ALL}")
+        logger.info("-"*80)
+        logger.success(f"Успешно проверено: {successful_checks}/{len(all_results)} аккаунтов")
+        logger.info(f"Общее количество подписчиков: {total_followers:,}")
+        logger.info(f"Время проверки: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        logger.success(f"Результаты сохранены в: {OUTPUT_FILE} (разделитель: '{csv_delimiter}')")
+        logger.info("="*80)
     else:
-        print(f"{Fore.RED}❌ No results to save{Style.RESET_ALL}")
+        logger.error("❌ No results to save")
