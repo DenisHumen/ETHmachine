@@ -3,11 +3,16 @@ import csv
 from itertools import cycle
 from colorama import Fore, Style
 import sys
+from loguru import logger
 from .eth_wallet_generator import (
     mnemonic_to_private_key,
     PublicKey,
     ETH_DERIVATION_PATH,
 )
+
+# Настройка loguru
+logger.remove()  # Удаляем стандартный обработчик
+logger.add(sys.stderr, level="INFO")  # Добавляем вывод в stderr
 
 def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result.csv"):
     # Чтение мнемоник
@@ -31,7 +36,7 @@ def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result
                 writer.writerow([mnemonic, priv_hex, address])
                 results.append((mnemonic, priv_hex, address))
             except Exception as e:
-                print(f"\n{Fore.RED}Ошибка для мнемоники {mnemonic[:16]}...: {e}{Style.RESET_ALL}", file=sys.stderr)
+                logger.error(f"Ошибка для мнемоники {mnemonic[:16]}...: {e}")
             # Прогресс-бар
             progress = int(((i + 1) / total) * bar_length)
             bar = "█" * progress + "░" * (bar_length - progress)
@@ -63,8 +68,10 @@ def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result
                 check_addr_priv = PublicKey(binascii.unhexlify(priv_hex)).address()
                 if check_addr_mnemonic != address or check_addr_priv != address:
                     mark = " ⚠️⚠️⚠️"
+                    logger.warning(f"Несоответствие для мнемоники {mnemonic[:16]}...")
             except Exception as e:
                 mark = " ⚠️⚠️⚠️"
+                logger.error(f"Ошибка верификации для мнемоники {mnemonic[:16]}...: {e}")
             verified_results.append((mnemonic, priv_hex, address, mark))
             checked += 1
             progress = int((checked / total_rows) * bar_length_check)
@@ -83,6 +90,8 @@ def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result
         writer.writerow(["mnemonic", "priv_key", "address", "check"])
         for row in verified_results:
             writer.writerow(row)
+
+    logger.success(f"Обработано {total} мнемоник, результат сохранен в {output_path}")
 
 # Пример вызова:
 # process_mnemonics()

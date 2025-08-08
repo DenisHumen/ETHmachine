@@ -17,6 +17,11 @@ from colorama import Fore
 from eth_account import Account  
 import random
 import time
+from loguru import logger
+
+# Настройка loguru
+logger.remove()  # Удаляем стандартный обработчик
+logger.add(sys.stderr, level="INFO")  # Добавляем вывод в stderr
 
 BIP39_PBKDF2_ROUNDS = 2048
 BIP39_SALT_MODIFIER = "mnemonic"
@@ -97,7 +102,7 @@ def is_nice_address(address, attempt=None):
 
     if display_the_address_search_process:
         attempt_info = f" (Attempt: {attempt})" if attempt is not None else ""
-        print(Fore.YELLOW + f"Checking address: {address}{attempt_info}")
+        logger.debug(f"Checking address: {address}{attempt_info}")
 
     match_word = NICE_ADDRESS_WORDS_enable and any(word in address for word in NICE_ADDRESS_WORDS_ETH)
 
@@ -109,7 +114,6 @@ def eth_generate_nice_wallets(num_wallets):
     mnemo = Mnemonic("english")
     spinner_cycle = cycle(["|", "/", "-", "\\"])  
     bar_length = 30  
-
 
     with open('result/result.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -131,6 +135,7 @@ def eth_generate_nice_wallets(num_wallets):
                 if is_nice_address(address, attempt=attempt):
                     writer.writerow([mnemonic, address, priv_hex]) 
                     completed_wallets += 1
+                    logger.success(f"Найден красивый адрес: {address} (попытка {attempt})")
 
                     progress = int((completed_wallets / num_wallets) * bar_length)
                     bar = "█" * progress + "░" * (bar_length - progress)
@@ -142,13 +147,14 @@ def eth_generate_nice_wallets(num_wallets):
                     )
 
             except Exception as e:
-                print(f"\n❌ Error generating wallet: {str(e)}", file=sys.stderr)
+                logger.error(f"❌ Error generating wallet: {str(e)}")
     print() 
+    logger.success(f"Генерация завершена: {completed_wallets} красивых кошельков за {attempt} попыток")
 
 def find_nice_addresses(search_word=None):
     words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS_ETH
 
-    print(Fore.GREEN + "Начинаем поиск адресов...")
+    logger.info("Начинаем поиск адресов...")
 
     attempts = 0
     found_addresses = []
@@ -166,5 +172,9 @@ def find_nice_addresses(search_word=None):
                 "address": account.address,
                 "private_key": account.key.hex()
             })
-            print(Fore.CYAN + f"Найден адрес: {account.address} | Приватный ключ: {account.key.hex()}")
+            logger.success(f"Найден адрес: {account.address} | Приватный ключ: {account.key.hex()}")
+            
+        # Логируем прогресс каждые 10000 попыток
+        if attempts % 10000 == 0:
+            logger.info(f"Выполнено {attempts} попыток, найдено {len(found_addresses)} адресов")
 
