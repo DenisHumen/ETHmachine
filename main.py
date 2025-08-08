@@ -184,7 +184,7 @@ def main_menu():
                     choices = select(
                         "Выберите действие:",
                         choices=[
-                            Choice('🗂️ password generator', 'password_generator'),
+                            Choice('🗂️ password generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
                             Choice('🔙 Back', 'back')
@@ -576,22 +576,21 @@ def main_menu():
                     action = select(
                         'Выберите действие:',
                         choices=[
-                            Choice('💲 Withdraw from OKX      🌟 Вывод с OKX', 'withdraw_from_okx'),
-                            Choice('💲 Withdraw from Binance  🌟 Вывод с Binance', 'withdraw_from_binance'),
-                            Choice('💲 Auto spot trade        🌟 Спотовая торговлять на бирже', 'spot_trade'),
+                            Choice('💲 OKX          🌟 Работа с OKX', 'OKX'),
+                            Choice('💲 Binance      🌟 Работа с Binance', 'Binance'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
-
                     match action:
-                        case 'spot_trade':
+                        case 'OKX':
                             action = select(
-                                'Выберите биржу:',
+                                'Выберите действие:',
                                 choices=[
-                                    Choice('💲 Binance', 'binance'),
-                                    Choice('💲 OKX', 'okx'),
+                                    Choice('💲 Withdraw from OKX      🌟 Вывод с OKX', 'withdraw_from_okx'),
+                                    Choice('💲 Get Balances from OKX  🌟 Получить балансы с OKX', 'get_balances_okx'),
+                                    Choice('💲 Auto spot trade OKX    🌟 Спотовая торговлять на бирже', 'spot_trade_okx'),
                                     Choice('🔙 Back', 'back')
                                 ],
                                 qmark='🛠️',
@@ -599,41 +598,44 @@ def main_menu():
                             ).ask()
 
                             match action:
-                                case 'binance':
-                                    print(Fore.GREEN + f"\n\tВ разработке\n")
+                                case 'withdraw_from_okx':
+                                    print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
+                                    #withdraw_from_okx()
                                     continue
-                                case 'okx':
-                                    print(Fore.GREEN + f"\n\tВ разработке\n")
+                                case 'get_balances_okx':
+                                    print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
+                                    #get_balances_okx()
                                     continue
+                                case 'spot_trade_okx':
+                                    print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
+                                    #spot_trade_okx()
                                 case 'back':
                                     continue
 
-                        case 'withdraw_from_okx':
-                            continue
-                            #withdraw_from_okx()
-                        case 'withdraw_from_binance':
-                            continue
-                            #withdraw_from_binance()
-
-
-
-                        case 'spot_trade':
-                            print(Fore.GREEN + f"\n\tПараметры задаются в config/config.py раздел НАСТРОЙКИ ФУНКЦИИ SPOT TRADE\n")
+                        case 'Binance':
                             action = select(
-                                'Выберите биржу:',
+                                'Выберите действие:',
                                 choices=[
-                                    Choice('💲 Binance', 'binance'),
-                                    Choice('💲 OKX', 'okx'),
+                                    Choice('💲 Withdraw from Binance  🌟 Вывод с Binance', 'withdraw_from_binance'),
+                                    Choice('💲 Get Balances from Binance  🌟 Получить балансы с Binance', 'get_balances_binance'),
                                     Choice('🔙 Back', 'back')
                                 ],
                                 qmark='🛠️',
                                 pointer='👉'
                             ).ask()
-                            print(Fore.GREEN + f"\n\tФункционал CEX в разработке")
 
+                            match action:
+                                case 'withdraw_from_binance':
+                                    print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
+                                    #withdraw_from_binance()
+                                    continue
+                                case 'get_balances_binance':
+                                    print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
+                                    #get_balances_binance()
+                                    continue
+                                case 'back':
+                                    continue
 
-
-                            continue
                         case 'back':
                             continue
 
