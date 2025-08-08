@@ -38,6 +38,7 @@ from modules.eth.eth_nice_address import eth_generate_nice_wallets
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.eth_private_key_to_wallet_address import process_private_keys
 from modules.eth.eth_drainers import eth_drainers
+from modules.eth.eth_last_tx import check_last_transactions
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
@@ -185,6 +186,7 @@ def main_menu():
                         choices=[
                             Choice('🗂️ password generator', 'password_generator'),
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
+                            Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -196,6 +198,8 @@ def main_menu():
                             password_generator_menu()
                         case 'check_proxy':
                             check_proxy_menu()
+                        case 'last_transactions':
+                            check_last_transactions()
                         case 'back':
                             continue
 

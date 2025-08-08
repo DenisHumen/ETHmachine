@@ -590,10 +590,13 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
         # Получаем цену газа заранее
         try:
             gas_price = w3.eth.gas_price
+            # Устанавливаем минимальный priority fee для совместимости с L2 сетями
+            min_priority_fee = max(1, int(gas_price * 0.01))  # 1% от gas_price или минимум 1 wei
         except Exception as e:
             if not MULTI_THREADING:
                 logger.warning(f"Ошибка получения цены газа: {e}")
             gas_price = int(w3.to_wei('30', 'gwei'))
+            min_priority_fee = int(w3.to_wei('1', 'gwei'))
         
         if amount_type == 'ETH':
             # Фиксированная сумма в ETH - генерируем случайное значение в диапазоне
@@ -672,7 +675,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     'nonce': nonce_from,
                     'chainId': chain_id,
                     'maxFeePerGas': int(gas_price * 1.2),
-                    'maxPriorityFeePerGas': 0
+                    'maxPriorityFeePerGas': min_priority_fee
                 }
 
                 estimated_gas = w3.eth.estimate_gas(tx)
@@ -719,7 +722,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 'nonce': nonce_from,
                 'chainId': w3.eth.chain_id,
                 'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': 0
+                'maxPriorityFeePerGas': min_priority_fee
             }
 
             tx_hash = None
@@ -801,7 +804,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     'nonce': nonce_intermediary,
                     'chainId': chain_id,
                     'maxFeePerGas': int(gas_price * 1.2),
-                    'maxPriorityFeePerGas': 0
+                    'maxPriorityFeePerGas': min_priority_fee
                 }
                 estimated_gas = w3.eth.estimate_gas(tx)
                 gas = int(estimated_gas * 1.2)
@@ -827,7 +830,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 'nonce': nonce_intermediary,
                 'chainId': w3.eth.chain_id,
                 'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': 0
+                'maxPriorityFeePerGas': min_priority_fee
             }
 
             tx_hash2 = None
@@ -938,7 +941,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 'nonce': nonce_from,
                 'chainId': w3.eth.chain_id,
                 'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': 0
+                'maxPriorityFeePerGas': min_priority_fee
             }
 
             estimated_gas = w3.eth.estimate_gas(tx)
@@ -958,7 +961,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                     if value < 0:
                         value = 0
                     logger.warning(f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
-                                        f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
+                                    f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
             else:
                 # Для фиксированных сумм просто проверяем достаточность средств
                 if value + fee > balance:

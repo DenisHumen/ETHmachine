@@ -211,7 +211,8 @@ def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None, logger=No
                 balance_wei = w3.eth.get_balance(checksum_address)
                 balance_eth = w3.from_wei(balance_wei, 'ether')
                 
-                return float(balance_eth)
+                # Форматируем баланс чтобы избежать научной нотации
+                return float(f"{balance_eth:.18f}")
                 
             except Exception as e:
                 # Логируем ошибку
@@ -405,21 +406,17 @@ def save_results(results, network_name, wallets, network_type=None):
                 if wallet in results_dict:
                     balance, success = results_dict[wallet]
                     if success:
+                        # Форматируем баланс без научной нотации
+                        formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
                         if is_mainnet and eth_price > 0:
                             balance_usdt = balance * eth_price
-                            writer.writerow([wallet, balance, f"{balance_usdt:.2f}", network_name])
+                            writer.writerow([wallet, formatted_balance, f"{balance_usdt:.2f}", network_name])
                         else:
-                            writer.writerow([wallet, balance, network_name])
+                            writer.writerow([wallet, formatted_balance, network_name])
                     else:
-                        if is_mainnet and eth_price > 0:
-                            writer.writerow([wallet, 0, "0.00", network_name])
-                        else:
-                            writer.writerow([wallet, 0, network_name])
+                        writer.writerow([wallet, "0", "0.00" if is_mainnet and eth_price > 0 else "", network_name])
                 else:
-                    if is_mainnet and eth_price > 0:
-                        writer.writerow([wallet, 0, "0.00", network_name])
-                    else:
-                        writer.writerow([wallet, 0, network_name])
+                    writer.writerow([wallet, "0", "0.00" if is_mainnet and eth_price > 0 else "", network_name])
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении результатов: {e}")
@@ -467,7 +464,9 @@ def save_results_all_networks(results, all_networks, wallets):
                         row = [wallet]
                         for network_name in all_networks.keys():
                             balance = network_balances.get(network_name, 0)
-                            row.append(balance)
+                            # Форматируем баланс без научной нотации
+                            formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
+                            row.append(formatted_balance)
                             # Добавляем стоимость в USDT для mainnet сетей
                             if is_mainnet_network(network_name) and eth_price > 0:
                                 balance_usdt = balance * eth_price
@@ -476,7 +475,7 @@ def save_results_all_networks(results, all_networks, wallets):
                     else:
                         row = [wallet]
                         for network_name in all_networks.keys():
-                            row.append(0)
+                            row.append("0")
                             # Добавляем 0 USDT для mainnet сетей
                             if is_mainnet_network(network_name) and eth_price > 0:
                                 row.append("0.00")
@@ -484,7 +483,7 @@ def save_results_all_networks(results, all_networks, wallets):
                 else:
                     row = [wallet]
                     for network_name in all_networks.keys():
-                        row.append(0)
+                        row.append("0")
                         # Добавляем 0 USDT для mainnet сетей
                         if is_mainnet_network(network_name) and eth_price > 0:
                             row.append("0.00")
