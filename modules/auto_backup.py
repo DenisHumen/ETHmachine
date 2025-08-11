@@ -4,31 +4,35 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
+import sys
 
-# Настройка логирования для модуля auto_backup
-def setup_backup_logging():
-    """Настраивает логирование для модуля резервного копирования"""
-    log_dir = Path("log")
-    log_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f'auto_backup_{timestamp}.log'
-    
-    # Добавляем обработчик для записи в файл
-    logger.add(
-        log_file,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
-        encoding="utf-8"
-    )
-    
-    logger.info(f"Логирование настроено. Файл: {log_file}")
+# Убираем стандартный обработчик
+logger.remove()
+
+# Настраиваем пути для логирования
+project_root = Path(__file__).resolve().parent.parent
+log_dir = project_root / 'log'  # Корневая директория log/
+log_dir.mkdir(parents=True, exist_ok=True)
+
+# Добавляем консольный вывод
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
+
+# Добавляем файловое логирование с ротацией (НЕ создает новый файл каждый раз)
+logger.add(
+    log_dir / "auto_backup.log",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="INFO",
+    rotation="10 MB",  # Ротация по размеру
+    retention="30 days",  # Хранить логи 30 дней
+    compression="zip"  # Сжимать старые логи
+)
 
 def create_backup():
     """Создает резервную копию важных файлов"""
-    setup_backup_logging()
     
     try:
         # Создаем директорию для бэкапов
@@ -113,7 +117,6 @@ def cleanup_old_backups(backup_dir, keep_count=5):
 
 def restore_backup(backup_path):
     """Восстанавливает данные из резервной копии"""
-    setup_backup_logging()
     
     try:
         backup_file = Path(backup_path)
@@ -162,7 +165,6 @@ def restore_backup(backup_path):
 
 def auto_backup_menu():
     """Главное меню модуля резервного копирования"""
-    setup_backup_logging()
     
     try:
         logger.info("🚀 Запуск модуля автоматического резервного копирования")

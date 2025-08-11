@@ -1069,7 +1069,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             if not MULTI_THREADING:
                 logger.success("=" * 60)
                 logger.success(f"{explorer_url}{w3.to_hex(tx_hash)}")
-                logger.success(f"\nfrom_wallet ({from_acc.address}) - {w3.from_wei(value, 'ether')} ETH")
+                logger.success(f"from_wallet ({from_acc.address}) - {w3.from_wei(value, 'ether')} ETH")
                 logger.success(f"Баланс to_wallet ({to_address}) по завершению - {to_wallet_balance_eth} ETH")
                 logger.success("=" * 60 + "\n")
     except Exception as e:

@@ -27,8 +27,9 @@ from modules.get_gas_price import check_all_gas_prices
 from modules.faucets.somnia import run_somnia_faucet
 from modules.twitter.twitter_check import run_twitter_check
 
-from modules.cex.okx import withdraw_from_okx, get_balances_okx
-from modules.cex.binance import withdraw_from_binance, get_balances_binance
+from modules.cex.okx import check_okx_subaccounts_and_balances, get_balances_okx
+#from modules.cex.binance import withdraw_from_binance, get_balances_binance
+from modules.cex.bitget import check_bitget_subaccounts_and_balances
 from modules.GitHub.check_version import check_version
 
 from modules.check_proxy import check_proxy_menu
@@ -126,6 +127,12 @@ def check_and_create_files():
                         'OKX_API_PASSPHRAS = ""\n'
                         'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
                         '\n'
+                        "binance_api_key = ''\n"
+                        "secret_key = ''\n"
+                        "\n"
+                        "bitget_api_key = ''\n"
+                        "bitget_api_secret = ''\n"
+                        "\n"
                         'TOKEN = [\'USDC\']\n'
                         '"""\n'
                         '        - Список токенов:\n'
@@ -169,7 +176,7 @@ def main_menu():
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                     Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
-                    #Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
+                    Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🧰 Miscellaneous                🌟 Разные удобные штуки', 'miscellaneous'),
                     #Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
@@ -571,13 +578,14 @@ def main_menu():
                     print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine! \n \t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen\n\n")
                     #time.sleep(3)
                     break
-                
+
                 case 'CEX_menu':
                     action = select(
                         'Выберите действие:',
                         choices=[
                             Choice('💲 OKX          🌟 Работа с OKX', 'OKX'),
                             Choice('💲 Binance      🌟 Работа с Binance', 'Binance'),
+                            Choice('💲 Bitget       🌟 Работа с Bitget', 'Bitget'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -588,9 +596,10 @@ def main_menu():
                             action = select(
                                 'Выберите действие:',
                                 choices=[
-                                    Choice('💲 Withdraw from OKX      🌟 Вывод с OKX', 'withdraw_from_okx'),
-                                    Choice('💲 Get Balances from OKX  🌟 Получить балансы с OKX', 'get_balances_okx'),
-                                    Choice('💲 Auto spot trade OKX    🌟 Спотовая торговлять на бирже', 'spot_trade_okx'),
+                                    Choice('💲 Withdraw from OKX          🌟 Вывод с OKX', 'withdraw_from_okx'),
+                                    Choice('💲 Get Balances from OKX      🌟 Получить балансы с OKX', 'get_balances_okx'),
+                                    Choice('💲 Subaccount collector OKX   🌟 Сборщик субаккаунтов OKX', 'subaccount_collector_okx'),
+                                    Choice('💲 Auto spot trade OKX        🌟 Спотовая торговля на бирже', 'spot_trade_okx'),
                                     Choice('🔙 Back', 'back')
                                 ],
                                 qmark='🛠️',
@@ -603,9 +612,10 @@ def main_menu():
                                     #withdraw_from_okx()
                                     continue
                                 case 'get_balances_okx':
-                                    print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
-                                    #get_balances_okx()
+                                    get_balances_okx()
                                     continue
+                                case 'subaccount_collector_okx':
+                                    check_okx_subaccounts_and_balances()
                                 case 'spot_trade_okx':
                                     print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
                                     #spot_trade_okx()
@@ -618,6 +628,7 @@ def main_menu():
                                 choices=[
                                     Choice('💲 Withdraw from Binance  🌟 Вывод с Binance', 'withdraw_from_binance'),
                                     Choice('💲 Get Balances from Binance  🌟 Получить балансы с Binance', 'get_balances_binance'),
+                                    Choice('💲 Subaccount collector Binance', 'subaccount_collector_binance'),
                                     Choice('🔙 Back', 'back')
                                 ],
                                 qmark='🛠️',
@@ -632,7 +643,38 @@ def main_menu():
                                 case 'get_balances_binance':
                                     print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
                                     #get_balances_binance()
+                                case 'subaccount_collector_binance':
+                                    print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
+                                    #subaccount_collector_binance()
                                     continue
+                                case 'back':
+                                    continue
+
+                        case 'Bitget':
+                            action = select(
+                                'Выберите действие:',
+                                choices=[
+                                    Choice('💲 Withdraw from Bitget           🌟 Вывод с Bitget', 'withdraw_from_bitget'),
+                                    Choice('💲 Get Balances from Bitget       🌟 Получить балансы с Bitget', 'get_balances_bitget'),
+                                    Choice('💲 Subaccount collector Bitget    🌟 Сборщик субаккаунтов Bitget', 'subaccount_collector_bitget'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+
+                            match action:
+                                case 'withdraw_from_bitget':
+                                    print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")
+                                    #withdraw_from_bitget()
+                                    continue
+                                case 'get_balances_bitget':
+                                    print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")
+                                    #get_balances_bitget()
+                                    continue
+                                case 'subaccount_collector_bitget':
+                                    #print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")
+                                    check_bitget_subaccounts_and_balances()
                                 case 'back':
                                     continue
 
@@ -708,7 +750,7 @@ def main_menu():
                                     process_private_keys()
                                     time.sleep(2)
                                     continue
-                
+
                 case 'generate_wallets':
                     num_wallets = select(
                         "How many wallets do you want to generate?",
