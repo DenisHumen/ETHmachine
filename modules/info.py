@@ -4,21 +4,21 @@ init(autoreset=True)
 
 # Словарь с гайдами и ссылками
 GUIDES_DICT = {
-    "🗂️ Check age discord": "https://youtu.be/wGkMaNAVXZA",
-    "💲 Check Wallets Balances": "https://example.com/wallet-balance-guide",
-    "🧹 Drainers": "https://example.com/drainers-guide",
-    "🔄 Transfer Wallets to Wallets": "https://example.com/transfer-guide",
-    "🐦 Check Twitter Accounts": "https://example.com/twitter-guide",
-    "🪙 Generate Wallets": "https://example.com/generate-wallets-guide",
-    "🔑 Convert Mnemonic to Private Key": "https://example.com/mnemonic-guide",
-    "🔑 Convert Private Key to Wallet Address": "https://example.com/private-key-guide",
-    "💲 OKX": "https://example.com/okx-guide",
-    "💲 Binance": "",  # Пустая ссылка для примера
-    "🗂️ password generator": "https://example.com/password-generator-guide",
-    "🗂️ Check Proxy": "https://example.com/proxy-guide",
-    "🗂️ Last Transactions": "https://example.com/last-tx-guide",
-    "💧 Somnia": "https://example.com/somnia-faucet-guide",
-    "⛽ Check Gas Price": "https://example.com/gas-price-guide"
+    "🗂️ Check age discord": "https://youtu.be/7lRYBa0Educ",
+    # "💲 Check Wallets Balances": "https://example.com/wallet-balance-guide",
+    # "🧹 Drainers": "https://example.com/drainers-guide",
+    # "🔄 Transfer Wallets to Wallets": "https://example.com/transfer-guide",
+    # "🐦 Check Twitter Accounts": "https://example.com/twitter-guide",
+    # "🪙 Generate Wallets": "https://example.com/generate-wallets-guide",
+    # "🔑 Convert Mnemonic to Private Key": "https://example.com/mnemonic-guide",
+    # "🔑 Convert Private Key to Wallet Address": "https://example.com/private-key-guide",
+    # "💲 OKX": "https://example.com/okx-guide",
+    # "💲 Binance": "",  # Пустая ссылка для примера
+    # "🗂️ password generator": "https://example.com/password-generator-guide",
+    # "🗂️ Check Proxy": "https://example.com/proxy-guide",
+    # "🗂️ Last Transactions": "https://example.com/last-tx-guide",
+    # "💧 Somnia": "https://example.com/somnia-faucet-guide",
+    # "⛽ Check Gas Price": "https://example.com/gas-price-guide"
 }
 
 def show_guide(feature_name):
