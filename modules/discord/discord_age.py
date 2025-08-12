@@ -344,16 +344,16 @@ def process_token_batch(tokens_with_proxies):
                 username = result.get('username', 'Unknown')
                 discriminator = result.get('discriminator', '0')
                 age_days = result.get('age_days', 0)
-                logger.success(f"Поток {thread_id}: ✅ {username}#{discriminator} - {age_days} дней")
+                logger.success(f"✅ {username}#{discriminator} - {age_days} дней")
             elif result and result.get('status') in ['token_decoded', 'fallback_success']:
                 age_days = result.get('age_days', 0)
                 user_id = result.get('user_id', 'Unknown')
-                logger.success(f"Поток {thread_id}: ✅ ID:{user_id} - {age_days} дней (токен декодирован)")
+                logger.success(f"✅ ID:{user_id} - {age_days} дней (токен декодирован)")
             else:
                 error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
                 status = result.get('status', 'unknown') if result else 'no_result'
-                logger.error(f"Поток {thread_id}: ❌ Статус: {status}, Ошибка: {error_msg}")
-                
+                logger.error(f"❌ Статус: {status}, Ошибка: {error_msg}")
+
     except Exception as e:
         logger.error(f"Критическая ошибка в потоке {thread_id}: {e}")
     finally:
