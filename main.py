@@ -26,7 +26,7 @@ from modules.get_gas_price import check_all_gas_prices
 
 from modules.faucets.somnia import run_somnia_faucet
 from modules.twitter.twitter_check import run_twitter_check
-from modules.discord.discord_age import check_discord_account_age, check_discord_accounts
+from modules.discord.discord_age import check_discord_accounts
 
 from modules.cex.okx import check_okx_subaccounts_and_balances, get_balances_okx
 #from modules.cex.binance import withdraw_from_binance, get_balances_binance
@@ -106,7 +106,8 @@ def check_and_create_files():
         'result/twitter',
         'data/twitter',
         'backups',
-        'log'
+        'log',
+        'result/discord'
     ]
 
     for directory in required_directories:

@@ -106,6 +106,7 @@ def get_account_age_via_api_with_proxy(token, proxy_dict=None):
     """
     Получает возраст Discord аккаунта через API с использованием прокси
     """
+    session = None
     try:
         headers = {
             'Authorization': token,
@@ -113,11 +114,15 @@ def get_account_age_via_api_with_proxy(token, proxy_dict=None):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        # Запрос с прокси
-        response = requests.get(
+        # Создаем сессию для управления соединениями
+        session = requests.Session()
+        if proxy_dict:
+            session.proxies.update(proxy_dict)
+        session.headers.update(headers)
+        
+        # Запрос с сессией
+        response = session.get(
             'https://discord.com/api/v10/users/@me', 
-            headers=headers,
-            proxies=proxy_dict,
             timeout=30
         )
         
@@ -183,6 +188,14 @@ def get_account_age_via_api_with_proxy(token, proxy_dict=None):
             'token': token,
             'error': str(e)
         }
+    finally:
+        # Обязательно закрываем сессию
+        if session:
+            try:
+                session.close()
+                logger.debug("Сессия прокси закрыта")
+            except Exception as e:
+                logger.warning(f"Ошибка при закрытии сессии: {e}")
 
 def calculate_age_from_id(user_id):
     """
@@ -233,7 +246,7 @@ def save_results_to_csv(results, os_type):
         
         # Генерируем имя файла с timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'result/discord_check_{timestamp}.csv'
+        filename = f'result/discord/discord_check_{timestamp}.csv'
         
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['status', 'username', 'discriminator', 'user_id', 'creation_date', 
@@ -268,6 +281,7 @@ def check_single_account_with_retry(token, proxy_dict, max_retries=RETRY_COUNT):
     Проверяет один аккаунт с повторными попытками при ошибках
     """
     for attempt in range(max_retries):
+        session = None
         try:
             # Задержка между действиями
             if SLEEP_BETWEEN_ACTIONS:
@@ -295,6 +309,13 @@ def check_single_account_with_retry(token, proxy_dict, max_retries=RETRY_COUNT):
                     'token': token,
                     'error': f'Максимум попыток исчерпан: {str(e)}'
                 }
+        finally:
+            # Закрываем сессию после каждой попытки
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass
     
     return {
         'status': 'error',
@@ -309,28 +330,35 @@ def process_token_batch(tokens_with_proxies):
     results = []
     thread_id = threading.current_thread().ident
     
-    for i, (token, proxy_dict, token_index) in enumerate(tokens_with_proxies):
-        logger.debug(f"Поток {thread_id}: Проверка токена {token_index + 1}")
-        
-        result = check_single_account_with_retry(token, proxy_dict)
-        results.append(result)
-        
-        # Добавляем отладочную информацию
-        logger.debug(f"Результат для токена {token_index + 1}: {result}")
-        
-        if result and result.get('status') == 'success':
-            username = result.get('username', 'Unknown')
-            discriminator = result.get('discriminator', '0')
-            age_days = result.get('age_days', 0)
-            logger.success(f"Поток {thread_id}: ✅ {username}#{discriminator} - {age_days} дней")
-        elif result and result.get('status') in ['token_decoded', 'fallback_success']:
-            age_days = result.get('age_days', 0)
-            user_id = result.get('user_id', 'Unknown')
-            logger.success(f"Поток {thread_id}: ✅ ID:{user_id} - {age_days} дней (токен декодирован)")
-        else:
-            error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
-            status = result.get('status', 'unknown') if result else 'no_result'
-            logger.error(f"Поток {thread_id}: ❌ Статус: {status}, Ошибка: {error_msg}")
+    try:
+        for i, (token, proxy_dict, token_index) in enumerate(tokens_with_proxies):
+            logger.debug(f"Поток {thread_id}: Проверка токена {token_index + 1}")
+            
+            result = check_single_account_with_retry(token, proxy_dict)
+            results.append(result)
+            
+            # Добавляем отладочную информацию
+            logger.debug(f"Результат для токена {token_index + 1}: {result}")
+            
+            if result and result.get('status') == 'success':
+                username = result.get('username', 'Unknown')
+                discriminator = result.get('discriminator', '0')
+                age_days = result.get('age_days', 0)
+                logger.success(f"Поток {thread_id}: ✅ {username}#{discriminator} - {age_days} дней")
+            elif result and result.get('status') in ['token_decoded', 'fallback_success']:
+                age_days = result.get('age_days', 0)
+                user_id = result.get('user_id', 'Unknown')
+                logger.success(f"Поток {thread_id}: ✅ ID:{user_id} - {age_days} дней (токен декодирован)")
+            else:
+                error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
+                status = result.get('status', 'unknown') if result else 'no_result'
+                logger.error(f"Поток {thread_id}: ❌ Статус: {status}, Ошибка: {error_msg}")
+                
+    except Exception as e:
+        logger.error(f"Критическая ошибка в потоке {thread_id}: {e}")
+    finally:
+        # Принудительная очистка соединений для потока
+        logger.debug(f"Поток {thread_id}: Завершение работы, очистка соединений")
     
     return results
 
