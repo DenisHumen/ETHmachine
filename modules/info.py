@@ -1,24 +1,30 @@
 from colorama import Fore, Style, init
+from questionary import Choice, select
 
 init(autoreset=True)
 
 # Словарь с гайдами и ссылками
 GUIDES_DICT = {
     "🗂️ Check age discord": "https://youtu.be/7lRYBa0Educ",
-    # "💲 Check Wallets Balances": "https://example.com/wallet-balance-guide",
-    # "🧹 Drainers": "https://example.com/drainers-guide",
-    # "🔄 Transfer Wallets to Wallets": "https://example.com/transfer-guide",
-    # "🐦 Check Twitter Accounts": "https://example.com/twitter-guide",
-    # "🪙 Generate Wallets": "https://example.com/generate-wallets-guide",
-    # "🔑 Convert Mnemonic to Private Key": "https://example.com/mnemonic-guide",
-    # "🔑 Convert Private Key to Wallet Address": "https://example.com/private-key-guide",
-    # "💲 OKX": "https://example.com/okx-guide",
-    # "💲 Binance": "",  # Пустая ссылка для примера
-    # "🗂️ password generator": "https://example.com/password-generator-guide",
-    # "🗂️ Check Proxy": "https://example.com/proxy-guide",
-    # "🗂️ Last Transactions": "https://example.com/last-tx-guide",
-    # "💧 Somnia": "https://example.com/somnia-faucet-guide",
-    # "⛽ Check Gas Price": "https://example.com/gas-price-guide"
+    "💲 Check Wallets Balances": "",
+    "🧹 Drainers": "",
+    "🔄 Transfer Wallets to Wallets": "",
+    "🐦 Check Twitter Accounts": "",
+    "🪙 Generate Wallets": "",
+    "🔑 Convert Mnemonic to Private Key": "",
+    "🔑 Convert Private Key to Wallet Address": "",
+    "💲 OKX": "",
+    "💲 Binance": "",
+    "💲 Bitget": "",
+    "🗂️ password generator": "",
+    "🗂️ Check Proxy": "",
+    "🗂️ Last Transactions": "",
+    "💧 Somnia": "",
+    "⛽ Check Gas Price": "",
+    "💲 Check Token Balances": "",
+    "🚰 Faucets": "",
+    "💲 SOL": "",
+    "💲 ETH": "",
 }
 
 def show_guide(feature_name):
@@ -115,29 +121,30 @@ def info():
     """
     Основная функция информации - показывает меню выбора
     """
-    print(Fore.MAGENTA + Style.BRIGHT + "\n📖 ИНФОРМАЦИОННАЯ СИСТЕМА ETHmachine")
-    print(Fore.WHITE + "Выберите что хотите посмотреть:")
-    print(Fore.YELLOW + "1. Показать все доступные гайды")
-    print(Fore.YELLOW + "2. Найти гайд по названию функции")
-    print(Fore.YELLOW + "3. Поиск по ключевому слову")
-    
-    choice = input(Fore.CYAN + "\nВведите номер (1-3): ").strip()
-    
-    if choice == "1":
-        list_all_guides()
-    elif choice == "2":
-        feature_name = input(Fore.CYAN + "Введите точное название функции: ").strip()
-        show_guide(feature_name)
-    elif choice == "3":
-        search_term = input(Fore.CYAN + "Введите ключевое слово для поиска: ").strip()
-        search_guide(search_term)
-    else:
-        print(Fore.RED + "❌ Неверный выбор!")
+    while True:
+        print(Fore.MAGENTA + Style.BRIGHT + "\n📖 ИНФОРМАЦИОННАЯ СИСТЕМА ETHmachine")
+        
+        action = select(
+            "Выберите что хотите посмотреть:",
+            choices=[
+                Choice('📚 Показать все доступные гайды', 'list_all'),
+                Choice('🔎 Поиск по ключевому слову', 'search'),
+                Choice('🔙 Назад', 'back')
+            ],
+            qmark='📖',
+            pointer='👉'
+        ).ask()
+        
+        if action == 'list_all':
+            list_all_guides()
+            input(Fore.CYAN + "\nНажмите Enter для продолжения...")
+        elif action == 'search':
+            search_term = input(Fore.CYAN + "Введите ключевое слово для поиска: ").strip()
+            search_guide(search_term)
+            input(Fore.CYAN + "\nНажмите Enter для продолжения...")
+        elif action == 'back':
+            break
 
 if __name__ == "__main__":
     # Примеры использования
-    show_guide("🗂️ Check age discord")
-    print("\n")
-    show_guide("💲 Binance")  # Пример с пустой ссылкой
-    print("\n")
-    show_guide("Несуществующая функция")  # Пример с отсутствующей функцией
+    info()
