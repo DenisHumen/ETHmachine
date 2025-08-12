@@ -18,7 +18,7 @@ from config.config import (
 
 from modules.auto_backup import create_backup, list_backups
 
-from modules.info import info
+from modules.info import show_guide
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balances_menu
 from modules.password_generator import password_generator_menu
@@ -26,6 +26,7 @@ from modules.get_gas_price import check_all_gas_prices
 
 from modules.faucets.somnia import run_somnia_faucet
 from modules.twitter.twitter_check import run_twitter_check
+from modules.discord.discord_age import check_discord_account_age, check_discord_accounts
 
 from modules.cex.okx import check_okx_subaccounts_and_balances, get_balances_okx
 #from modules.cex.binance import withdraw_from_binance, get_balances_binance
@@ -93,7 +94,8 @@ def check_and_create_files():
         'data/twitter/twitters.csv',
         'result/twitter/result.csv',
         'data/twitter/twitter_task.csv',
-        'db/spot_trade.db'
+        'db/spot_trade.db',
+        'data/discord_token.txt',
     ]
     required_directories = [
         'result',
@@ -179,7 +181,7 @@ def main_menu():
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                     Choice('🧰 Miscellaneous                🌟 Разные удобные штуки', 'miscellaneous'),
-                    #Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
+                    Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
                 qmark='🛠️',
@@ -194,6 +196,7 @@ def main_menu():
                             Choice('🗂️ password generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
+                            Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -207,8 +210,27 @@ def main_menu():
                             check_proxy_menu()
                         case 'last_transactions':
                             check_last_transactions()
-                        case 'back':
-                            continue
+                        case 'check_age_discord':
+                            choices = select(
+                                "Выберите способ проверки возраста аккаунта Discord:",
+                                choices=[
+                                    Choice('💲 Windows', 'windows'),
+                                    Choice('💲 MacOS', 'macos'),
+                                    Choice('💲 Linux', 'linux'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+                            match choices:
+                                case 'windows':
+                                    check_discord_accounts('windows')
+                                case 'macos':
+                                    check_discord_accounts('macos')
+                                case 'linux':
+                                    check_discord_accounts('linux')
+                                case 'back':
+                                    continue
 
                 case 'check_balances':
                     blockchain = select(
@@ -447,10 +469,25 @@ def main_menu():
                             continue
 
                 case 'info':
-                    #info()
-                    print(Fore.GREEN + "\n\tИнформация о всех пунктах:\n")
-                    print(Fore.YELLOW + "\t еще пишу, будет по позже.\n")
-                    time.sleep(3)
+                    choices = select(
+                        "Выберите информацию:",
+                        choices=[
+                            Choice('🗂️ Check age discord', '🗂️ Check age discord'),
+                            Choice('💲 Check Wallets Balances', 'wallet_balances'),
+                            Choice('🧹 Drainers', 'drainers'),
+                            Choice('🔄 Transfer Wallets to Wallets', 'transfer_wallets'),
+                            Choice('🐦 Check Twitter Accounts', 'twitter_accounts'),
+                            Choice('🪙 Generate Wallets', 'generate_wallets'),
+                            Choice('🔑 Convert Mnemonic to Private Key', 'mnemonic_to_private_key'),
+                            Choice('🔑 Convert Private Key to Wallet Address', 'private_key_to_wallet'),
+                            Choice('💲 OKX', 'okx'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    show_guide(choices)
                     continue
 
                 case 'check_balances_SOL':

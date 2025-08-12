@@ -22,3 +22,4 @@ data/walletss_sol.txt
 backups/*
 result/password_generator.csv
 log/*
+data/discord_token.txt
