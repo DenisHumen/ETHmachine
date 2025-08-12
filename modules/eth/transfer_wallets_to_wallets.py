@@ -222,902 +222,45 @@ def get_network_rpc(network):
         '🚀 Pharos Testnet': pharos_testnet,
     }
     if network in mainnet_rpc_urls:
-        return mainnet_rpc_urls[network]  # Возвращаем весь список
+        return random.choice(mainnet_rpc_urls[network])
     elif network in testnet_rpc_urls:
-        return testnet_rpc_urls[network]  # Возвращаем весь список
+        return random.choice(testnet_rpc_urls[network])
     else:
         raise Exception(f"Неизвестная сеть: {network}")
 
-def is_rate_limit_error(error):
-    """
-    Проверяет, является ли ошибка rate limit
-    """
-    error_str = str(error).lower()
-    rate_limit_indicators = [
-        'rate limit',
-        'too many requests',
-        'request-rate exceeded',
-        'rate exceeded',
-        'quota exceeded',
-        'throttled',
-        'too many calls',
-        'limit reached'
-    ]
-    
-    # Проверяем текст ошибки
-    for indicator in rate_limit_indicators:
-        if indicator in error_str:
-            return True
-    
-    # Проверяем JSON response если есть
+def get_eth_balance(w3, address):
     try:
-        if hasattr(error, 'response') and error.response:
-            response_text = error.response.text.lower()
-            for indicator in rate_limit_indicators:
-                if indicator in response_text:
-                    return True
-    except:
-        pass
-    
-    # Проверяем код ошибки
-    if hasattr(error, 'code'):
-        rate_limit_codes = [-32029, -32005, 429]
-        if error.code in rate_limit_codes:
-            return True
-    
-    return False
+        return w3.eth.get_balance(address)
+    except Exception as e:
+        logger.error(f"Ошибка получения баланса: {e}")
+        return 0
 
-def get_web3_with_proxy_and_rpc_rotation(network, proxy_url, max_rpc_attempts=3):
-    """
-    Создает Web3 соединение с поддержкой ротации RPC при rate limit
-    """
-    import requests
-    from web3 import HTTPProvider
-    
-    rpc_list = get_network_rpc(network)
-    if not isinstance(rpc_list, list):
-        rpc_list = [rpc_list]
-    
-    # Перемешиваем список RPC для равномерного распределения нагрузки
-    rpc_list = random.sample(rpc_list, len(rpc_list))
-    
-    session = None
-    
-    for attempt in range(max_rpc_attempts):
-        for rpc_url in rpc_list:
-            try:
-                session = requests.Session()
-                
-                if proxy_url:
-                    if '@' in proxy_url:
-                        auth_part, address_part = proxy_url.split('@')
-                        login, password = auth_part.split(':')
-                        ip, port = address_part.split(':')
-                        proxy_dict = {
-                            'http': f"http://{login}:{password}@{ip}:{port}",
-                            'https': f"http://{login}:{password}@{ip}:{port}"
-                        }
-                    else:
-                        proxy_dict = {
-                            'http': f"http://{proxy_url}",
-                            'https': f"http://{proxy_url}"
-                        }
-                    
-                    session.proxies.update(proxy_dict)
-                
-                provider = HTTPProvider(rpc_url, session=session)
-                w3 = Web3(provider)
-                
-                # Тестируем соединение
-                chain_id = w3.eth.chain_id
-                logger.debug(f"✅ Успешное подключение к RPC: {rpc_url[:50]}...")
-                return w3, session, rpc_url
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Ошибка подключения к RPC {rpc_url[:50]}...: {e}")
-                if session:
-                    try:
-                        session.close()
-                    except:
-                        pass
-                continue
-        
-        # Если все RPC не работают, делаем паузу перед следующей попыткой
-        if attempt < max_rpc_attempts - 1:
-            logger.warning(f"⏳ Все RPC недоступны, пауза 10 сек перед попыткой {attempt + 2}/{max_rpc_attempts}")
-            time.sleep(10)
-    
-    raise Exception(f"Не удалось подключиться ни к одному RPC для сети {network} после {max_rpc_attempts} попыток")
+def estimate_gas_with_margin(w3, tx):
+    try:
+        gas = w3.eth.estimate_gas(tx)
+        return int(gas * 1.2)  # +20%
+    except Exception as e:
+        logger.warning(f"Не удалось оценить газ, используем 21000: {e}")
+        return int(21000 * 1.2)
 
-def send_transaction_with_rpc_rotation(w3, signed_tx, explorer_url, network, proxy_url, max_attempts=None, max_rpc_attempts=3):
-    """
-    Отправляет транзакцию с поддержкой ротации RPC при rate limit
-    """
+def send_with_retry(w3, signed_tx, explorer_url, max_attempts=None):
     if max_attempts is None:
         max_attempts = TX_SEND_ATTEMPTS
-    
-    current_w3 = w3
-    current_session = None
-    current_rpc = None
-    
     for attempt in range(1, max_attempts + 1):
         try:
-            tx_hash = current_w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash_hex = current_w3.to_hex(tx_hash)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            tx_hash_hex = w3.to_hex(tx_hash)
             logger.info(f"🔗 Посмотреть транзакцию: {explorer_url}{tx_hash_hex}")
-            
-            # Ждем подтверждения
-            receipt = current_w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             if receipt and receipt.status == 1:
                 return True, tx_hash_hex
             else:
                 logger.error(f"Транзакция неуспешна (статус != 1): {tx_hash_hex}")
-                
         except Exception as e:
             logger.error(f"Ошибка отправки/подтверждения транзакции (попытка {attempt}): {e}")
-            
-            # Проверяем, является ли это rate limit ошибкой
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Обнаружен rate limit, переключаемся на другой RPC...")
-                
-                try:
-                    # Закрываем текущую сессию
-                    if current_session:
-                        current_session.close()
-                    
-                    # Получаем новое соединение с другим RPC
-                    current_w3, current_session, current_rpc = get_web3_with_proxy_and_rpc_rotation(
-                        network, proxy_url, max_rpc_attempts
-                    )
-                    logger.info(f"✅ Переключились на новый RPC: {current_rpc[:50]}...")
-                    
-                    # Продолжаем с новым RPC без увеличения счетчика попыток
-                    continue
-                    
-                except Exception as rpc_error:
-                    logger.error(f"❌ Не удалось переключиться на другой RPC: {rpc_error}")
-                    # Продолжаем со следующей попыткой
-            
         time.sleep(WHAITE_TRANSACTION_PENDING)
-    
-    logger.error("Не удалось выполнить транзакцию после нескольких попыток и смены RPC.")
+    logger.error("Не удалось выполнить транзакцию после нескольких попыток.")
     return False, None
-
-def get_eth_balance_with_rpc_rotation(w3, address, network, proxy_url, max_attempts=None):
-    """
-    Получает баланс с поддержкой ротации RPC при rate limit
-    """
-    if max_attempts is None:
-        max_attempts = TX_SEND_ATTEMPTS
-    
-    current_w3 = w3
-    current_session = None
-    
-    for attempt in range(max_attempts):
-        try:
-            balance = current_w3.eth.get_balance(address)
-            if balance >= 0:
-                return balance, current_w3
-        except Exception as e:
-            logger.warning(f"[{address}] Ошибка получения баланса (попытка {attempt+1}/{max_attempts}): {e}")
-            
-            # Проверяем rate limit
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Rate limit при получении баланса, переключаемся на другой RPC...")
-                try:
-                    if current_session:
-                        current_session.close()
-                    
-                    current_w3, current_session, current_rpc = get_web3_with_proxy_and_rpc_rotation(
-                        network, proxy_url
-                    )
-                    logger.info(f"✅ Переключились на новый RPC для баланса: {current_rpc[:50]}...")
-                    continue
-                except Exception as rpc_error:
-                    logger.error(f"❌ Не удалось переключиться на другой RPC для баланса: {rpc_error}")
-            
-            time.sleep(2)
-    
-    logger.error(f"[{address}] Не удалось получить баланс после {max_attempts} попыток.")
-    return 0, current_w3
-
-def get_nonce_with_rpc_rotation(w3, address, network, proxy_url, max_attempts=None):
-    """
-    Получает nonce с поддержкой ротации RPC при rate limit
-    """
-    if max_attempts is None:
-        max_attempts = TX_SEND_ATTEMPTS
-    
-    current_w3 = w3
-    current_session = None
-    
-    for attempt in range(max_attempts):
-        try:
-            return current_w3.eth.get_transaction_count(address), current_w3
-        except Exception as e:
-            logger.warning(f"[{address}] Ошибка получения nonce (попытка {attempt+1}/{max_attempts}): {e}")
-            
-            # Проверяем rate limit
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Rate limit при получении nonce, переключаемся на другой RPC...")
-                try:
-                    if current_session:
-                        current_session.close()
-                    
-                    current_w3, current_session, current_rpc = get_web3_with_proxy_and_rpc_rotation(
-                        network, proxy_url
-                    )
-                    logger.info(f"✅ Переключились на новый RPC для nonce: {current_rpc[:50]}...")
-                    continue
-                except Exception as rpc_error:
-                    logger.error(f"❌ Не удалось переключиться на другой RPC для nonce: {rpc_error}")
-            
-            time.sleep(2)
-    
-    logger.error(f"[{address}] Не удалось получить nonce после {max_attempts} попыток.")
-    return None, current_w3
-
-def estimate_gas_with_rpc_rotation(w3, tx, network, proxy_url, max_attempts=None):
-    """
-    Оценивает газ с поддержкой ротации RPC при rate limit
-    """
-    if max_attempts is None:
-        max_attempts = TX_SEND_ATTEMPTS
-    
-    current_w3 = w3
-    current_session = None
-    
-    for attempt in range(max_attempts):
-        try:
-            gas = current_w3.eth.estimate_gas(tx)
-            return int(gas * 1.2), current_w3  # +20%
-        except KeyboardInterrupt:
-            logger.error("\nОперация прервана пользователем (Ctrl+C). Завершение работы.")
-            raise
-        except Exception as e:
-            logger.warning(f"Не удалось оценить газ (попытка {attempt+1}/{max_attempts}): {e}")
-            
-            # Проверяем rate limit
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Rate limit при оценке газа, переключаемся на другой RPC...")
-                try:
-                    if current_session:
-                        current_session.close()
-                    
-                    current_w3, current_session, current_rpc = get_web3_with_proxy_and_rpc_rotation(
-                        network, proxy_url
-                    )
-                    logger.info(f"✅ Переключились на новый RPC для оценки газа: {current_rpc[:50]}...")
-                    continue
-                except Exception as rpc_error:
-                    logger.error(f"❌ Не удалось переключиться на другой RPC для оценки газа: {rpc_error}")
-            
-            time.sleep(2)
-    
-    logger.warning(f"Используем стандартный газ лимит после {max_attempts} попыток")
-    return int(21000 * 1.2), current_w3
-
-def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
-    session = None
-    w3 = None
-    try:
-        start_time = time.time()
-        dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        proxies = get_proxy_list()
-        use_proxy = None
-        if proxy:
-            use_proxy = proxy
-        elif proxies:
-            use_proxy = random.choice(proxies)
-
-        try:
-            from_acc = Account.from_key(from_priv)
-            
-            # Обработка to_wallet в зависимости от TYPE_VALUE_TO_WALLET
-            to_address, to_priv = get_to_wallet_address(to_wallet_value)
-            
-            # Обработка intermediary в зависимости от USE_INTERMEDIARY
-            if USE_INTERMEDIARY and intermediary_priv and intermediary_priv.strip():
-                intermediary_acc = Account.from_key(intermediary_priv)
-                use_intermediary = True
-            else:
-                intermediary_acc = None
-                use_intermediary = False
-                
-        except Exception as e:
-            error_msg = f"Ошибка создания аккаунта: {e}"
-            # В многопоточном режиме не выводим детальные сообщения
-            if not MULTI_THREADING:
-                logger.error(error_msg)
-            update_stats(success=False, error_msg=error_msg)
-            if TELEGRAM_LOG_LEVEL_transfer == 2:
-                send_telegram_notification(
-                    notif_type="error",
-                    title="❌ Ошибка создания аккаунта",
-                    message=str(e),
-                    wallet_address=from_priv[:10] + "...",
-                    main_title="ETHmachine Transfer Error"
-                )
-            return
-
-        if use_proxy:
-            if '@' in use_proxy:
-                proxy_parts = use_proxy.split("@")
-                proxy_hidden = f"xxxx:xxx@{proxy_parts[-1].rsplit('.', 1)[0]}.x:{proxy_parts[-1].split(':')[-1]}"
-            else:
-                proxy_hidden = f"{use_proxy.rsplit('.', 1)[0]}.x:{use_proxy.split(':')[-1]}"
-        else:
-            proxy_hidden = "Нет доступных прокси"
-
-        # В многопоточном режиме не выводим детальную информацию о запуске
-        if not MULTI_THREADING:
-            logger.info("="*61)
-            logger.info(f"[{dt_str}] Запуск {'цепочки' if use_intermediary else 'прямого'} перевода:")
-            logger.info(f"  FROM:         priv - {from_priv[:10]}... | wallet - {from_acc.address[:10]}...")
-            if use_intermediary:
-                logger.info(f"  INTERMEDIARY: priv - {intermediary_priv[:10]}... | wallet - {intermediary_acc.address[:10]}...")
-            logger.info(f"  TO:           {'priv - ' + to_priv[:10] + '... | ' if to_priv else ''}wallet - {to_address[:10]}...")
-            logger.info(f"  Сеть:         {network}")
-            logger.info(f"  Используется прокси: {proxy_hidden}")
-            logger.info(f"  Режим:        {'Через посредника' if use_intermediary else 'Напрямую'}")
-            logger.info("-"*61)
-        
-        # Используем новую функцию с ротацией RPC
-        w3, session, current_rpc = get_web3_with_proxy_and_rpc_rotation(network, use_proxy)
-        explorer_url = get_explorer_url(network)
-
-        # Проверяем баланс отправителя с ротацией RPC
-        for attempt in range(TX_SEND_ATTEMPTS):
-            balance, w3 = get_eth_balance_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
-            if balance > 0:
-                break
-            if not MULTI_THREADING:
-                logger.warning(f"Попытка {attempt+1}/{TX_SEND_ATTEMPTS}: Баланс {from_acc.address} = 0, ждем 3 сек...")
-            time.sleep(3)
-        else:
-            error_msg = f"Баланс {from_acc.address} = 0 после {TX_SEND_ATTEMPTS} попыток, пропуск"
-            if not MULTI_THREADING:
-                logger.error(error_msg)
-            update_stats(success=False, error_msg=f"Нулевой баланс кошелька {from_acc.address}")
-            if TELEGRAM_LOG_LEVEL_transfer == 2:
-                send_telegram_notification(
-                    notif_type="warning",
-                    title="⚠️ Нулевой баланс",
-                    message="Кошелек имеет нулевой баланс",
-                    wallet_address=from_acc.address,
-                    balance="0 ETH",
-                    main_title="ETHmachine Transfer Warning"
-                )
-            return
-
-        # Обработка amount с поддержкой ETH и процентов
-        amount_from, amount_to, amount_type = parse_percent_range(amount)
-        
-        # Получаем цену газа заранее
-        try:
-            gas_price = w3.eth.gas_price
-            # Устанавливаем минимальный priority fee для совместимости с L2 сетями
-            min_priority_fee = max(1, int(gas_price * 0.01))  # 1% от gas_price или минимум 1 wei
-        except Exception as e:
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Rate limit при получении gas price, переключаемся на другой RPC...")
-                try:
-                    w3, session, current_rpc = get_web3_with_proxy_and_rpc_rotation(network, use_proxy)
-                    gas_price = w3.eth.gas_price
-                    min_priority_fee = max(1, int(gas_price * 0.01))
-                except Exception as rpc_error:
-                    logger.warning(f"Ошибка получения цены газа после смены RPC: {rpc_error}")
-                    gas_price = int(w3.to_wei('30', 'gwei'))
-                    min_priority_fee = int(w3.to_wei('1', 'gwei'))
-            else:
-                if not MULTI_THREADING:
-                    logger.warning(f"Ошибка получения цены газа: {e}")
-                gas_price = int(w3.to_wei('30', 'gwei'))
-                min_priority_fee = int(w3.to_wei('1', 'gwei'))
-        
-        if amount_type == 'ETH':
-            # Фиксированная сумма в ETH - генерируем случайное значение в диапазоне
-            amount_eth = random.uniform(amount_from, amount_to)
-            
-            # Применяем обрезку если включена
-            amount_eth = apply_trim_to_amount(amount_eth)
-            
-            amount_wei = w3.to_wei(amount_eth, 'ether')
-            
-            # Проверяем, что у нас достаточно средств
-            if amount_wei > balance:
-                if not MULTI_THREADING:
-                    logger.warning(f"⚠️ Недостаточно средств: запрошено {amount_eth:.6f} ETH, доступно {w3.from_wei(balance, 'ether'):.6f} ETH")
-                # Используем весь доступный баланс минус комиссия и MIN_FROM_BALANCE
-                estimated_gas = 21000 * 1.2  # Примерная оценка
-                fee = int(estimated_gas * gas_price * 1.2)
-                
-                min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
-                if trim_the_number_of_characters_enable:
-                    min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
-                min_balance_wei = w3.to_wei(min_balance_random, 'ether')
-                
-                amount_wei = balance - fee - min_balance_wei
-                if amount_wei <= 0:
-                    if not MULTI_THREADING:
-                        logger.warning(f"Транзакция пропущена, недостаточно средств после учета комиссии и MIN_FROM_BALANCE.")
-                    return
-                amount_eth = w3.from_wei(amount_wei, 'ether')
-                # Применяем обрезку к пересчитанной сумме
-                amount_eth = apply_trim_to_amount(amount_eth)
-                amount_wei = w3.to_wei(amount_eth, 'ether')
-                if not MULTI_THREADING:
-                    logger.warning(f"Будет отправлено {amount_eth:.6f} ETH (максимум доступно)")
-            
-            # Правильный вывод диапазона только в однопоточном режиме
-            if not MULTI_THREADING:
-                if amount_from == amount_to:
-                    logger.info(f"  Сумма:        {amount_eth:.6f} ETH (фиксированная)")
-                else:
-                    logger.info(f"  Сумма:        {amount_eth:.6f} ETH (из диапазона {amount_from:.6f}-{amount_to:.6f} ETH)")
-        else:
-            # Процентное значение
-            percent = random.randint(int(amount_from), int(amount_to))
-            if not MULTI_THREADING:
-                if amount_from == amount_to:
-                    logger.info(f"  Процент:      {percent}% от баланса")
-                else:
-                    logger.info(f"  Процент:      {percent}% (из диапазона {int(amount_from)}-{int(amount_to)}%) от баланса")
-
-        if use_intermediary:
-            # Старая логика с посредником
-            nonce_from, w3 = get_nonce_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
-            if nonce_from is None:
-                logger.error(f"Не удалось получить nonce для {from_acc.address}, пропуск")
-                return
-
-            def get_send_amount(balance, amount_from, amount_to, amount_type, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
-                if amount_type == 'ETH':
-                    # Фиксированная сумма в ETH
-                    amount_eth = random.uniform(amount_from, amount_to)
-                    # Применяем обрезку
-                    amount_eth = apply_trim_to_amount(amount_eth)
-                    value = w3.to_wei(amount_eth, 'ether')
-                else:
-                    # Процент от баланса
-                    percent = random.randint(int(amount_from), int(amount_to))
-                    value = int(balance * percent / 100)
-                
-                tx = {
-                    'type': 0x2,
-                    'from': Web3.to_checksum_address(from_addr),
-                    'to': Web3.to_checksum_address(to_addr),
-                    'value': value,
-                    'gas': 1000000,
-                    'nonce': nonce_from,
-                    'chainId': chain_id,
-                    'maxFeePerGas': int(gas_price * 1.2),
-                    'maxPriorityFeePerGas': min_priority_fee
-                }
-
-                estimated_gas = w3.eth.estimate_gas(tx)
-                gas = int(estimated_gas * 1.2)
-                fee = gas * int(gas_price * 1.2)
-                
-                # Применяем MIN_FROM_BALANCE только для процентных переводов
-                if amount_type == 'PERCENT':
-                    min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
-                    if trim_the_number_of_characters_enable:
-                        min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
-                    min_balance_wei = w3.to_wei(min_balance_random, 'ether')
-
-                    if value + fee > balance - min_balance_wei:
-                        original_value = value
-                        value = balance - fee - min_balance_wei
-                        if value < 0:
-                            value = 0
-                        logger.warning(f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
-                                        f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
-                else:
-                    # Для фиксированных сумм просто проверяем достаточность средств
-                    if value + fee > balance:
-                        logger.warning(f"⚠️ Недостаточно средств для отправки {w3.from_wei(value, 'ether')} ETH + комиссия {w3.from_wei(fee, 'ether')} ETH")
-                        value = balance - fee
-                        if value < 0:
-                            value = 0
-                
-                return value, gas
-
-            send_amount, gas = get_send_amount(balance, amount_from, amount_to, amount_type, w3, from_acc.address, intermediary_acc.address, gas_price, w3.eth.chain_id, from_priv)
-
-            if send_amount == 0:
-                logger.warning(f"Транзакция from -> intermediary пропущена, так как value = 0.")
-                return
-
-            # Первая транзакция: from -> intermediary
-            tx = {
-                'type': 0x2,
-                'from': Web3.to_checksum_address(from_acc.address),
-                'to': Web3.to_checksum_address(intermediary_acc.address),
-                'value': send_amount,
-                'gas': gas,
-                'nonce': nonce_from,
-                'chainId': w3.eth.chain_id,
-                'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': min_priority_fee
-            }
-
-            tx_hash = None
-            for attempt in range(TX_SEND_ATTEMPTS):
-                try:
-                    signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
-                    logger.info(f"[{dt_str}] Отправка from -> intermediary...")
-                    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                    logger.success(f"✅ Успешно отправлено from -> intermediary. Tx hash: {w3.to_hex(tx_hash)}")
-                    
-                    # Уведомление об успешной отправке первой транзакции только если уровень = 2
-                    if TELEGRAM_LOG_LEVEL_transfer == 2:
-                        send_telegram_notification(
-                            notif_type="tx",
-                            title="📤 Транзакция отправлена (1/2)",
-                            message="from → intermediary",
-                            wallet_address=from_acc.address[:10] + "...",
-                            tx_hash=w3.to_hex(tx_hash)[:10] + "...",
-                            explorer_url=explorer_url,
-                            amount=f"{w3.from_wei(send_amount, 'ether'):.6f} ETH",
-                            main_title="ETHmachine Transfer"
-                        )
-                    break
-                except Exception as e:
-                    logger.error(f"❌ Ошибка отправки from -> intermediary (попытка {attempt+1}): {e}")
-                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
-                        update_stats(success=False, error_msg=f"Ошибка отправки from->intermediary: {e}")
-                        # Отправляем уведомление об ошибке только если уровень = 2
-                        if TELEGRAM_LOG_LEVEL_transfer == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка транзакции (1/2)",
-                                message=f"from → intermediary: {e}",
-                                wallet_address=from_acc.address,
-                                main_title="ETHmachine Transfer Error"
-                            )
-                    tx['nonce'] += 1
-                    time.sleep(3)
-            else:
-                logger.error("❌ Не удалось отправить транзакцию from -> intermediary после нескольких попыток.")
-                return
-
-            logger.info("Ожидание подтверждения транзакции from -> intermediary...")
-            time.sleep(WHAITE_TRANSACTION_PENDING)  
-            for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
-                try:
-                    receipt = w3.eth.get_transaction_receipt(tx_hash)
-                    if receipt and receipt.status == 1:
-                        logger.success(f"✅ Транзакция подтверждена. Tx hash: {w3.to_hex(tx_hash)}")
-                        break
-                    elif receipt and receipt.status == 0:
-                        logger.error(f"❌ Транзакция неуспешна. Tx hash: {w3.to_hex(tx_hash)}")
-                        break
-                except Exception as e:
-                    if not MULTI_THREADING:
-                        logger.warning(f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
-                time.sleep(WHAITE_TRANSACTION_PENDING)
-            else:
-                logger.error(f"❌ Транзакция from -> intermediary остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
-
-            interm_balance = get_eth_balance_safe(w3, intermediary_acc.address)
-            if interm_balance <= 0:
-                logger.error(f"Баланс {intermediary_acc.address} = {interm_balance}, пропуск транзакции intermediary -> to.")
-                return
-
-            nonce_intermediary = get_nonce_safe(w3, intermediary_acc.address)
-            if nonce_intermediary is None:
-                logger.error(f"Не удалось получить nonce для {intermediary_acc.address}, пропуск")
-                return
-
-            def get_send_amount2(balance, w3, from_addr, to_addr, gas_price, chain_id, priv_key):
-                value = balance
-                tx = {
-                    'type': 0x2,
-                    'from': Web3.to_checksum_address(from_addr),
-                    'to': Web3.to_checksum_address(to_addr),
-                    'value': value,
-                    'gas': 1000000,
-                    'nonce': nonce_intermediary,
-                    'chainId': chain_id,
-                    'maxFeePerGas': int(gas_price * 1.2),
-                    'maxPriorityFeePerGas': min_priority_fee
-                }
-                estimated_gas = w3.eth.estimate_gas(tx)
-                gas = int(estimated_gas * 1.2)
-                fee = gas * int(gas_price * 1.2)
-                if value > balance - fee:
-                    value = balance - fee
-                if value < 0:
-                    value = 0
-                return value, gas
-
-            send_amount2, gas2 = get_send_amount2(interm_balance, w3, intermediary_acc.address, to_address, gas_price, w3.eth.chain_id, intermediary_priv)
-
-            if send_amount2 == 0:
-                logger.warning(f"Транзакция intermediary -> to пропущена, так как value = 0.")
-                return
-
-            tx2 = {
-                'type': 0x2,
-                'from': Web3.to_checksum_address(intermediary_acc.address),
-                'to': Web3.to_checksum_address(to_address),
-                'value': send_amount2,
-                'gas': gas2,
-                'nonce': nonce_intermediary,
-                'chainId': w3.eth.chain_id,
-                'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': min_priority_fee
-            }
-
-            tx_hash2 = None
-            for attempt in range(TX_SEND_ATTEMPTS):
-                try:
-                    signed_tx2 = w3.eth.account.sign_transaction(tx2, intermediary_priv)
-                    logger.info(f"[{dt_str}] Отправка intermediary -> to...")
-                    tx_hash2 = w3.eth.send_raw_transaction(signed_tx2.rawTransaction)
-                    logger.success(f"✅ Успешно отправлено intermediary -> to. Tx hash: {w3.to_hex(tx_hash2)}")
-                    
-                    # Уведомление об успешной отправке второй транзакции только если уровень = 2
-                    if TELEGRAM_LOG_LEVEL_transfer == 2:
-                        send_telegram_notification(
-                            notif_type="tx",
-                            title="📤 Транзакция отправлена (2/2)",
-                            message="intermediary → to",
-                            wallet_address=to_address[:10] + "...",
-                            tx_hash=w3.to_hex(tx_hash2)[:10] + "...",
-                            explorer_url=explorer_url,
-                            amount=f"{w3.from_wei(send_amount2, 'ether'):.6f} ETH",
-                            main_title="ETHmachine Transfer"
-                        )
-                    break
-                except Exception as e:
-                    logger.error(f"❌ Ошибка отправки intermediary -> to (попытка {attempt+1}): {e}")
-                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
-                        update_stats(success=False, error_msg=f"Ошибка отправки intermediary->to: {e}")
-                        # Отправляем уведомление об ошибке только если уровень = 2
-                        if TELEGRAM_LOG_LEVEL_transfer == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка транзакции (2/2)",
-                                message=f"intermediary → to: {e}",
-                                wallet_address=to_address,
-                                main_title="ETHmachine Transfer Error"
-                            )
-                    tx2['nonce'] += 1
-                    time.sleep(3)
-            else:
-                logger.error("❌ Не удалось отправить транзакцию intermediary -> to после нескольких попытов.")
-                return
-
-            append_result_csv({
-                "datetime": dt_str,
-                "from_wallet": from_priv,
-                "from_address": from_acc.address,
-                "intermediary_wallet": intermediary_priv,
-                "intermediary_address": intermediary_acc.address,
-                "to_wallet": to_wallet_value,
-                "to_address": to_address,
-                "amount_sent_wei": send_amount,
-                "amount_sent_eth": w3.from_wei(send_amount, 'ether'),
-                "tx_hash_1": w3.to_hex(tx_hash),
-                "tx_hash_2": w3.to_hex(tx_hash2),
-                "explorer_link_1": f"{explorer_url}{w3.to_hex(tx_hash)}",
-                "explorer_link_2": f"{explorer_url}{w3.to_hex(tx_hash2)}",
-            })
-
-            # Обновляем статистику для успешных транзакций
-            update_stats(success=True, amount_wei=send_amount, tx_hash=w3.to_hex(tx_hash))
-            update_stats(success=True, amount_wei=send_amount2, tx_hash=w3.to_hex(tx_hash2))
-            
-            # Итоговое уведомление о завершении цепочки только если уровень >= 1
-            if TELEGRAM_LOG_LEVEL_transfer >= 1:
-                to_wallet_balance = get_eth_balance_safe(w3, to_address)
-                to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
-                
-                send_telegram_notification(
-                    notif_type="success",
-                    title="✅ Цепочка переводов завершена",
-                    message=f"from → intermediary → to",
-                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
-                    balance=f"{to_wallet_balance_eth:.6f} ETH",
-                    tx1=w3.to_hex(tx_hash)[:10] + "...",
-                    tx2=w3.to_hex(tx_hash2)[:10] + "...",
-                    total_amount=f"{w3.from_wei(send_amount, 'ether'):.6f} ETH",
-                    main_title="ETHmachine Transfer Success"
-                )
-
-        else:
-            # Новая логика: прямой перевод from -> to
-            if not MULTI_THREADING:
-                logger.info(f"[{dt_str}] Прямой перевод from -> to...")
-            
-            nonce_from, w3 = get_nonce_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
-            if nonce_from is None:
-                logger.error(f"Не удалось получить nonce для {from_acc.address}, пропуск")
-                return
-
-            # Рассчитываем сумму для прямого перевода в зависимости от типа
-            if amount_type == 'ETH':
-                # Фиксированная сумма в ETH
-                amount_eth = random.uniform(amount_from, amount_to)
-                # Применяем обрезку
-                amount_eth = apply_trim_to_amount(amount_eth)
-                value = w3.to_wei(amount_eth, 'ether')
-            else:
-                # Процент от баланса
-                percent = random.randint(int(amount_from), int(amount_to))
-                value = int(balance * percent / 100)
-            
-            tx = {
-                'type': 0x2,
-                'from': Web3.to_checksum_address(from_acc.address),
-                'to': Web3.to_checksum_address(to_address),
-                'value': value,
-                'gas': 1000000,
-                'nonce': nonce_from,
-                'chainId': w3.eth.chain_id,
-                'maxFeePerGas': int(gas_price * 1.2),
-                'maxPriorityFeePerGas': min_priority_fee
-            }
-
-            estimated_gas = w3.eth.estimate_gas(tx)
-            gas = int(estimated_gas * 1.2)
-            fee = gas * int(gas_price * 1.2)
-            
-            # Применяем MIN_FROM_BALANCE только для процентных переводов
-            if amount_type == 'PERCENT':
-                min_balance_random = random.uniform(MIN_FROM_BALANCE[0], MIN_FROM_BALANCE[1])
-                if trim_the_number_of_characters_enable:
-                    min_balance_random = round(min_balance_random, random.choice(trim_the_number_of_characters))
-                min_balance_wei = w3.to_wei(min_balance_random, 'ether')
-
-                if value + fee > balance - min_balance_wei:
-                    original_value = value
-                    value = balance - fee - min_balance_wei
-                    if value < 0:
-                        value = 0
-                    logger.warning(f"⚠️ Перерасчет отправляемой суммы: должно было отправиться {w3.from_wei(original_value, 'ether')} ETH, "
-                                    f"но будет отправлено {w3.from_wei(value, 'ether')} ETH из-за MIN_FROM_BALANCE ({min_balance_random} ETH).")
-            else:
-                # Для фиксированных сумм просто проверяем достаточность средств
-                if value + fee > balance:
-                    logger.warning(f"⚠️ Недостаточно средств для отправки {w3.from_wei(value, 'ether')} ETH + комиссия {w3.from_wei(fee, 'ether')} ETH")
-                    value = balance - fee
-                    if value < 0:
-                        value = 0
-
-            if value == 0:
-                logger.warning(f"Транзакция пропущена, так как value = 0.")
-                return
-
-            tx['value'] = value
-            tx['gas'] = gas
-
-            tx_hash = None
-            for attempt in range(TX_SEND_ATTEMPTS):
-                try:
-                    signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
-                    if not MULTI_THREADING:
-                        logger.info(f"[{dt_str}] Отправка from -> to...")
-                    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                    if not MULTI_THREADING:
-                        logger.success(f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
-
-                    break
-                except Exception as e:
-                    logger.error(f"❌ Ошибка отправки from -> to (попытка {attempt+1}): {e}")
-                    if attempt == TX_SEND_ATTEMPTS - 1:  # Последняя попытка
-                        update_stats(success=False, error_msg=f"Ошибка прямого перевода: {e}")
-                        # Отправляем уведомление об ошибке только если уровень = 2
-                        if TELEGRAM_LOG_LEVEL_transfer == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка прямой транзакции",
-                                message=f"from → to: {e}",
-                                wallet_address=from_acc.address,
-                                main_title="ETHmachine Transfer Error"
-                            )
-                    tx['nonce'] += 1
-                    time.sleep(3)
-            else:
-                logger.error("❌ Не удалось отправить транзакцию from -> to после нескольких попыток.")
-                return
-
-            # Ждем подтверждения
-            if not MULTI_THREADING:
-                logger.info("Ожидание подтверждения транзакции from -> to...")
-            time.sleep(WHAITE_TRANSACTION_PENDING)
-            for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
-                try:
-                    receipt = w3.eth.get_transaction_receipt(tx_hash)
-                    if receipt and receipt.status == 1:
-                        logger.success(f"✅ Транзакция подтверждена. Tx hash: {explorer_url}{w3.to_hex(tx_hash)}")
-                        break
-                    elif receipt and receipt.status == 0:
-                        logger.error(f"❌ Транзакция неуспешна. Tx hash: {explorer_url}{w3.to_hex(tx_hash)}")
-                        break
-                except Exception as e:
-                    if not MULTI_THREADING:
-                        logger.warning(f"⏳ Транзакция в ожидании (попытка {attempt+1}/{WHAITE_TRANSACTION_PENDING_COUNT}): {e}")
-                time.sleep(WHAITE_TRANSACTION_PENDING)
-            else:
-                logger.error(f"❌ Транзакция from -> to остается в состоянии pending после {WHAITE_TRANSACTION_PENDING_COUNT} попыток.")
-
-            # Записываем результат для прямого перевода
-            append_result_csv({
-                "datetime": dt_str,
-                "from_wallet": from_priv,
-                "from_address": from_acc.address,
-                "intermediary_wallet": "",
-                "intermediary_address": "",
-                "to_wallet": to_wallet_value,
-                "to_address": to_address,
-                "amount_sent_wei": value,
-                "amount_sent_eth": w3.from_wei(value, 'ether'),
-                "tx_hash_1": w3.to_hex(tx_hash),
-                "tx_hash_2": "",
-                "explorer_link_1": f"{explorer_url}{w3.to_hex(tx_hash)}",
-                "explorer_link_2": "",
-            })
-
-            # Обновляем статистику для успешной транзакции
-            update_stats(success=True, amount_wei=value, tx_hash=w3.to_hex(tx_hash))
-            
-            # Итоговое уведомление о завершении прямого перевода только если уровень >= 1
-            if TELEGRAM_LOG_LEVEL_transfer >= 1:
-                to_wallet_balance = get_eth_balance_safe(w3, to_address)
-                to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
-                
-                send_telegram_notification(
-                    notif_type="success",
-                    title="✅ Прямой перевод завершен",
-                    message=f"from → to",
-                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
-                    balance=f"{to_wallet_balance_eth:.6f} ETH",
-                    tx_hash=w3.to_hex(tx_hash)[:10] + "...",
-                    amount=f"{w3.from_wei(value, 'ether'):.6f} ETH",
-                    main_title="ETHmachine Transfer Success"
-                )
-
-            # Получаем баланс для финального вывода
-            to_wallet_balance = get_eth_balance_safe(w3, to_address)
-            to_wallet_balance_eth = w3.from_wei(to_wallet_balance, 'ether')
-            if not MULTI_THREADING:
-                logger.success("=" * 60)
-                logger.success(f"{explorer_url}{w3.to_hex(tx_hash)}")
-                logger.success(f"from_wallet ({from_acc.address}) - {w3.from_wei(value, 'ether')} ETH")
-                logger.success(f"Баланс to_wallet ({to_address}) по завершению - {to_wallet_balance_eth} ETH")
-                logger.success("=" * 60 + "\n")
-    except Exception as e:
-        error_msg = f"Ошибка в процессе перевода: {e}"
-        
-        # Проверяем, является ли это rate limit ошибкой
-        if is_rate_limit_error(e):
-            logger.error(f"🔄 Rate limit ошибка в основном процессе: {e}")
-            # Можно добавить дополнительную логику для обработки
-        else:
-            logger.error(error_msg)
-        
-        update_stats(success=False, error_msg=str(e))
-        
-        # Отправляем уведомление об общей ошибке только если уровень = 2
-        if TELEGRAM_LOG_LEVEL_transfer == 2:
-            send_telegram_notification(
-                notif_type="error",
-                title="❌ Ошибка в процессе перевода",
-                message=str(e),
-                wallet_address=from_priv[:10] + "...",
-                main_title="ETHmachine Transfer Error"
-            )
-    finally:
-        # Закрываем сессию
-        if session:
-            try:
-                session.close()
-            except Exception as e:
-                logger.warning(f"Ошибка закрытия сессии: {e}")
 
 def append_result_csv(row):
     filename = "result/transfer_result.csv"
@@ -1350,11 +493,11 @@ def get_to_wallet_address(to_wallet_value):
 
 def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, network, amount, proxy=None, delay_between=0, tx_counter=0, total_tx=1):
     session = None
-    w3 = None
     try:
         start_time = time.time()
         dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        rpc_url = get_network_rpc(network)
         proxies = get_proxy_list()
         use_proxy = None
         if proxy:
@@ -1414,13 +557,12 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             logger.info(f"  Режим:        {'Через посредника' if use_intermediary else 'Напрямую'}")
             logger.info("-"*61)
         
-        # Используем новую функцию с ротацией RPC
-        w3, session, current_rpc = get_web3_with_proxy_and_rpc_rotation(network, use_proxy)
+        w3, session = get_web3_with_proxy(rpc_url, use_proxy)
         explorer_url = get_explorer_url(network)
 
-        # Проверяем баланс отправителя с ротацией RPC
+        # Проверяем баланс отправителя
         for attempt in range(TX_SEND_ATTEMPTS):
-            balance, w3 = get_eth_balance_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
+            balance = get_eth_balance_safe(w3, from_acc.address)
             if balance > 0:
                 break
             if not MULTI_THREADING:
@@ -1451,21 +593,10 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             # Устанавливаем минимальный priority fee для совместимости с L2 сетями
             min_priority_fee = max(1, int(gas_price * 0.01))  # 1% от gas_price или минимум 1 wei
         except Exception as e:
-            if is_rate_limit_error(e):
-                logger.warning(f"🔄 Rate limit при получении gas price, переключаемся на другой RPC...")
-                try:
-                    w3, session, current_rpc = get_web3_with_proxy_and_rpc_rotation(network, use_proxy)
-                    gas_price = w3.eth.gas_price
-                    min_priority_fee = max(1, int(gas_price * 0.01))
-                except Exception as rpc_error:
-                    logger.warning(f"Ошибка получения цены газа после смены RPC: {rpc_error}")
-                    gas_price = int(w3.to_wei('30', 'gwei'))
-                    min_priority_fee = int(w3.to_wei('1', 'gwei'))
-            else:
-                if not MULTI_THREADING:
-                    logger.warning(f"Ошибка получения цены газа: {e}")
-                gas_price = int(w3.to_wei('30', 'gwei'))
-                min_priority_fee = int(w3.to_wei('1', 'gwei'))
+            if not MULTI_THREADING:
+                logger.warning(f"Ошибка получения цены газа: {e}")
+            gas_price = int(w3.to_wei('30', 'gwei'))
+            min_priority_fee = int(w3.to_wei('1', 'gwei'))
         
         if amount_type == 'ETH':
             # Фиксированная сумма в ETH - генерируем случайное значение в диапазоне
@@ -1518,7 +649,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
 
         if use_intermediary:
             # Старая логика с посредником
-            nonce_from, w3 = get_nonce_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
+            nonce_from = get_nonce_safe(w3, from_acc.address)
             if nonce_from is None:
                 logger.error(f"Не удалось получить nonce для {from_acc.address}, пропуск")
                 return
@@ -1784,7 +915,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             if not MULTI_THREADING:
                 logger.info(f"[{dt_str}] Прямой перевод from -> to...")
             
-            nonce_from, w3 = get_nonce_with_rpc_rotation(w3, from_acc.address, network, use_proxy)
+            nonce_from = get_nonce_safe(w3, from_acc.address)
             if nonce_from is None:
                 logger.error(f"Не удалось получить nonce для {from_acc.address}, пропуск")
                 return
@@ -2088,7 +1219,7 @@ def check_wallet_balances_for_loop(transfer_data, network, proxies):
             # Создаем новую сессию для каждого кошелька
             rpc_url = get_network_rpc(network)
             proxy = random.choice(proxies) if proxies else None
-            w3, session = get_web3_with_proxy_and_rpc_rotation(rpc_url, proxy)
+            w3, session = get_web3_with_proxy(rpc_url, proxy)
             
             from_acc = Account.from_key(row['from_wallet'])
             
