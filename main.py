@@ -18,7 +18,7 @@ from config.config import (
 
 from modules.auto_backup import create_backup, list_backups
 
-from modules.info import show_guide
+from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balances_menu
 from modules.password_generator import password_generator_menu
@@ -469,25 +469,7 @@ def main_menu():
                             continue
 
                 case 'info':
-                    choices = select(
-                        "Выберите информацию:",
-                        choices=[
-                            Choice('🗂️ Check age discord', '🗂️ Check age discord'),
-                            Choice('💲 Check Wallets Balances', 'wallet_balances'),
-                            Choice('🧹 Drainers', 'drainers'),
-                            Choice('🔄 Transfer Wallets to Wallets', 'transfer_wallets'),
-                            Choice('🐦 Check Twitter Accounts', 'twitter_accounts'),
-                            Choice('🪙 Generate Wallets', 'generate_wallets'),
-                            Choice('🔑 Convert Mnemonic to Private Key', 'mnemonic_to_private_key'),
-                            Choice('🔑 Convert Private Key to Wallet Address', 'private_key_to_wallet'),
-                            Choice('💲 OKX', 'okx'),
-                            Choice('🔙 Back', 'back')
-                        ],
-                        qmark='🛠️',
-                        pointer='👉'
-                    ).ask()
-
-                    show_guide(choices)
+                    info()
                     continue
 
                 case 'check_balances_SOL':
