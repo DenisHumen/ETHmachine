@@ -23,3 +23,4 @@ backups/*
 result/password_generator.csv
 log/*
 data/discord_token.txt
+db/okx_withdraw_progress.db

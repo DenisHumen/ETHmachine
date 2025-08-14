@@ -12,8 +12,8 @@ from pathlib import Path
 
 init()
 
-# Настройка логгера
-project_root = Path(__file__).parent.parent.parent
+# Настройка логгера - исправленные пути
+project_root = Path(__file__).parent.parent.parent.parent
 log_dir = project_root / 'log'
 log_dir.mkdir(exist_ok=True)
 
@@ -25,10 +25,19 @@ logger.add(
 )
 
 logger.add(
-    log_dir / "okx_errors.log",
+    log_dir / "okx_subaccount_errors.log",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
     level="ERROR",
-    rotation="10 MB"
+    rotation="10 MB",
+    retention="7 days"
+)
+
+logger.add(
+    log_dir / "okx_subaccount_full.log",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="DEBUG",
+    rotation="50 MB",
+    retention="3 days"
 )
 
 class OKXClient:
