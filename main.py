@@ -18,6 +18,81 @@ from config.config import (
 
 from modules.auto_backup import create_backup, list_backups
 
+def check_and_create_files():
+    required_files = [
+        'result/result.csv',
+        'data/proxy.csv',
+        'data/walletss.txt',
+        'data/walletss_sol.txt',
+        'config/cex_settings.py',
+        'data/transfer_token.csv',
+        'data/mnemonic.txt',
+        'db/transfer_progress.json',
+        'data/one_time_intermediary.csv',
+        'data/private_keys.txt',
+        'data/twitter/twitters.csv',
+        'result/twitter/result.csv',
+        'data/twitter/twitter_task.csv',
+        'db/spot_trade.db',
+        'data/discord_token.txt',
+    ]
+    required_directories = [
+        'result',
+        'data',
+        'db',
+        'result/json/pharos_faucet',
+        'result/faucet',
+        'result/twitter',
+        'data/twitter',
+        'backups',
+        'log',
+        'result/discord'
+    ]
+
+    for directory in required_directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(Fore.GREEN + f"Directory created: {directory}")
+
+    for file in required_files:
+        if not os.path.exists(file):
+            with open(file, 'w', encoding='utf-8') as f:
+                if 'result.csv' in file:
+                    f.write('address,balance,network\n')
+                elif 'transaction_count_result.csv' in file:
+                    f.write('address,transaction_count,network\n')
+                elif 'cex_settings.py' in file:
+                    f.write(
+                        '# https://www.okx.com/ru/account/my-api\n'
+                        'OKX_API_KEY = ""\n'
+                        'OKX_API_SECRET = ""\n'
+                        'OKX_API_PASSPHRAS = ""\n'
+                        'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
+                        "'------------------------------------------------------------------------------------------------------------'\n"
+                        'binance_api_key = ""\n'
+                        'secret_key = ""\n'
+                        "'------------------------------------------------------------------------------------------------------------'\n"
+                        '\n'
+                        '# https://www.bitget.com/ru/support/articles/360033773814\n'
+                        'bitget_api_key = ""\n'
+                        'bitget_api_secret = ""\n'
+                        'bitget_passphrase = ""  # Может потребоваться для некоторых API ключей\n'
+                        "'------------------------------------------------------------------------------------------------------------'\n"
+                    )
+                elif 'transfer_token.csv' in file:
+                    f.write('from_wallet,to_wallet,intermediary,amount\n')
+                elif 'one_time_intermediary.csv' in file:
+                    f.write('mnemonic,wallet_address,private_key,status\n')
+                elif 'data/twitter/twitters.csv' in file:
+                    f.write('nickname,auth_token,ct0\n')
+                elif 'data/twitter/twitter_task.csv' in file:
+                    f.write('еще в разработке\n')
+            print(Fore.GREEN + f"File created: {file}")
+
+# Создаем файлы ДО импорта модулей
+check_and_create_files()
+
+# Импорты модулей ПОСЛЕ создания файлов
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balances_menu
@@ -80,83 +155,7 @@ testnet_rpc_urls = {
 
 
 
-def check_and_create_files():
-    required_files = [
-        'result/result.csv',
-        'data/proxy.csv',
-        'data/walletss.txt',
-        'data/walletss_sol.txt',
-        'config/cex_settings.py',
-        'data/transfer_token.csv',
-        'data/mnemonic.txt',
-        'db/transfer_progress.json',
-        'data/one_time_intermediary.csv',
-        'data/private_keys.txt',
-        'data/twitter/twitters.csv',
-        'result/twitter/result.csv',
-        'data/twitter/twitter_task.csv',
-        'db/spot_trade.db',
-        'data/discord_token.txt',
-    ]
-    required_directories = [
-        'result',
-        'data',
-        'db',
-        'result/json/pharos_faucet',
-        'result/faucet',
-        'result/twitter',
-        'data/twitter',
-        'backups',
-        'log',
-        'result/discord'
-    ]
-
-    for directory in required_directories:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            print(Fore.GREEN + f"Directory created: {directory}")
-
-    for file in required_files:
-        if not os.path.exists(file):
-            with open(file, 'w', encoding='utf-8') as f:
-                if 'result.csv' in file:
-                    f.write('address,balance,network\n')
-                elif 'transaction_count_result.csv' in file:
-                    f.write('address,transaction_count,network\n')
-                elif 'cex_settings.py' in file:
-                    f.write(
-                        '# https://www.okx.com/ru/account/my-api\n'
-                        'OKX_API_KEY = ""\n'
-                        'OKX_API_SECRET = ""\n'
-                        'OKX_API_PASSPHRAS = ""\n'
-                        'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
-                        '\n'
-                        "binance_api_key = ''\n"
-                        "secret_key = ''\n"
-                        "\n"
-                        "bitget_api_key = ''\n"
-                        "bitget_api_secret = ''\n"
-                        "\n"
-                        'TOKEN = [\'USDC\']\n'
-                        '"""\n'
-                        '        - Список токенов:\n'
-                        '                - USDC\n'
-                        '                - USDT\n'
-                        '                - ETH\n'
-                        '"""\n'
-                    )
-                elif 'transfer_token.csv' in file:
-                    f.write('from_wallet,to_wallet,intermediary,amount\n')
-                elif 'one_time_intermediary.csv' in file:
-                    f.write('mnemonic,wallet_address,private_key,status\n')
-                elif 'data/twitter/twitters.csv' in file:
-                    f.write('nickname,auth_token,ct0\n')
-                elif 'data/twitter/twitter_task.csv' in file:
-                    f.write('еще в разработке\n')
-            print(Fore.GREEN + f"File created: {file}")
-
 def main_menu():
-    check_and_create_files()
     try:
         print(
             Fore.GREEN + "\nWelcome to ETHmachine! 🌟 \n ERC20  🌟 - "

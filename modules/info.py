@@ -6,25 +6,8 @@ init(autoreset=True)
 # Словарь с гайдами и ссылками
 GUIDES_DICT = {
     "🗂️ Check age discord": "https://youtu.be/7lRYBa0Educ",
-    "💲 Check Wallets Balances": "",
-    "🧹 Drainers": "",
-    "🔄 Transfer Wallets to Wallets": "",
-    "🐦 Check Twitter Accounts": "",
-    "🪙 Generate Wallets": "",
-    "🔑 Convert Mnemonic to Private Key": "",
-    "🔑 Convert Private Key to Wallet Address": "",
-    "💲 OKX": "",
-    "💲 Binance": "",
-    "💲 Bitget": "",
-    "🗂️ password generator": "",
-    "🗂️ Check Proxy": "",
-    "🗂️ Last Transactions": "",
-    "💧 Somnia": "",
-    "⛽ Check Gas Price": "",
-    "💲 Check Token Balances": "",
-    "🚰 Faucets": "",
-    "💲 SOL": "",
-    "💲 ETH": "",
+    "🏦 CEX >>💲 OKX >> 💲 Withdraw from OKX": "",
+    "🏦 CEX >>💲 OKX >> 💲 Subaccount collector OKX": "",
 }
 
 def show_guide(feature_name):
