@@ -6,7 +6,7 @@ init(autoreset=True)
 # Словарь с гайдами и ссылками
 GUIDES_DICT = {
     "🗂️ Check age discord": "https://youtu.be/7lRYBa0Educ",
-    "🏦 CEX >>💲 OKX >> 💲 Withdraw from OKX": "",
+    "🏦 CEX >>💲 OKX >> 💲 Withdraw from OKX": "https://youtu.be/iVE2fJgTACQ",
     "🏦 CEX >>💲 OKX >> 💲 Subaccount collector OKX": "",
 }
 
