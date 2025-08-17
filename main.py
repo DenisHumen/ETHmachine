@@ -106,6 +106,7 @@ from modules.discord.discord_age import check_discord_accounts
 from modules.cex.okx.okx_SubAccount import check_okx_subaccounts_and_balances, get_balances_okx
 from modules.cex.okx.okx_withdraw import okx_withdraw
 from modules.cex.binance.binance_withdraw import binance_withdraw
+from modules.cex.binance.binance_SubAccount import get_balances_binance, subaccount_collector_binance
 from modules.cex.bitget import check_bitget_subaccounts_and_balances
 from modules.GitHub.check_version import check_version
 
@@ -660,10 +661,10 @@ def main_menu():
                                     continue
                                 case 'get_balances_binance':
                                     print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
-                                    #get_balances_binance()
+                                    get_balances_binance()
                                 case 'subaccount_collector_binance':
                                     print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
-                                    #subaccount_collector_binance()
+                                    subaccount_collector_binance()
                                     continue
                                 case 'back':
                                     continue
