@@ -316,7 +316,7 @@ def get_all_networks():
                         elif attr_name == 'Binance_Smart_Chain':
                             formatted_name = "🚀 Binance Smart Chain"
                         elif attr_name == 'Gravity_Alpha_Mainnet':
-                            formatted_name = "🚀 Gravity Alpha Mainnet"
+                            formatted_name = "🚀 Gravity Alpha Mainnet (сеть Gravity )"
                         else:
                             formatted_name = f"🚀 {attr_name.replace('_', ' ').title()}"
                         mainnet_rpc_urls[formatted_name] = attr_value

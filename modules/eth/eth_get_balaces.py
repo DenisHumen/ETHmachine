@@ -365,7 +365,7 @@ def is_mainnet_network(network_name):
             'Avalanche',
             '🚀 Fantom',
             'Fantom',
-            '🚀 Gravity Alpha Mainnet',
+            '🚀 Gravity Alpha Mainnet (сеть Gravity )',
             'Gravity Alpha Mainnet',
             '🚀 Zora',
             'Zora',

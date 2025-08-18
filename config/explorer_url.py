@@ -9,7 +9,7 @@ explorers = {
     '🚀 Binance Smart Chain': {'symbol': 'BNB', 'tx_url': "https://bscscan.com/tx/"},
     '🚀 Avalanche': {'symbol': 'AVAX', 'tx_url': "https://subnets.avax.network/p-chain/tx/"},
     '🚀 Fantom': {'symbol': 'FTM', 'tx_url': "https://explorer.fantom.network/transactions/"},
-    '🚀 Gravity Alpha Mainnet': {'symbol': 'G', 'tx_url': "https://explorer.gravity.xyz/tx/"},
+    '🚀 Gravity Alpha Mainnet (сеть Gravity )': {'symbol': 'G', 'tx_url': "https://explorer.gravity.xyz/tx/"},
     '🚀 Zora': {'symbol': 'ETH', 'tx_url': "https://explorer.zora.energy/tx/"},
     '🚀 Abstract': {'symbol': 'ETH', 'tx_url': "https://explorer.testnet.abs.xyz/tx/"},
     '🚀 Sepolia': {'symbol': 'ETH', 'tx_url': "https://sepolia.etherscan.io/tx/"},

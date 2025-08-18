@@ -210,7 +210,7 @@ def get_network_rpc(network):
         '🚀 Binance Smart Chain': Binance_Smart_Chain,
         '🚀 Avalanche': Avalanche,
         '🚀 Fantom': Fantom,
-        '🚀 Gravity Alpha Mainnet': Gravity_Alpha_Mainnet,
+        '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
         '🚀 Zora': zora,
         '🚀 Abstract': Abstract,
     }

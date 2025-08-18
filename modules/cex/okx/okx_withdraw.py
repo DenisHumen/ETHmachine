@@ -331,9 +331,10 @@ def get_withdraw_fee(token, chain):
         return 0
 
 
-def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, retry=0):
+def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
-    logger.info(f'[{wallet}] Starting withdrawal of {amount} {token}')
+    wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
+    logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
     
     try:
         # Получаем комиссию
@@ -377,20 +378,20 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, ret
         result = response.json()
         
         if result['code'] == '0':
-            logger.success(f"OKX withdraw success => {wallet} | {amount} {token}")
+            logger.success(f"{wallet_prefix}OKX withdraw success => {wallet} | {amount} {token}")
             return amount
         else:
             error = result['msg']
-            logger.error(f"OKX withdraw failed => {wallet} | error: {error}")
+            logger.error(f"{wallet_prefix}OKX withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_okx_withdraw(wallet, token, chain, amount, retry + 1)
+                return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
-        logger.error(f"OKX withdraw error => {wallet} | {error}")
+        logger.error(f"{wallet_prefix}OKX withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_okx_withdraw(wallet, token, chain, amount, retry + 1)
+            return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
     
     return None
 
@@ -547,17 +548,18 @@ def check_token_balance(w3, wallet_address, token_address):
         return 0
 
 
-def check_wallet_balance(wallet_address, token, chain, expected_amount, timeout_hours=1):
+def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_number: int = 0, total_wallets: int = 0, timeout_hours=1):
     """Проверить баланс кошелька и ждать поступления средств"""
     if not WAIT_FOR_BALANCE:
         return True
     
-    logger.info(f"Ожидание поступления {expected_amount} {token} на кошелек {wallet_address}")
+    wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
+    logger.info(f"{wallet_prefix}Ожидание поступления {expected_amount} {token} на кошелек {wallet_address}")
     
     # Получаем подключение к Web3
     w3 = get_working_web3_connection(chain)
     if not w3:
-        logger.warning(f"Cannot connect to {chain} network, skipping balance check")
+        logger.warning(f"{wallet_prefix}Cannot connect to {chain} network, skipping balance check")
         return True
     
     # Получаем начальный баланс
@@ -566,11 +568,11 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, timeout_
     if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
         # Нативный токен
         initial_balance = check_native_balance(w3, wallet_address)
-        logger.info(f"Initial native balance: {initial_balance} {token}")
+        logger.info(f"{wallet_prefix}Initial native balance: {initial_balance} {token}")
     else:
         # ERC20 токен
         initial_balance = check_token_balance(w3, wallet_address, token_contract_address)
-        logger.info(f"Initial {token} balance: {initial_balance}")
+        logger.info(f"{wallet_prefix}Initial {token} balance: {initial_balance}")
     
     timeout_seconds = timeout_hours * 3600  # 1 час в секундах
     start_time = time.time()
@@ -589,24 +591,25 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, timeout_
             # Проверяем, увеличился ли баланс
             balance_increase = current_balance - initial_balance
             
-            logger.debug(f"Current balance: {current_balance}, increase: {balance_increase}")
+            logger.debug(f"{wallet_prefix}Current balance: {current_balance}, increase: {balance_increase}")
             
             # Если баланс увеличился на ожидаемую сумму (с небольшой погрешностью)
             if balance_increase >= expected_amount * 0.95:  # 95% от ожидаемой суммы
-                logger.success(f"Баланс поступил на кошелек {wallet_address}: +{balance_increase} {token}")
+                logger.success(f"{wallet_prefix}Баланс поступил на кошелек {wallet_address}: +{balance_increase} {token}")
                 return True
                 
         except Exception as ex:
-            logger.error(f"Ошибка при проверке баланса {wallet_address}: {ex}")
+            logger.error(f"{wallet_prefix}Ошибка при проверке баланса {wallet_address}: {ex}")
             time.sleep(30)
     
     # Если время истекло - показываем красный баннер
-    show_balance_timeout_error(wallet_address, expected_amount, token)
+    show_balance_timeout_error(wallet_address, expected_amount, token, wallet_number, total_wallets)
     return False
 
 
-def show_balance_timeout_error(wallet_address, amount, token):
+def show_balance_timeout_error(wallet_address, amount, token, wallet_number: int = 0, total_wallets: int = 0):
     """Показать красный баннер об ошибке с балансом"""
+    wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     error_message = f"""
     ╔══════════════════════════════════════════════════════════════════════════════════════╗
     ║                                    ⚠️  ОШИБКА  ⚠️                                   ║
@@ -614,7 +617,7 @@ def show_balance_timeout_error(wallet_address, amount, token):
     ║                                                                                      ║
     ║  🚨 ПОПОЛНЕНИЕ ОСТАНОВЛЕНО 🚨                                                       ║
     ║                                                                                      ║
-    ║  Кошелек: {wallet_address[:10]}...{wallet_address[-10:]}                             ║
+    ║  {wallet_prefix}Кошелек: {wallet_address[:10]}...{wallet_address[-10:]}             ║
     ║  Сумма:   {amount} {token}                                                           ║
     ║                                                                                      ║
     ║  Баланс не поступил в течение 1 часа!                                                ║
@@ -629,7 +632,7 @@ def show_balance_timeout_error(wallet_address, amount, token):
     """
     
     logger.error(error_message)
-    
+
 
 def create_progress_db():
     """Создать базу данных для отслеживания прогресса"""
@@ -728,17 +731,19 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
 
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
-    wallet, token, chain, db_file = wallet_data
+    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets = wallet_data
     
     try:
-        logger.info(f'[Thread] Processing wallet: {wallet}')
+        wallet_prefix = f"[{wallet_number}/{total_wallets}] "
+        logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
         
         # Получаем текущий баланс для расчета суммы
         current_balances = get_account_balances()
         if not current_balances or token not in current_balances:
-            logger.error(f"No balance found for {token}")
+            logger.error(f"{wallet_prefix}No balance found for {token}")
             save_progress(db_file, wallet, token, chain, 0, 'error', 'No balance available')
             save_result_to_csv(wallet, token, chain, 0, 'error', 'No balance available')
+            progress_bar.update()
             return False
         
         # Рассчитываем индивидуальную сумму для этого кошелька
@@ -747,7 +752,7 @@ def process_single_wallet(wallet_data):
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
-        result = execute_okx_withdraw(wallet, token, chain, individual_amount)
+        result = execute_okx_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -755,7 +760,7 @@ def process_single_wallet(wallet_data):
             
             # Проверяем поступление баланса если включено ожидание
             if WAIT_FOR_BALANCE:
-                balance_received = check_wallet_balance(wallet, token, chain, individual_amount)
+                balance_received = check_wallet_balance(wallet, token, chain, individual_amount, wallet_number, total_wallets)
                 if not balance_received:
                     status = 'balance_timeout'
                     error_message = 'Balance not received within timeout'
@@ -769,12 +774,17 @@ def process_single_wallet(wallet_data):
         # Сохраняем результат в CSV
         save_result_to_csv(wallet, token, chain, individual_amount, status, error_message)
         
+        # Обновляем прогресс-бар после завершения обработки кошелька
+        progress_bar.update()
+        
         return status == 'success'
         
     except Exception as ex:
-        logger.error(f'Error processing wallet {wallet}: {ex}')
+        wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
+        logger.error(f'{wallet_prefix}Error processing wallet {wallet}: {ex}')
         save_progress(db_file, wallet, token, chain, 0, 'error', str(ex))
         save_result_to_csv(wallet, token, chain, 0, 'error', str(ex))
+        progress_bar.update()
         return False
 
 
@@ -921,18 +931,18 @@ def okx_withdraw():
             for wallet in wallets:
                 save_progress(db_file, wallet, token, chain, 0, 'pending')
         
-        # Подготавливаем данные для потоков (без фиксированной суммы)
+        # Создаем прогресс-бар для отслеживания обработки кошельков
+        progress_bar = BeautifulProgressBar(len(wallets), "Processing wallets", width=60)
+        
+        # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
-        for wallet in wallets:
-            wallet_data_list.append((wallet, token, chain, db_file))
+        for i, wallet in enumerate(wallets, 1):
+            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets)))
         
         # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")
         successful = 0
         failed = 0
-        
-        # Создаем прогресс-бар для отслеживания обработки кошельков
-        progress_bar = BeautifulProgressBar(len(wallet_data_list), "Processing wallets", width=60)
         
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             # Создаем задержки между запусками потоков
@@ -944,7 +954,7 @@ def okx_withdraw():
                 future = executor.submit(process_single_wallet, wallet_data)
                 futures.append(future)
             
-            # Ждем завершения всех потоков с красивым прогресс-баром
+            # Ждем завершения всех потоков
             for future in futures:
                 try:
                     result = future.result()
@@ -955,8 +965,6 @@ def okx_withdraw():
                 except Exception as ex:
                     logger.error(f"Thread execution error: {ex}")
                     failed += 1
-                finally:
-                    progress_bar.update()
         
         logger.info("=== Summary ===")
         logger.info(f"Successful withdrawals: {successful}")
