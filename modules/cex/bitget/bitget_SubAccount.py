@@ -30,7 +30,7 @@ init()
 
 # --- Project paths ---
 project_root = Path(__file__).resolve().parent.parent.parent  # Поднимаемся до корня проекта
-log_dir = project_root / 'log'  # Корневая директория log/
+log_dir = project_root.parent / 'log'  # На одну директорию выше, чем project_root
 log_dir.mkdir(parents=True, exist_ok=True)
 
 result_dir = project_root / 'result'

@@ -33,7 +33,6 @@ def check_and_create_files():
         'data/twitter/twitters.csv',
         'result/twitter/result.csv',
         'data/twitter/twitter_task.csv',
-        'db/spot_trade.db',
         'data/discord_token.txt',
     ]
     required_directories = [
@@ -105,9 +104,10 @@ from modules.discord.discord_age import check_discord_accounts
 
 from modules.cex.okx.okx_SubAccount import check_okx_subaccounts_and_balances, get_balances_okx
 from modules.cex.okx.okx_withdraw import okx_withdraw
+from modules.cex.okx.okx_SpotTrade import start_okx_spot_trading
 from modules.cex.binance.binance_withdraw import binance_withdraw
 from modules.cex.binance.binance_SubAccount import get_balances_binance, subaccount_collector_binance
-from modules.cex.bitget import check_bitget_subaccounts_and_balances
+from modules.cex.bitget.bitget_SubAccount import check_bitget_subaccounts_and_balances
 from modules.GitHub.check_version import check_version
 
 from modules.check_proxy import check_proxy_menu
@@ -637,8 +637,8 @@ def main_menu():
                                 case 'subaccount_collector_okx':
                                     check_okx_subaccounts_and_balances()
                                 case 'spot_trade_okx':
-                                    print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
-                                    #spot_trade_okx()
+                                    #print(Fore.GREEN + "\n\tФункционал OKX в разработке, скоро будет доступен\n")
+                                    start_okx_spot_trading()
                                 case 'back':
                                     continue
 
