@@ -101,7 +101,7 @@ class OKXSpotTrader:
             # ДЕТАЛЬНЫЙ ВЫВОД ВСЕХ ТРАНЗАКЦИЙ
             if total_transactions > 0:
                 cursor.execute('''
-                    SELECT id, token, buy_date, buy_amount, buy_price, buy_total, target_sell_price, status,
+                    SELECT id, token, buy_date, buy_amount, buy_price, buy_total_usdt, target_sell_price, status,
                            sell_date, sell_price, profit_usdt, profit_percent
                     FROM transactions 
                     ORDER BY buy_date DESC
@@ -1096,7 +1096,7 @@ class OKXSpotTrader:
             logger.success(f"               │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
         else:
             if price_change_percent < 0:
-                logger.warning(f"              │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
+                logger.warning(f"               │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
             else:
                 logger.info(f"               │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
         
