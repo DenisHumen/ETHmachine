@@ -540,42 +540,58 @@ class RelayBridge:
             
             log_info(f"💾 Результат сохранен в CSV: {wallet_address[:10]}...{wallet_address[-6:]}")
     
-    def _check_quote_fees(self, quote_data: Dict, amount_eth: float) -> bool:
-        """Проверка комиссий в котировке перед выполнением"""
-        if not quote_data or 'details' not in quote_data:
-            log_warning("⚠️ Нет детальной информации о комиссиях в котировке")
-            return True  # Продолжаем если нет данных
+    def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str) -> Dict:
+        """Проверка комиссий в котировке перед выполнением с ожиданием снижения комиссии"""
+        max_fee_usd = 0.20  # Лимит комиссии в USD
         
-        details = quote_data['details']
-        
-        # Получаем фактическую выходную сумму
-        if 'currencyOut' in details:
-            amount_out_wei = int(details['currencyOut']['amount'])
-            amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
+        while True:
+            if not quote_data or 'details' not in quote_data:
+                log_warning("⚠️ Нет детальной информации о комиссиях в котировке")
+                return quote_data  # Возвращаем текущую котировку если нет данных
             
-            actual_fee = amount_eth - amount_out_eth
-            actual_fee_percentage = (actual_fee / amount_eth) * 100
+            details = quote_data['details']
             
-            # Конвертируем в USD для проверки лимита
-            eth_price = 4300  # Примерная цена ETH
-            fee_usd = actual_fee * eth_price
-            
-            log_info(f"💰 Анализ комиссий котировки:")
-            log_info(f"   📤 Отправка: {amount_eth:.8f} ETH")
-            log_info(f"   📥 Получение: {amount_out_eth:.8f} ETH")
-            log_info(f"   💸 Комиссия: {actual_fee:.8f} ETH ({actual_fee_percentage:.2f}%)")
-            log_info(f"   💵 В USD: ${fee_usd:.4f}")
-            
-            # Проверяем лимит комиссии (например, не более $0.20)
-            max_fee_usd = 0.20
-            if fee_usd > max_fee_usd:
-                log_warning(f"⚠️ Комиссия слишком высокая: ${fee_usd:.4f} > ${max_fee_usd}")
-                log_warning(f"   💡 Рекомендуется проверить альтернативные мосты")
-                # Не блокируем, но предупреждаем
-            
-            return True
-        
-        return True
+            # Получаем фактическую выходную сумму
+            if 'currencyOut' in details:
+                amount_out_wei = int(details['currencyOut']['amount'])
+                amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
+                
+                actual_fee = amount_eth - amount_out_eth
+                actual_fee_percentage = (actual_fee / amount_eth) * 100
+                
+                # Конвертируем в USD для проверки лимита
+                eth_price = 4300  # Примерная цена ETH
+                fee_usd = actual_fee * eth_price
+                
+                log_info(f"💰 Анализ комиссий котировки:")
+                log_info(f"   📤 Отправка: {amount_eth:.8f} ETH")
+                log_info(f"   📥 Получение: {amount_out_eth:.8f} ETH")
+                log_info(f"   💸 Комиссия: {actual_fee:.8f} ETH ({actual_fee_percentage:.2f}%)")
+                log_info(f"   💵 В USD: ${fee_usd:.4f}")
+                
+                # Проверяем лимит комиссии
+                if fee_usd > max_fee_usd:
+                    log_warning(f"⚠️ Комиссия слишком высокая: ${fee_usd:.4f} > ${max_fee_usd}")
+                    log_warning(f"   💡 Ожидание снижения комиссии... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
+                    
+                    # Ждем перед следующей проверкой
+                    time.sleep(GAS['WHITE_TIMEOUT'])
+                    
+                    # Получаем новую котировку
+                    log_info("🔄 Получение новой котировки...")
+                    new_quote = self._get_quote(from_chain_id, to_chain_id, amount_wei, wallet_address)
+                    if new_quote:
+                        quote_data = new_quote
+                        continue  # Проверяем новую котировку
+                    else:
+                        log_warning("⚠️ Не удалось получить новую котировку, используем текущую")
+                        return quote_data
+                else:
+                    log_success(f"✅ Комиссия в пределах лимита: ${fee_usd:.4f} ≤ ${max_fee_usd}")
+                    return quote_data
+            else:
+                log_warning("⚠️ Нет информации о выходной сумме в котировке")
+                return quote_data
 
     def _wait_for_balance_increase(self, wallet_address: str, to_chain_id: int, expected_amount: float) -> bool:
         """Ожидание увеличения баланса в целевой сети"""
@@ -658,8 +674,8 @@ class RelayBridge:
                 log_error("❌ Не удалось получить котировку")
                 return False
             
-            # Проверка комиссий в котировке
-            self._check_quote_fees(quote, amount)
+            # Проверка комиссий в котировке с ожиданием снижения
+            quote = self._check_quote_fees(quote, amount, from_chain_id, to_chain_id, amount_wei, wallet_address)
             
             # Выполнение бриджа
             log_transaction(f"🚀 Отправка {amount:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']} из {from_network} в {to_network}")
