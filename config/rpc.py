@@ -1,7 +1,7 @@
 # Mainnet
 L1 = ["https://eth.merkle.io", 'https://eth.llamarpc.com', 'https://rpc.mevblocker.io', 'https://eth.drpc.org', 'https://rpc.payload.de', 'https://eth.blockrazor.xyz']
 base = ["https://base.llamarpc.com"]
-arbitrum = ['https://1rpc.io/arb', 'https://arb-pokt.nodies.app', 'https://arbitrum.meowrpc.com', 'https://arb-pokt.nodies.app', 'https://arb-pokt.nodies.app']
+arbitrum = ['https://arbitrum.drpc.org']
 optimism = ['https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org']
 soneium = ['https://rpc.soneium.org']
 Polygon = ['https://1rpc.io/matic']

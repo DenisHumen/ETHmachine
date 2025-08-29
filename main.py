@@ -118,6 +118,7 @@ from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.eth_private_key_to_wallet_address import process_private_keys
 from modules.eth.eth_drainers import eth_drainers
 from modules.eth.eth_last_tx import check_last_transactions
+from modules.relay_link.relay_link import main as relay_bridge_main
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
@@ -295,6 +296,7 @@ def main_menu():
                         choices=[
                             Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
                             Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек или на прямую', 'transfer_wallets_to_wallets_call'),
+                            Choice('🌉 Relay Bridge                 🌟 Мост между сетями через Relay Link', 'relay_bridge'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -424,6 +426,13 @@ def main_menu():
                                 transfer_data, proxies, network, delay_between, total_tx,
                                 progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
                             )
+                            continue
+
+                        case 'relay_bridge':
+                            relay_bridge_main()
+                            continue
+
+                        case 'back':
                             continue
 
                 case 'twitter':
