@@ -47,6 +47,59 @@ logger.add(
 db_lock = threading.Lock()
 csv_lock = threading.Lock()
 
+def load_proxies():
+    """Загрузить список прокси из файла data/proxy.csv"""
+    proxy_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'proxy.csv')
+    proxies = []
+    
+    try:
+        with open(proxy_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and ':' in line:
+                    # Формат: login:password@ip:port
+                    parts = line.split('@')
+                    if len(parts) == 2:
+                        auth_part = parts[0]  # login:password
+                        ip_port = parts[1]    # ip:port
+                        proxies.append({
+                            'auth': auth_part,
+                            'ip_port': ip_port,
+                            'full': line
+                        })
+        
+        # Перемешиваем прокси в случайном порядке
+        random.shuffle(proxies)
+        logger.info(f"Загружено {len(proxies)} прокси для RPC запросов")
+        return proxies
+    except FileNotFoundError:
+        logger.warning(f"Файл прокси не найден: {proxy_file}")
+        return []
+    except Exception as ex:
+        logger.error(f"Ошибка при загрузке прокси: {ex}")
+        return []
+
+def get_random_proxy(proxies):
+    """Получить случайный прокси из списка в формате для requests"""
+    if not proxies:
+        return None
+    
+    proxy_info = random.choice(proxies)
+    auth_parts = proxy_info['auth'].split(':')
+    
+    if len(auth_parts) >= 2:
+        login = auth_parts[0]
+        password = ':'.join(auth_parts[1:])  # На случай если в пароле есть двоеточие
+        ip_port = proxy_info['ip_port']
+        
+        proxy_url = f"http://{login}:{password}@{ip_port}"
+        return {
+            'http': proxy_url,
+            'https': proxy_url
+        }
+    
+    return None
+
 class BeautifulProgressBar:
     """Красивый прогресс-бар"""
     
@@ -445,20 +498,42 @@ def get_chain_rpc_list(chain):
 
 
 def get_working_web3_connection(chain):
-    """Получить рабочее подключение Web3 для конкретной сети"""
+    """Получить рабочее подключение Web3 для конкретной сети через прокси"""
     rpc_list = get_chain_rpc_list(chain)
+    proxies_list = load_proxies()
     
+    # Сначала пробуем с прокси
+    if proxies_list:
+        proxy = get_random_proxy(proxies_list)
+        if proxy:
+            logger.info(f"Подключение к {chain} через прокси: {proxy['http'].split('@')[1]}")
+            for rpc_url in rpc_list:
+                try:
+                    # Создаем HTTPProvider с прокси
+                    session = requests.Session()
+                    session.proxies.update(proxy)
+                    
+                    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}, session=session))
+                    if w3.is_connected():
+                        logger.debug(f"Подключился к {chain} через {rpc_url} с прокси")
+                        return w3
+                except Exception as ex:
+                    logger.debug(f"Не удалось подключиться к {rpc_url} с прокси: {ex}")
+                    continue
+    
+    # Если прокси не сработал, пробуем без прокси
+    logger.info(f"Подключение к {chain} без прокси (fallback)")
     for rpc_url in rpc_list:
         try:
             w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
             if w3.is_connected():
-                logger.debug(f"Connected to {chain} via {rpc_url}")
+                logger.debug(f"Подключился к {chain} через {rpc_url} без прокси")
                 return w3
         except Exception as ex:
-            logger.debug(f"Failed to connect to {rpc_url}: {ex}")
+            logger.debug(f"Не удалось подключиться к {rpc_url} без прокси: {ex}")
             continue
     
-    logger.error(f"Could not connect to any RPC for {chain}")
+    logger.error(f"Не удалось подключиться к RPC для {chain}")
     return None
 
 
