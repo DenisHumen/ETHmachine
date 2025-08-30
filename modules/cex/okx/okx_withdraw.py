@@ -70,7 +70,7 @@ def load_proxies():
         
         # Перемешиваем прокси в случайном порядке
         random.shuffle(proxies)
-        logger.info(f"Загружено {len(proxies)} прокси для RPC запросов")
+        #logger.info(f"Загружено {len(proxies)} прокси для RPC запросов")
         return proxies
     except FileNotFoundError:
         logger.warning(f"Файл прокси не найден: {proxy_file}")
@@ -506,7 +506,7 @@ def get_working_web3_connection(chain):
     if proxies_list:
         proxy = get_random_proxy(proxies_list)
         if proxy:
-            logger.info(f"Подключение к {chain} через прокси: {proxy['http'].split('@')[1]}")
+            #logger.info(f"Подключение к {chain} через прокси: {proxy['http'].split('@')[1]}")
             for rpc_url in rpc_list:
                 try:
                     # Создаем HTTPProvider с прокси
