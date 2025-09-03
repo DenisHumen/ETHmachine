@@ -802,12 +802,12 @@ class OKXSpotTrader:
         should_sell = price_change_percent >= sell_threshold
         
         if should_sell:
-            logger.success(f"               │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
+            logger.success(f"      │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
         else:
             if price_change_percent < 0:
-                logger.warning(f"               │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
+                logger.warning(f"      │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
             else:
-                logger.info(f"               │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
+                logger.info(f"      │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
         
         return should_sell
 
@@ -831,12 +831,12 @@ class OKXSpotTrader:
             should_buy = price_change <= -buy_threshold
             
             if should_buy:
-                logger.success(f"                │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
+                logger.success(f"      │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
             else:
                 if price_change < 0:
-                    logger.info(f"                │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
+                    logger.info(f"      │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
                 else:
-                    logger.info(f"                  │    📈 {token}: изменение за 24ч = +{price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Цена растет")
+                    logger.info(f"      │    📈 {token}: изменение за 24ч = +{price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Цена растет")
             
             return should_buy
         else:
@@ -855,7 +855,7 @@ class OKXSpotTrader:
                 logger.success(f"      │    📉 {token}: падение от последней покупки = {price_drop_from_last:.2f}%, порог = {buy_threshold}% → 🛒 УСРЕДНЯЕМ!")
             else:
                 if price_drop_from_last > 0:
-                    logger.info(f"                │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
+                    logger.info(f"      │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
                     logger.info(f"      │    📊 {token}: падение от последней = {price_drop_from_last:.2f}%, нужно = {buy_threshold}% → ⏳ Недостаточное падение для усреднения")
                 else:
                     logger.info(f"      │    📈 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
@@ -1093,12 +1093,12 @@ class OKXSpotTrader:
         should_sell = price_change_percent >= sell_threshold
         
         if should_sell:
-            logger.success(f"               │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
+            logger.success(f"      │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
         else:
             if price_change_percent < 0:
-                logger.warning(f"               │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
+                logger.warning(f"      │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
             else:
-                logger.info(f"               │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
+                logger.info(f"      │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
         
         return should_sell
 
@@ -1122,12 +1122,12 @@ class OKXSpotTrader:
             should_buy = price_change <= -buy_threshold
             
             if should_buy:
-                logger.success(f"                │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
+                logger.success(f"      │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
             else:
                 if price_change < 0:
-                    logger.info(f"                │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
+                    logger.info(f"      │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
                 else:
-                    logger.info(f"                │    📈 {token}: изменение за 24ч = +{price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Цена растет")
+                    logger.info(f"      │    📈 {token}: изменение за 24ч = +{price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Цена растет")
             
             return should_buy
         else:
@@ -1142,15 +1142,15 @@ class OKXSpotTrader:
             should_average = price_drop_from_last >= buy_threshold
             
             if should_average:
-                logger.success(f"                │    📉 {token}: УСРЕДНЕНИЕ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
-                logger.success(f"                │    📉 {token}: падение от последней покупки = {price_drop_from_last:.2f}%, порог = {buy_threshold}% → 🛒 УСРЕДНЯЕМ!")
+                logger.success(f"      │    📉 {token}: УСРЕДНЕНИЕ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
+                logger.success(f"      │    📉 {token}: падение от последней покупки = {price_drop_from_last:.2f}%, порог = {buy_threshold}% → 🛒 УСРЕДНЯЕМ!")
             else:
                 if price_drop_from_last > 0:
-                    logger.info(f"                │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
-                    logger.info(f"                │    📊 {token}: падение от последней = {price_drop_from_last:.2f}%, нужно = {buy_threshold}% → ⏳ Недостаточное падение для усреднения")
+                    logger.info(f"      │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
+                    logger.info(f"      │    📊 {token}: падение от последней = {price_drop_from_last:.2f}%, нужно = {buy_threshold}% → ⏳ Недостаточное падение для усреднения")
                 else:
-                    logger.info(f"                │    📈 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
-                    logger.info(f"                │    📈 {token}: цена выше последней покупки на {abs(price_drop_from_last):.2f}% → ⏳ Ждем падения для усреднения")
+                    logger.info(f"      │    📈 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
+                    logger.info(f"      │    📈 {token}: цена выше последней покупки на {abs(price_drop_from_last):.2f}% → ⏳ Ждем падения для усреднения")
             
             return should_average
 
