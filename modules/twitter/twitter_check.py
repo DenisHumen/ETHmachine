@@ -219,6 +219,105 @@ class TwitterFollowersChecker:
             "status": f"error: {error_msg}"
         }
 
+def validate_and_fix_csv_format(filename: str):
+    """
+    Проверяет и исправляет формат CSV файла.
+    Обеспечивает, что каждая строка имеет правильное количество запятых.
+    Ожидаемый формат: nickname,auth_token,ct0 (2 запятые между 3 колонками)
+    
+    Args:
+        filename (str): Путь к CSV файлу
+        
+    Returns:
+        bool: True если файл был исправлен, False если исправления не требовались
+    """
+    if not Path(filename).exists():
+        logger.error(f"File {filename} not found!")
+        return False
+    
+    try:
+        lines_to_fix = []
+        fixed = False
+        
+        # Читаем файл и проверяем формат
+        with open(filename, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+        
+        if not lines:
+            logger.warning(f"File {filename} is empty!")
+            return False
+        
+        # Проверяем заголовок
+        header = lines[0].strip()
+        expected_columns = ['nickname', 'auth_token', 'ct0']
+        
+        if header != 'nickname,auth_token,ct0':
+            logger.warning(f"Header format incorrect. Expected: 'nickname,auth_token,ct0', Got: '{header}'")
+            # Исправляем заголовок
+            lines[0] = 'nickname,auth_token,ct0\n'
+            fixed = True
+        
+        # Проверяем каждую строку данных
+        for i, line in enumerate(lines[1:], start=1):
+            line = line.strip()
+            if not line:  # Пропускаем пустые строки
+                continue
+            
+            # Подсчитываем количество запятых
+            comma_count = line.count(',')
+            
+            if comma_count == 0:  # Только nickname без запятых
+                fixed_line = line + ',,\n'
+                lines[i] = fixed_line
+                fixed = True
+                logger.info(f"Fixed line {i+1}: '{line}' → '{fixed_line.strip()}'")
+            
+            elif comma_count == 1:  # Формат: nickname, или nickname,auth_token
+                # Добавляем недостающую запятую
+                fixed_line = line + ',\n'
+                lines[i] = fixed_line
+                fixed = True
+                logger.info(f"Fixed line {i+1}: '{line}' → '{fixed_line.strip()}'")
+            
+            elif comma_count == 2:  # Правильный формат: nickname,auth_token,ct0
+                if not line.endswith('\n'):
+                    lines[i] = line + '\n'
+                continue
+            
+            elif comma_count > 2:  # Слишком много запятых - убираем лишние
+                # Разбиваем строку по запятым и берем только первые 3 части
+                parts = line.split(',')
+                if len(parts) > 3:
+                    fixed_line = ','.join(parts[:3]) + '\n'
+                    lines[i] = fixed_line
+                    fixed = True
+                    logger.info(f"Fixed line {i+1}: '{line}' → '{fixed_line.strip()}' (removed extra commas)")
+                else:
+                    if not line.endswith('\n'):
+                        lines[i] = line + '\n'
+        
+        # Если были исправления, сохраняем файл
+        if fixed:
+            # Создаем резервную копию
+            backup_filename = f"{filename}.backup"
+            with open(backup_filename, 'w', encoding='utf-8') as backup_file:
+                backup_file.writelines(lines)
+            logger.info(f"Backup created: {backup_filename}")
+            
+            # Сохраняем исправленный файл
+            with open(filename, 'w', encoding='utf-8') as file:
+                file.writelines(lines)
+            
+            logger.success(f"✅ CSV format fixed and saved: {filename}")
+            return True
+        else:
+            logger.info(f"✅ CSV format is already correct: {filename}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error validating/fixing CSV format in {filename}: {e}")
+        return False
+
 def load_nicknames_from_csv(filename: str):
     """
     Загружает никнеймы из CSV файла
@@ -234,6 +333,9 @@ def load_nicknames_from_csv(filename: str):
     if not Path(filename).exists():
         logger.error(f"File {filename} not found!")
         return nicknames
+    
+    # Сначала проверяем и исправляем формат CSV
+    validate_and_fix_csv_format(filename)
     
     try:
         with open(filename, 'r', encoding='utf-8') as file:

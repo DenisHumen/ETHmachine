@@ -37,8 +37,8 @@ SFTP_SERVER_INTO_BACKUP = {
 # ========================================================================================
 # ЧЕКЕР TWITTER
 # ========================================================================================
-MAIN_AUTH_TOKEN = ''  # Основной auth_token для проверки Twitter (нужен всегда)
-MAIN_PROXY_TWITTER = ''  # Основной прокси для Twitter (если используется) log:password@ip:port
+MAIN_AUTH_TOKEN = '7b1e081c8f57b3c7a0d0ad9d04c1562adb6ef704'  # Основной auth_token для проверки Twitter (нужен всегда)
+MAIN_PROXY_TWITTER = 'FM471QWI:YNGJONUE@141.11.163.144:47802'  # Основной прокси для Twitter (если используется) log:password@ip:port
 
 
 
