@@ -498,6 +498,8 @@ def get_chain_rpc_list(chain):
         'Ethereum': rpc.L1,
         'ETH': rpc.L1,
         'Base': rpc.base,
+        'BASE': rpc.base,
+        'ArbitrumOne': rpc.arbitrum,
         'Arbitrum One': rpc.arbitrum,
         'Arbitrum': rpc.arbitrum,
         'Optimism': rpc.optimism,
@@ -505,6 +507,7 @@ def get_chain_rpc_list(chain):
         'BSC': rpc.Binance_Smart_Chain,
         'BNB Smart Chain (BEP20)': rpc.Binance_Smart_Chain,
         'Avalanche C-Chain': rpc.Avalanche,
+        'AVAXC-Chain': rpc.Avalanche,
         'Avalanche': rpc.Avalanche,
         'Fantom': rpc.Fantom,
         'Gravity Alpha Mainnet': rpc.Gravity_Alpha_Mainnet,
@@ -512,6 +515,7 @@ def get_chain_rpc_list(chain):
         'Zora': rpc.zora,
         'Abstract': rpc.Abstract,
         'Soneium': rpc.soneium,
+        'Somnia': rpc.somnia,
         # Testnets
         'Sepolia': rpc.sepolia,
         'Monad Testnet': rpc.monad_testnet,
@@ -572,8 +576,10 @@ def get_token_contract_address(token, chain):
             'BSC': '0x55d398326f99059fF775485246999027B3197955',
             'Polygon': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
             'Arbitrum': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+            'ArbitrumOne': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
             'Optimism': '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
             'Base': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+            'BASE': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
             'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
             'zkSync Era': '0x493257fD37EDB34451f62EDf8D2a0C418852bA4C'
         },
@@ -583,14 +589,46 @@ def get_token_contract_address(token, chain):
             'BSC': '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
             'Polygon': '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
             'Arbitrum': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+            'ArbitrumOne': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
             'Optimism': '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
             'Base': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            'BASE': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
             'Avalanche': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
             'zkSync Era': '0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4'
         },
         'G': {
             'Gravity Alpha Mainnet': '0x0000000000000000000000000000000000000000',  # Нативный токен
             'Gravity': '0x0000000000000000000000000000000000000000'
+        },
+        # Нативные токены для разных сетей
+        'ETH': {
+            'Ethereum': '0x0000000000000000000000000000000000000000',
+            'ERC20': '0x0000000000000000000000000000000000000000',
+            'ETH': '0x0000000000000000000000000000000000000000',
+            'Arbitrum': '0x0000000000000000000000000000000000000000',
+            'ArbitrumOne': '0x0000000000000000000000000000000000000000',
+            'Optimism': '0x0000000000000000000000000000000000000000',
+            'Base': '0x0000000000000000000000000000000000000000',
+            'BASE': '0x0000000000000000000000000000000000000000',
+            'zkSync Era': '0x0000000000000000000000000000000000000000',
+            'zkSyncEra': '0x0000000000000000000000000000000000000000',
+            'Polygon': '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',  # Wrapped ETH на Polygon
+            'BSC': '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',     # Wrapped ETH на BSC
+        },
+        'BTC': {
+            'BTC': '0x0000000000000000000000000000000000000000',
+            'Bitcoin': '0x0000000000000000000000000000000000000000'
+        },
+        'BNB': {
+            'BSC': '0x0000000000000000000000000000000000000000',
+            'BNB Smart Chain (BEP20)': '0x0000000000000000000000000000000000000000'
+        },
+        'MATIC': {
+            'Polygon': '0x0000000000000000000000000000000000000000'
+        },
+        'AVAX': {
+            'Avalanche': '0x0000000000000000000000000000000000000000',
+            'AVAXC-Chain': '0x0000000000000000000000000000000000000000'
         }
     }
     
@@ -666,15 +704,22 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
     
     # Получаем начальный баланс
     token_contract_address = get_token_contract_address(token, chain)
+    logger.debug(f"{wallet_prefix}Token: {token}, Chain: {chain}, Contract: {token_contract_address}")
     
     if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
         # Нативный токен
         initial_balance = check_native_balance(w3, wallet_address)
         logger.info(f"{wallet_prefix}Initial native balance: {initial_balance} {token}")
+        logger.debug(f"{wallet_prefix}Checking native token balance for {token} on {chain}")
     else:
         # ERC20 токен
         initial_balance = check_token_balance(w3, wallet_address, token_contract_address)
         logger.info(f"{wallet_prefix}Initial {token} balance: {initial_balance}")
+        logger.debug(f"{wallet_prefix}Checking ERC20 token balance for {token} on {chain}")
+    
+    if initial_balance is None:
+        logger.error(f"{wallet_prefix}Failed to get initial balance, skipping balance check")
+        return True
     
     timeout_seconds = timeout_hours * 3600  # 1 час в секундах
     start_time = time.time()
@@ -690,15 +735,21 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
             else:
                 current_balance = check_token_balance(w3, wallet_address, token_contract_address)
             
+            if current_balance is None:
+                logger.warning(f"{wallet_prefix}Failed to get current balance, retrying...")
+                continue
+            
             # Проверяем, увеличился ли баланс
             balance_increase = current_balance - initial_balance
             
-            logger.debug(f"{wallet_prefix}Current balance: {current_balance}, increase: {balance_increase}")
+            logger.info(f"{wallet_prefix}Current balance: {current_balance} {token}, increase: {balance_increase:.8f} {token}")
             
             # Если баланс увеличился на ожидаемую сумму (с небольшой погрешностью)
             if balance_increase >= expected_amount * 0.95:  # 95% от ожидаемой суммы
                 logger.success(f"{wallet_prefix}Баланс поступил на кошелек {wallet_address}: +{balance_increase} {token}")
                 return True
+            elif balance_increase > 0:
+                logger.info(f"{wallet_prefix}Частичное поступление: +{balance_increase} {token} (ожидается {expected_amount} {token})")
                 
         except Exception as ex:
             logger.error(f"{wallet_prefix}Ошибка при проверке баланса {wallet_address}: {ex}")
