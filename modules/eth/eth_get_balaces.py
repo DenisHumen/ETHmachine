@@ -298,15 +298,48 @@ def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_n
     
     return wallet, wallet_results, True
 
-def get_eth_price_usdt():
-    """Получает актуальный курс ETH в USDT"""
+def get_token_price_usdt(token_symbol):
+    """Получает актуальный курс токена в USDT"""
     try:
+        # Маппинг символов токенов к идентификаторам CoinGecko
+        coingecko_ids = {
+            'ETH': 'ethereum',
+            'MATIC': 'matic-network', 
+            'BNB': 'binancecoin',
+            'AVAX': 'avalanche-2',
+            'FTM': 'fantom',
+            'G': 'gravity',
+            'MON': 'monad',
+            'SOMI': 'somnia'
+        }
+        
+        # Маппинг символов к торговым парам Binance
+        binance_pairs = {
+            'ETH': 'ETHUSDT',
+            'MATIC': 'MATICUSDT',
+            'BNB': 'BNBUSDT', 
+            'AVAX': 'AVAXUSDT',
+            'FTM': 'FTMUSDT'
+        }
+        
+        token_symbol = token_symbol.upper()
+        coingecko_id = coingecko_ids.get(token_symbol)
+        binance_pair = binance_pairs.get(token_symbol)
+        
         # Пробуем несколько API для получения курса
-        apis = [
-            "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
-            "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
-            "https://api.coinbase.com/v2/exchange-rates?currency=ETH"
-        ]
+        apis = []
+        
+        # CoinGecko API
+        if coingecko_id:
+            apis.append(f"https://api.coingecko.com/api/v3/simple/price?ids={coingecko_id}&vs_currencies=usd")
+        
+        # Binance API
+        if binance_pair:
+            apis.append(f"https://api.binance.com/api/v3/ticker/price?symbol={binance_pair}")
+            
+        # Coinbase API (только для основных токенов)
+        if token_symbol in ['ETH', 'BNB']:
+            apis.append(f"https://api.coinbase.com/v2/exchange-rates?currency={token_symbol}")
         
         for api_url in apis:
             try:
@@ -314,8 +347,8 @@ def get_eth_price_usdt():
                 if response.status_code == 200:
                     data = response.json()
                     
-                    if "coingecko" in api_url:
-                        price = data.get('ethereum', {}).get('usd', 0)
+                    if "coingecko" in api_url and coingecko_id:
+                        price = data.get(coingecko_id, {}).get('usd', 0)
                     elif "binance" in api_url:
                         price = float(data.get('price', 0))
                     elif "coinbase" in api_url:
@@ -325,18 +358,22 @@ def get_eth_price_usdt():
                         continue
                     
                     if price > 0:
-                        logger.success(f"💰 Получен курс ETH: ${price:.2f} USDT")
+                        logger.success(f"💰 Получен курс {token_symbol}: ${price:.2f} USDT")
                         return float(price)
                         
             except Exception as e:
                 continue
         
-        logger.warning("⚠️ Не удалось получить курс ETH, стоимость в USDT не будет рассчитана")
+        logger.warning(f"⚠️ Не удалось получить курс {token_symbol}, стоимость в USDT не будет рассчитана")
         return 0
         
     except Exception as e:
-        logger.warning(f"⚠️ Ошибка получения курса ETH: {e}")
+        logger.warning(f"⚠️ Ошибка получения курса {token_symbol}: {e}")
         return 0
+
+def get_eth_price_usdt():
+    """Получает актуальный курс ETH в USDT (обратная совместимость)"""
+    return get_token_price_usdt('ETH')
 
 def is_mainnet_network(network_name):
     """Проверяет, является ли сеть mainnet через модуль rpc_return_module"""
@@ -387,24 +424,23 @@ def save_results(results, network_name, wallets, network_type=None):
         for wallet, balance, success in results:
             results_dict[wallet] = (balance, success)
         
-        # Получаем курс ETH для mainnet сетей - используем network_type если передан
-        eth_price = 0
+        full_network_name = network_name if network_name.startswith('🚀') else f'🚀 {network_name}'
+        native_symbol = get_network_symbol(full_network_name)
+        
+        token_price = 0
         is_mainnet = network_type == "mainnet" if network_type else is_mainnet_network(network_name)
         
         if is_mainnet:
-            eth_price = get_eth_price_usdt()
+            token_price = get_token_price_usdt(native_symbol)
         
         with open(result_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # Получаем символ нативного токена для сети
-            native_symbol = get_network_symbol(network_name).lower()
-            
             # Определяем заголовки в зависимости от типа сети
-            if is_mainnet and eth_price > 0:
-                writer.writerow(['address', f'balance_{native_symbol}', 'balance_usdt', 'network'])
+            if is_mainnet and token_price > 0:
+                writer.writerow(['address', f'balance_{native_symbol.lower()}', 'balance_usdt', 'network'])
             else:
-                writer.writerow(['address', f'balance_{native_symbol}', 'network'])
+                writer.writerow(['address', f'balance_{native_symbol.lower()}', 'network'])
             
             for wallet in wallets:
                 if wallet in results_dict:
@@ -412,15 +448,15 @@ def save_results(results, network_name, wallets, network_type=None):
                     if success:
                         # Форматируем баланс без научной нотации
                         formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
-                        if is_mainnet and eth_price > 0:
-                            balance_usdt = balance * eth_price
+                        if is_mainnet and token_price > 0:
+                            balance_usdt = balance * token_price
                             writer.writerow([wallet, formatted_balance, f"{balance_usdt:.2f}", network_name])
                         else:
                             writer.writerow([wallet, formatted_balance, network_name])
                     else:
-                        writer.writerow([wallet, "0", "0.00" if is_mainnet and eth_price > 0 else "", network_name])
+                        writer.writerow([wallet, "0", "0.00" if is_mainnet and token_price > 0 else "", network_name])
                 else:
-                    writer.writerow([wallet, "0", "0.00" if is_mainnet and eth_price > 0 else "", network_name])
+                    writer.writerow([wallet, "0", "0.00" if is_mainnet and token_price > 0 else "", network_name])
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении результатов: {e}")
@@ -438,14 +474,12 @@ def save_results_all_networks(results, all_networks, wallets):
         for wallet, network_balances, success in results:
             results_dict[wallet] = (network_balances, success)
         
-        # Получаем курс ETH для расчета USDT
-        eth_price = get_eth_price_usdt()
-        
-        # Определяем какие сети являются mainnet
-        mainnet_networks = []
+        # Получаем курсы токенов для всех mainnet сетей
+        token_prices = {}
         for network_name in all_networks.keys():
             if is_mainnet_network(network_name):
-                mainnet_networks.append(network_name)
+                native_symbol = get_network_symbol(network_name)
+                token_prices[network_name] = get_token_price_usdt(native_symbol)
         
         with open(result_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -458,7 +492,7 @@ def save_results_all_networks(results, all_networks, wallets):
                 native_symbol = get_network_symbol(network_name)
                 header.append(f"{clean_network_name}_{native_symbol}")
                 # Добавляем колонку USDT для mainnet сетей
-                if is_mainnet_network(network_name) and eth_price > 0:
+                if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
                     header.append(f"{clean_network_name}_USDT")
             
             writer.writerow(header)
@@ -474,8 +508,8 @@ def save_results_all_networks(results, all_networks, wallets):
                             formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
                             row.append(formatted_balance)
                             # Добавляем стоимость в USDT для mainnet сетей
-                            if is_mainnet_network(network_name) and eth_price > 0:
-                                balance_usdt = balance * eth_price
+                            if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
+                                balance_usdt = balance * token_prices[network_name]
                                 row.append(f"{balance_usdt:.2f}")
                         writer.writerow(row)
                     else:
@@ -483,7 +517,7 @@ def save_results_all_networks(results, all_networks, wallets):
                         for network_name in all_networks.keys():
                             row.append("0")
                             # Добавляем 0 USDT для mainnet сетей
-                            if is_mainnet_network(network_name) and eth_price > 0:
+                            if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
                                 row.append("0.00")
                         writer.writerow(row)
                 else:
@@ -491,7 +525,7 @@ def save_results_all_networks(results, all_networks, wallets):
                     for network_name in all_networks.keys():
                         row.append("0")
                         # Добавляем 0 USDT для mainnet сетей
-                        if is_mainnet_network(network_name) and eth_price > 0:
+                        if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
                             row.append("0.00")
                     writer.writerow(row)
         return True
@@ -540,9 +574,9 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
     # Показываем информацию о mainnet и курсе - используем network_type для определения
     if network_type == "mainnet" or is_mainnet_network(clean_network):
         logger.success(f"💎 Mainnet сеть - будет добавлена стоимость в USDT")
-        eth_price = get_eth_price_usdt()
-        if eth_price > 0:
-            logger.success(f"💰 Курс ETH: ${eth_price:.2f} USDT")
+        token_price = get_token_price_usdt(native_symbol)
+        if token_price > 0:
+            logger.success(f"💰 Курс {native_symbol}: ${token_price:.2f} USDT")
     else:
         logger.warning(f"🔧 Testnet сеть - только баланс в {native_symbol}")
     
