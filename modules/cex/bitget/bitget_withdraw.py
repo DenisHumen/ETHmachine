@@ -277,8 +277,9 @@ def pick_token_to_withdraw(balances):
 def pick_chain(token):
     """Выбор сети для вывода"""
     try:
+        # Используем правильный endpoint для получения информации о монетах и сетях
         base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
-                                                     request_path=f"/api/spot/v1/wallet/withdrawal-inner-info?coin={token}", method="GET")
+                                                     request_path=f"/api/spot/v1/wallet/coin-info?coin={token}", method="GET")
         
         if not headers:
             logger.error("Failed to create Bitget headers")
@@ -288,9 +289,30 @@ def pick_chain(token):
         
         chains = []
         if response.json()['code'] == '00000':
-            for chain_info in response.json()['data']['chains']:
-                if chain_info['withdrawable']:  # Проверяем, доступен ли вывод
-                    chains.append(chain_info['chain'])
+            data = response.json()['data']
+            if data and len(data) > 0:
+                for chain_info in data[0]['chains']:
+                    if chain_info['withdrawable'] == 'true':  # Проверяем, доступен ли вывод
+                        chains.append(chain_info['chain'])
+        
+        if not chains:
+            logger.error(f"No withdrawal chains available for {token}")
+            # Попробуем альтернативный endpoint
+            try:
+                base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
+                                                             request_path="/api/spot/v1/wallet/coin-info", method="GET")
+                
+                response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
+                
+                if response.json()['code'] == '00000':
+                    for coin_data in response.json()['data']:
+                        if coin_data['coin'].upper() == token.upper():
+                            for chain_info in coin_data['chains']:
+                                if chain_info['withdrawable'] == 'true':
+                                    chains.append(chain_info['chain'])
+                            break
+            except Exception as ex:
+                logger.error(f"Error with alternative endpoint: {ex}")
         
         if not chains:
             logger.error(f"No withdrawal chains available for {token}")
@@ -550,7 +572,8 @@ def get_token_contract_address(token, chain):
             'Arbitrum': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
             'Optimism': '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
             'Base': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
-            'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7'
+            'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+            'zkSync Era': '0x493257fD37EDB34451f62EDf8D2a0C418852bA4C'
         },
         'USDC': {
             'ERC20': '0xA0b86a33E6441b33F5A4dF7a54fA0Fbc9B1bF0e2',
@@ -560,7 +583,12 @@ def get_token_contract_address(token, chain):
             'Arbitrum': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
             'Optimism': '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
             'Base': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-            'Avalanche': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E'
+            'Avalanche': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+            'zkSync Era': '0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4'
+        },
+        'G': {
+            'Gravity Alpha Mainnet': '0x0000000000000000000000000000000000000000',  # Нативный токен
+            'Gravity': '0x0000000000000000000000000000000000000000'
         }
     }
     
