@@ -11,11 +11,11 @@ Fantom = ['https://fantom.drpc.org', 'https://fantom-pokt.nodies.app', 'https://
 Gravity_Alpha_Mainnet = ['https://rpc.gravity.xyz', 'https://rpc.ankr.com/gravity']
 zora = ['https://rpc.zora.energy']
 Abstract = ['https://api.mainnet.abs.xyz']
+somnia = ['https://api.infra.mainnet.somnia.network/']
 
 # Testnets
 sepolia = ['https://1rpc.io/sepolia']
 monad_testnet = ['https://testnet-rpc.monad.xyz']
-somnia_testnet = ['https://dream-rpc.somnia.network']
 mega_eth_testnet = ['https://carrot.megaeth.com/rpc']
 pharos_testnet = ['https://testnet.dplabs-internal.com']
 camp_testnet = ['https://rpc-campnetwork.xyz']

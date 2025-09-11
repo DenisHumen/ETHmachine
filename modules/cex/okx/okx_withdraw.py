@@ -488,7 +488,6 @@ def get_chain_rpc_list(chain):
         # Testnets
         'Sepolia': rpc.sepolia,
         'Monad Testnet': rpc.monad_testnet,
-        'Somnia Testnet': rpc.somnia_testnet,
         'MegaETH Testnet': rpc.mega_eth_testnet,
         'Pharos Testnet': rpc.pharos_testnet,
         'Camp Testnet': rpc.camp_testnet

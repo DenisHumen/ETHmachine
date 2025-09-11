@@ -9,7 +9,7 @@ from questionary import Choice, select
 from config.rpc import (
     L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
     Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora,
-    somnia_testnet, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet
+    somnia, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet
 )
 from config.config import (
     expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
@@ -98,7 +98,6 @@ from modules.eth.eth_get_token_balance import check_token_balances_menu
 from modules.password_generator import password_generator_menu
 from modules.get_gas_price import check_all_gas_prices
 
-from modules.faucets.somnia import run_somnia_faucet
 from modules.twitter.twitter_check import run_twitter_check
 from modules.discord.discord_age import check_discord_accounts
 
@@ -144,12 +143,12 @@ mainnet_rpc_urls = {
     '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
     '🚀 Zora': zora,
     '🚀 Abstract': Abstract,
+    '🚀 Somnia': somnia,
 }
 
 testnet_rpc_urls = {
     '🚀 Sepolia': sepolia,
     '🚀 Monad Testnet (native token MON)': monad_testnet,
-    '🚀 Somnia Testnet': somnia_testnet,
     '🚀 Mega ETH Testnet': mega_eth_testnet,
     '🚀 Pharos Testnet': pharos_testnet,
     '🚀 Camp Testnet': camp_testnet,
@@ -176,7 +175,7 @@ def main_menu():
                 choices=[
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('💲 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
-                    Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
+                    #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
@@ -495,7 +494,6 @@ def main_menu():
                         action = select(
                             "Запрос крана:",
                             choices=[
-                                Choice('💧 Somnia', 'Somnia_faucet'),
                                 Choice('🔙 Back', 'back')
                             ],
                             qmark='🛠️',
@@ -503,10 +501,6 @@ def main_menu():
                         ).ask()
 
                         match action:
-                            case 'Somnia_faucet':
-                                run_somnia_faucet()
-                                continue
-
                             case 'back':
                                 break
 
