@@ -19,6 +19,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
+from config.explorer_url import get_network_symbol
 
 def setup_error_logging():
     """Настраивает логирование ошибок в директорию log/"""
@@ -396,11 +397,14 @@ def save_results(results, network_name, wallets, network_type=None):
         with open(result_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
+            # Получаем символ нативного токена для сети
+            native_symbol = get_network_symbol(network_name).lower()
+            
             # Определяем заголовки в зависимости от типа сети
             if is_mainnet and eth_price > 0:
-                writer.writerow(['address', 'balance_eth', 'balance_usdt', 'network'])
+                writer.writerow(['address', f'balance_{native_symbol}', 'balance_usdt', 'network'])
             else:
-                writer.writerow(['address', 'balance_eth', 'network'])
+                writer.writerow(['address', f'balance_{native_symbol}', 'network'])
             
             for wallet in wallets:
                 if wallet in results_dict:
@@ -450,7 +454,9 @@ def save_results_all_networks(results, all_networks, wallets):
             header = ['address']
             for network_name in all_networks.keys():
                 clean_network_name = network_name.replace('🚀 ', '')
-                header.append(f"{clean_network_name}_ETH")
+                # Получаем символ нативного токена для сети
+                native_symbol = get_network_symbol(network_name)
+                header.append(f"{clean_network_name}_{native_symbol}")
                 # Добавляем колонку USDT для mainnet сетей
                 if is_mainnet_network(network_name) and eth_price > 0:
                     header.append(f"{clean_network_name}_USDT")
@@ -524,6 +530,9 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
             error_logger.error(f"Configuration Error: {error_msg}")
         return
     
+    # Получаем символ нативного токена для сети
+    native_symbol = get_network_symbol(f"🚀 {clean_network}")
+    
     logger.info("="*80)
     logger.info(f"🚀 Начинаем проверку балансов нативных токенов")
     logger.info(f"🌐 Сеть: {clean_network} ({network_type})")
@@ -535,7 +544,7 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
         if eth_price > 0:
             logger.success(f"💰 Курс ETH: ${eth_price:.2f} USDT")
     else:
-        logger.warning(f"🔧 Testnet сеть - только баланс в ETH")
+        logger.warning(f"🔧 Testnet сеть - только баланс в {native_symbol}")
     
     logger.info(f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
     logger.info(f"🧵 Потоков: {NUM_THREADS}")
@@ -593,7 +602,7 @@ def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_netw
                     successful_count += 1
                     status_icon = "✅"
                     status_color = Fore.GREEN
-                    balance_info = f"Баланс: {Fore.GREEN}{balance:.6f}{Fore.RESET} {Fore.GREEN}ETH{Fore.RESET}"
+                    balance_info = f"Баланс: {Fore.GREEN}{balance:.6f}{Fore.RESET} {Fore.GREEN}{native_symbol}{Fore.RESET}"
                 else:
                     failed_count += 1
                     status_icon = "❌"
