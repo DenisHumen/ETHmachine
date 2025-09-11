@@ -107,6 +107,7 @@ from modules.cex.okx.okx_SpotTrade import start_okx_spot_trading
 from modules.cex.binance.binance_withdraw import binance_withdraw
 from modules.cex.binance.binance_SubAccount import get_balances_binance, subaccount_collector_binance
 from modules.cex.bitget.bitget_SubAccount import check_bitget_subaccounts_and_balances
+from modules.cex.bitget.bitget_withdraw import bitget_withdraw
 from modules.GitHub.check_version import check_version
 
 from modules.check_proxy import check_proxy_menu
@@ -687,8 +688,7 @@ def main_menu():
 
                             match action:
                                 case 'withdraw_from_bitget':
-                                    print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")
-                                    #withdraw_from_bitget()
+                                    bitget_withdraw()
                                     continue
                                 case 'get_balances_bitget':
                                     print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")

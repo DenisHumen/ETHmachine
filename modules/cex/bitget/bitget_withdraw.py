@@ -17,7 +17,7 @@ from web3 import Web3
 
 # Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, OKX_EU_TYPE
+from config.cex_settings import bitget_api_key, bitget_api_secret, bitget_passphrase
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
 
@@ -27,7 +27,7 @@ os.makedirs(log_path, exist_ok=True)
 
 # Добавляем файловый хендлер для ошибок
 logger.add(
-    os.path.join(log_path, 'okx_withdraw_errors.log'),
+    os.path.join(log_path, 'bitget_withdraw_errors.log'),
     level="ERROR",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
     rotation="10 MB",
@@ -36,7 +36,7 @@ logger.add(
 
 # Добавляем файловый хендлер для всех логов
 logger.add(
-    os.path.join(log_path, 'okx_withdraw_full.log'),
+    os.path.join(log_path, 'bitget_withdraw_full.log'),
     level="DEBUG",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {function} | {message}",
     rotation="50 MB",
@@ -70,7 +70,6 @@ def load_proxies():
         
         # Перемешиваем прокси в случайном порядке
         random.shuffle(proxies)
-        #logger.info(f"Загружено {len(proxies)} прокси для RPC запросов")
         return proxies
     except FileNotFoundError:
         logger.warning(f"Файл прокси не найден: {proxy_file}")
@@ -165,49 +164,59 @@ def sleeping(*timing):
     sleeping_with_progress(x, f"Sleep {x}s")
 
 
-def okx_data(api_key, secret_key, passphras, request_path="/api/v5/account/balance", body='', meth="GET"):
+def bitget_signature(timestamp, method, request_path, secret_key, body=''):
+    """Создать подпись для Bitget API"""
     try:
-        def signature(timestamp: str, method: str, request_path: str, secret_key: str, body: str = "") -> str:
-            if not body:
-                body = ""
-            message = timestamp + method.upper() + request_path + body
-            mac = hmac.new(
-                bytes(secret_key, encoding="utf-8"),
-                bytes(message, encoding="utf-8"),
-                digestmod="sha256",
-            )
-            d = mac.digest()
-            return base64.b64encode(d).decode("utf-8")
+        if not body:
+            body = ""
+        
+        message = timestamp + method.upper() + request_path + body
+        mac = hmac.new(
+            bytes(secret_key, encoding="utf-8"),
+            bytes(message, encoding="utf-8"),
+            digestmod="sha256",
+        )
+        d = mac.digest()
+        return base64.b64encode(d).decode("utf-8")
+    except Exception as ex:
+        logger.error(f'Bitget signature error: {ex}')
+        return None
 
-        dt_now = datetime.datetime.utcnow()
-        ms = str(dt_now.microsecond).zfill(6)[:3]
-        timestamp = f"{dt_now:%Y-%m-%dT%H:%M:%S}.{ms}Z"
 
-        base_url = "https://www.okx.cab"
+def bitget_data(api_key, secret_key, passphrase, request_path="/api/spot/v1/account/assets", body='', method="GET"):
+    """Подготовить данные для запроса к Bitget API"""
+    try:
+        timestamp = str(int(time.time() * 1000))
+        
+        signature = bitget_signature(timestamp, method, request_path, secret_key, body)
+        if not signature:
+            return None, None, None
+        
+        base_url = "https://api.bitget.com"
         headers = {
             "Content-Type": "application/json",
-            "OK-ACCESS-KEY": api_key,
-            "OK-ACCESS-SIGN": signature(timestamp, meth, request_path, secret_key, body),
-            "OK-ACCESS-TIMESTAMP": timestamp,
-            "OK-ACCESS-PASSPHRASE": passphras,
-            'x-simulated-trading': '0'
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "locale": "en-US"
         }
         return base_url, request_path, headers
     except Exception as ex:
-        logger.error(f'OKX DATA ERROR: {ex}')
+        logger.error(f'Bitget data error: {ex}')
         return None, None, None
 
 
 def get_token_price_in_usdt(token):
-    """Получить цену токена в USDT через API OKX"""
+    """Получить цену токена в USDT через API Bitget"""
     try:
         if token == 'USDT':
             return 1.0
         
-        response = requests.get(f"https://www.okx.cab/api/v5/market/ticker?instId={token}-USDT", timeout=10)
+        response = requests.get(f"https://api.bitget.com/api/spot/v1/market/ticker?symbol={token}USDT", timeout=10)
         data = response.json()
-        if data['code'] == '0' and data['data']:
-            return float(data['data'][0]['last'])
+        if data['code'] == '00000' and data['data']:
+            return float(data['data']['close'])
         return None
     except Exception as ex:
         logger.error(f'Error getting price for {token}: {ex}')
@@ -217,17 +226,21 @@ def get_token_price_in_usdt(token):
 def get_account_balances():
     """Получить все балансы аккаунта"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
-                                request_path="/api/v5/asset/balances", meth="GET")
+        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
+                                                     request_path="/api/spot/v1/account/assets", method="GET")
         
-        response = requests.get("https://www.okx.cab/api/v5/asset/balances", timeout=10, headers=headers)
+        if not headers:
+            logger.error("Failed to create Bitget headers")
+            return {}
+        
+        response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
         data = response.json()
         
         balances = {}
-        if data['code'] == '0':
+        if data['code'] == '00000':
             for item in data['data']:
-                if float(item['availBal']) > 0:
-                    balances[item['ccy']] = float(item['availBal'])
+                if float(item['available']) > 0:
+                    balances[item['coinName']] = float(item['available'])
         
         return balances
     except Exception as ex:
@@ -264,17 +277,20 @@ def pick_token_to_withdraw(balances):
 def pick_chain(token):
     """Выбор сети для вывода"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS,
-                                request_path=f"/api/v5/asset/currencies?ccy={token}", meth="GET")
-        response = requests.get(f"https://www.okx.cab/api/v5/asset/currencies?ccy={token}", 
-                               timeout=10, headers=headers)
+        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
+                                                     request_path=f"/api/spot/v1/wallet/withdrawal-inner-info?coin={token}", method="GET")
+        
+        if not headers:
+            logger.error("Failed to create Bitget headers")
+            return None
+        
+        response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
         
         chains = []
-        if response.json()['code'] == '0':
-            for lst in response.json()['data']:
-                if lst['canWd']:  # Проверяем, доступен ли вывод
-                    chain_name = '-'.join(lst["chain"].split('-')[1:])
-                    chains.append(chain_name)
+        if response.json()['code'] == '00000':
+            for chain_info in response.json()['data']['chains']:
+                if chain_info['withdrawable']:  # Проверяем, доступен ли вывод
+                    chains.append(chain_info['chain'])
         
         if not chains:
             logger.error(f"No withdrawal chains available for {token}")
@@ -370,21 +386,25 @@ def calculate_individual_withdraw_amount(token, available_balance):
 def get_withdraw_fee(token, chain):
     """Получить комиссию за вывод"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
-                                request_path=f"/api/v5/asset/currencies?ccy={token}", meth="GET")
-        response = requests.get(f"https://www.okx.cab/api/v5/asset/currencies?ccy={token}", 
-                               timeout=10, headers=headers)
+        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
+                                                     request_path=f"/api/spot/v1/wallet/withdrawal-inner-info?coin={token}", method="GET")
         
-        for lst in response.json()['data']:
-            if lst['chain'] == f'{token}-{chain}':
-                return float(lst['minFee'])
+        if not headers:
+            return 0
+        
+        response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
+        
+        if response.json()['code'] == '00000':
+            for chain_info in response.json()['data']['chains']:
+                if chain_info['chain'] == chain:
+                    return float(chain_info['withdrawFee'])
         return 0
     except Exception as ex:
         logger.error(f'Error getting fee for {token}-{chain}: {ex}')
         return 0
 
 
-def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
+def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
@@ -393,58 +413,41 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wal
         # Получаем комиссию
         fee = get_withdraw_fee(token, chain)
         
-        # Переводим с торгового на основной счет если нужно
-        if OKX_EU_TYPE == 0:
-            try:
-                _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
-                                        request_path=f"/api/v5/account/balance?ccy={token}")
-                balance = requests.get(f'https://www.okx.cab/api/v5/account/balance?ccy={token}', 
-                                     timeout=10, headers=headers)
-                balance_data = balance.json()
-                
-                if balance_data['code'] == '0' and balance_data['data']:
-                    trading_balance = float(balance_data["data"][0]["details"][0]["cashBal"])
-                    
-                    if trading_balance > 0:
-                        body = {"ccy": token, "amt": trading_balance, "from": 18, "to": 6, "type": "0"}
-                        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
-                                               request_path="/api/v5/asset/transfer", body=str(body), meth="POST")
-                        requests.post("https://www.okx.cab/api/v5/asset/transfer", data=str(body), 
-                                    timeout=10, headers=headers)
-            except Exception:
-                pass
-        
-        # Выполняем вывод
+        # Подготавливаем данные для вывода
         body = {
-            "ccy": token, 
-            "amt": amount, 
-            "fee": fee, 
-            "dest": "4", 
-            "chain": f"{token}-{chain}", 
-            "toAddr": wallet
+            "coin": token,
+            "transferType": "on_chain", 
+            "address": wallet,
+            "chain": chain,
+            "size": str(amount)
         }
         
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
-                                request_path="/api/v5/asset/withdrawal", meth="POST", body=str(body))
-        response = requests.post("https://www.okx.cab/api/v5/asset/withdrawal", 
-                               data=str(body), timeout=10, headers=headers)
+        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
+                                                     request_path="/api/spot/v1/wallet/withdrawal", 
+                                                     method="POST", body=str(body).replace("'", '"'))
+        
+        if not headers:
+            logger.error(f"{wallet_prefix}Failed to create Bitget headers")
+            return None
+        
+        response = requests.post(f"{base_url}{request_path}", json=body, timeout=10, headers=headers)
         result = response.json()
         
-        if result['code'] == '0':
-            logger.success(f"{wallet_prefix}OKX withdraw success => {wallet} | {amount} {token}")
+        if result['code'] == '00000':
+            logger.success(f"{wallet_prefix}Bitget withdraw success => {wallet} | {amount} {token}")
             return amount
         else:
-            error = result['msg']
-            logger.error(f"{wallet_prefix}OKX withdraw failed => {wallet} | error: {error}")
+            error = result.get('msg', 'Unknown error')
+            logger.error(f"{wallet_prefix}Bitget withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+                return execute_bitget_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
-        logger.error(f"{wallet_prefix}OKX withdraw error => {wallet} | {error}")
+        logger.error(f"{wallet_prefix}Bitget withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+            return execute_bitget_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
     
     return None
 
@@ -505,7 +508,6 @@ def get_working_web3_connection(chain):
     if proxies_list:
         proxy = get_random_proxy(proxies_list)
         if proxy:
-            #logger.info(f"Подключение к {chain} через прокси: {proxy['http'].split('@')[1]}")
             for rpc_url in rpc_list:
                 try:
                     # Создаем HTTPProvider с прокси
@@ -548,8 +550,7 @@ def get_token_contract_address(token, chain):
             'Arbitrum': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
             'Optimism': '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
             'Base': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
-            'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
-            'zkSync Era': '0x493257fD37EDB34451f62EDf8D2a0C418852bA4C'
+            'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7'
         },
         'USDC': {
             'ERC20': '0xA0b86a33E6441b33F5A4dF7a54fA0Fbc9B1bF0e2',
@@ -559,12 +560,7 @@ def get_token_contract_address(token, chain):
             'Arbitrum': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
             'Optimism': '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
             'Base': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-            'Avalanche': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-            'zkSync Era': '0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4'
-        },
-        'G': {
-            'Gravity Alpha Mainnet': '0x0000000000000000000000000000000000000000',  # Нативный токен
-            'Gravity': '0x0000000000000000000000000000000000000000'
+            'Avalanche': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E'
         }
     }
     
@@ -715,7 +711,7 @@ def create_progress_db():
     db_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'db')
     os.makedirs(db_path, exist_ok=True)
     
-    db_file = os.path.join(db_path, 'okx_withdraw_progress.db')
+    db_file = os.path.join(db_path, 'bitget_withdraw_progress.db')
     
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
@@ -783,7 +779,7 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
     os.makedirs(result_path, exist_ok=True)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_file = os.path.join(result_path, f'okx_withdraw_results_{timestamp[:8]}.csv')
+    csv_file = os.path.join(result_path, f'bitget_withdraw_results_{timestamp[:8]}.csv')
     
     with csv_lock:
         file_exists = os.path.isfile(csv_file)
@@ -828,7 +824,7 @@ def process_single_wallet(wallet_data):
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
-        result = execute_okx_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
+        result = execute_bitget_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -909,9 +905,9 @@ def check_existing_progress():
     return db_file, 'new'
 
 
-def okx_withdraw():
+def bitget_withdraw():
     """Основная функция"""
-    logger.info("=== OKX Withdrawal Module ===")
+    logger.info("=== Bitget Withdrawal Module ===")
     
     # Проверяем существующий прогресс
     db_file, progress_action = check_existing_progress()
@@ -1060,6 +1056,5 @@ def okx_withdraw():
         break
 
 
-
 if __name__ == '__main__':
-    okx_withdraw()
+    bitget_withdraw()
