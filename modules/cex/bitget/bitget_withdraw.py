@@ -8,6 +8,7 @@ import sys
 import os
 import sqlite3
 import csv
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 sys.__stdout__ = sys.stdout
@@ -437,18 +438,17 @@ def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float, 
         # Получаем комиссию
         fee = get_withdraw_fee(token, chain)
         
-        # Подготавливаем данные для вывода
+        # Подготавливаем данные для вывода согласно документации API
         body = {
             "coin": token,
-            "transferType": "on_chain", 
             "address": wallet,
             "chain": chain,
-            "size": str(amount)
+            "amount": str(amount)
         }
         
         base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
                                                      request_path="/api/spot/v1/wallet/withdrawal", 
-                                                     method="POST", body=str(body).replace("'", '"'))
+                                                     method="POST", body=json.dumps(body))
         
         if not headers:
             logger.error(f"{wallet_prefix}Failed to create Bitget headers")
