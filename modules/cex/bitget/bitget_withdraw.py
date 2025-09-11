@@ -277,50 +277,53 @@ def pick_token_to_withdraw(balances):
 def pick_chain(token):
     """Выбор сети для вывода"""
     try:
-        # Используем правильный endpoint для получения информации о монетах и сетях
-        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
-                                                     request_path=f"/api/spot/v1/wallet/coin-info?coin={token}", method="GET")
-        
-        if not headers:
-            logger.error("Failed to create Bitget headers")
-            return None
-        
-        response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
+        # Используем новый публичный endpoint для получения информации о монетах и сетях
+        response = requests.get(f"https://api.bitget.com/api/v2/spot/public/coins?coin={token}", timeout=10)
         
         chains = []
-        if response.json()['code'] == '00000':
+        chain_info_list = []  # Для хранения подробной информации о сетях
+        
+        if response.status_code == 200 and response.json()['code'] == '00000':
             data = response.json()['data']
             if data and len(data) > 0:
+                logger.info(f"Found coin data for {token}")
                 for chain_info in data[0]['chains']:
                     if chain_info['withdrawable'] == 'true':  # Проверяем, доступен ли вывод
-                        chains.append(chain_info['chain'])
-        
-        if not chains:
-            logger.error(f"No withdrawal chains available for {token}")
-            # Попробуем альтернативный endpoint
-            try:
-                base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
-                                                             request_path="/api/spot/v1/wallet/coin-info", method="GET")
-                
-                response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
-                
-                if response.json()['code'] == '00000':
-                    for coin_data in response.json()['data']:
-                        if coin_data['coin'].upper() == token.upper():
-                            for chain_info in coin_data['chains']:
-                                if chain_info['withdrawable'] == 'true':
-                                    chains.append(chain_info['chain'])
-                            break
-            except Exception as ex:
-                logger.error(f"Error with alternative endpoint: {ex}")
+                        chain_name = chain_info['chain']
+                        withdraw_fee = chain_info['withdrawFee']
+                        min_withdraw = chain_info['minWithdrawAmount']
+                        congestion = chain_info.get('congestion', 'unknown')
+                        
+                        chains.append(chain_name)
+                        chain_info_list.append({
+                            'chain': chain_name,
+                            'withdrawFee': withdraw_fee,
+                            'minWithdrawAmount': min_withdraw,
+                            'congestion': congestion
+                        })
+                        logger.info(f"Available chain: {chain_name}, Fee: {withdraw_fee} {token}, Min: {min_withdraw} {token}")
+            else:
+                logger.warning(f"No data found for token {token}")
+        else:
+            logger.error(f"API request failed: {response.status_code}, {response.text}")
         
         if not chains:
             logger.error(f"No withdrawal chains available for {token}")
             return None
         
+        logger.info(f"Found {len(chains)} available chains for {token}: {', '.join(chains)}")
+        
         choices = []
-        for chain in chains:
-            choices.append(Choice(f"🔗 {chain:<15} | Сеть для вывода {token}", chain))
+        for chain_info in chain_info_list:
+            chain = chain_info['chain']
+            fee = chain_info['withdrawFee']
+            min_amount = chain_info['minWithdrawAmount']
+            congestion = chain_info['congestion']
+            congestion_icon = "🟢" if congestion == "normal" else "🟡" if congestion == "congested" else "⚪"
+            
+            choice_text = f"🔗 {chain:<15} | Fee: {fee} {token} | Min: {min_amount} {token} {congestion_icon}"
+            choices.append(Choice(choice_text, chain))
+        
         choices.append(Choice("🔙 Назад", "back"))
             
         chain = select(
@@ -408,18 +411,17 @@ def calculate_individual_withdraw_amount(token, available_balance):
 def get_withdraw_fee(token, chain):
     """Получить комиссию за вывод"""
     try:
-        base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
-                                                     request_path=f"/api/spot/v1/wallet/withdrawal-inner-info?coin={token}", method="GET")
+        # Используем новый публичный endpoint
+        response = requests.get(f"https://api.bitget.com/api/v2/spot/public/coins?coin={token}", timeout=10)
         
-        if not headers:
-            return 0
+        if response.status_code == 200 and response.json()['code'] == '00000':
+            data = response.json()['data']
+            if data and len(data) > 0:
+                for chain_info in data[0]['chains']:
+                    if chain_info['chain'] == chain:
+                        return float(chain_info['withdrawFee'])
         
-        response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
-        
-        if response.json()['code'] == '00000':
-            for chain_info in response.json()['data']['chains']:
-                if chain_info['chain'] == chain:
-                    return float(chain_info['withdrawFee'])
+        logger.warning(f"Could not get withdraw fee for {token}-{chain}")
         return 0
     except Exception as ex:
         logger.error(f'Error getting fee for {token}-{chain}: {ex}')
