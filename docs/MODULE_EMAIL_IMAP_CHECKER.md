@@ -104,7 +104,7 @@ IMAP_SETTINGS = {
 
 ### Выходной CSV файл
 
-- **Путь**: `result/email_check_results.csv`
+- **Путь**: `result/email/email_check_results_YYYYMMDD_HHMMSS.csv`
 - **Формат**: детальные результаты проверки
 
 ```csv
@@ -132,7 +132,7 @@ admin@mail.ru,secretpass,mail.ru,success,,42,172.16.0.1:1080,2024-01-15 14:30:35
 1. Запустите `main.py`
 2. Выберите `📧 Email` → `📧 Check IMAP emails`
 3. Дождитесь завершения проверки
-4. Результаты сохранятся в `result/email_check_results.csv`
+4. Результаты сохранятся в `result/email/email_check_results_YYYYMMDD_HHMMSS.csv`
 
 ### Программный запуск
 
@@ -318,7 +318,7 @@ def send_results_notification(total_checked, successful):
 import pandas as pd
 
 # Чтение результатов
-df = pd.read_csv('result/email_check_results.csv')
+df = pd.read_csv('result/email/email_check_results.csv')
 
 # Фильтрация успешных аккаунтов
 valid_emails = df[df['status'] == 'success']['email'].tolist()
@@ -358,7 +358,7 @@ def analyze_results(csv_file):
     print(domain_stats)
 
 # Использование
-analyze_results('result/email_check_results.csv')
+analyze_results('result/email/email_check_results.csv')
 ```
 
 ### Real-time мониторинг
@@ -402,7 +402,7 @@ admin@company.com,password123,company.com
 import pandas as pd
 
 # Загрузка результатов
-df = pd.read_csv('result/email_check_results.csv')
+df = pd.read_csv('result/email/email_check_results.csv')
 
 # Валидные аккаунты с большим количеством писем
 high_activity = df[

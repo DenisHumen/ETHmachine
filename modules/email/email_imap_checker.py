@@ -278,7 +278,7 @@ class EmailChecker:
         """Сохранение результатов в CSV файл"""
         if not filepath:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filepath = f'result/email_check_results_{timestamp}.csv'
+            filepath = f'result/email/email_check_results_{timestamp}.csv'
         
         # Создаем директорию если не существует
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
