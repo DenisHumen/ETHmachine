@@ -13,7 +13,7 @@ from config.rpc import (
 )
 from config.config import (
     expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
-    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
+    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY, USE_INTERMEDIARY_TOKEN, expected_completion_time_token
 )
 
 from modules.auto_backup import create_backup, list_backups
@@ -34,6 +34,7 @@ def check_and_create_files():
         'result/twitter/result.csv',
         'data/twitter/twitter_task.csv',
         'data/discord_token.txt',
+        'data/email.csv',
     ]
     required_directories = [
         'result',
@@ -45,7 +46,8 @@ def check_and_create_files():
         'data/twitter',
         'backups',
         'log',
-        'result/discord'
+        'result/discord',
+        'result/email'
     ]
 
     for directory in required_directories:
@@ -86,6 +88,8 @@ def check_and_create_files():
                     f.write('nickname,auth_token,ct0\n')
                 elif 'data/twitter/twitter_task.csv' in file:
                     f.write('еще в разработке\n')
+                elif 'data/email.csv' in file:
+                    f.write('email,password,imap_domain\n')
             print(Fore.GREEN + f"File created: {file}")
 
 # Создаем файлы ДО импорта модулей
@@ -100,6 +104,7 @@ from modules.get_gas_price import check_all_gas_prices
 
 from modules.twitter.twitter_check import run_twitter_check
 from modules.discord.discord_age import check_discord_accounts
+from modules.email.email_imap_checker import run_email_checker
 
 from modules.cex.okx.okx_SubAccount import check_okx_subaccounts_and_balances, get_balances_okx
 from modules.cex.okx.okx_withdraw import okx_withdraw
@@ -200,7 +205,8 @@ def main_menu():
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
                             Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
-                            Choice('🔙 Back', 'back')
+                            Choice('� Email IMAP Checker           🌟 Проверить почтовые аккаунты через IMAP', 'email_checker'),
+                            Choice('�🔙 Back', 'back')
                         ],
                         qmark='🛠️',
                         pointer='👉'
@@ -234,6 +240,9 @@ def main_menu():
                                     check_discord_accounts('linux')
                                 case 'back':
                                     continue
+                        case 'email_checker':
+                            run_email_checker()
+                            continue
 
                 case 'check_balances':
                     blockchain = select(
@@ -295,7 +304,8 @@ def main_menu():
                         "Выберите действие:",
                         choices=[
                             Choice('🧹 Drainers                     🌟 Сборщик балансов на main кошелек ', 'drainers'),
-                            Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить токены между кошельками через третий кошелек или на прямую', 'transfer_wallets_to_wallets_call'),
+                            Choice('🔄 Transfer Wallets to Wallets  🌟 Отправить нативные токены между кошельками', 'transfer_wallets_to_wallets_call'),
+                            Choice('💎 Transfer ERC20 Tokens        🌟 Отправить ERC20 токены между кошельками', 'transfer_erc20_tokens_call'),
                             Choice('🌉 Relay Bridge                 🌟 Мост между сетями через Relay Link', 'relay_bridge'),
                             Choice('🔙 Back', 'back')
                         ],
@@ -426,6 +436,11 @@ def main_menu():
                                 transfer_data, proxies, network, delay_between, total_tx,
                                 progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
                             )
+                            continue
+
+                        case 'transfer_erc20_tokens_call':
+                            from modules.eth.transfer_erc20_tokens import run_transfer_erc20_tokens
+                            run_transfer_erc20_tokens()
                             continue
 
                         case 'relay_bridge':

@@ -9,8 +9,6 @@
 base = {
     'usdc': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     'usdt': '0x2d1aDB45Bb1d7D2556c6558aDb76CFD4F9F4ed16',
-    'Chainlink (LINK)': '0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196',
-    'TOWNS': '0x1234567890abcdef1234567890abcdef12345678',
 }
 
 
