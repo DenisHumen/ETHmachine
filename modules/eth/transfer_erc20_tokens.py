@@ -48,6 +48,12 @@ from config.explorer_url import get_explorer_url
 from config.token_address_erc20 import *
 from modules.notifications import send_telegram_notification, send_telegram_file
 
+from config.rpc import (
+    L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
+    Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, 
+    monad_testnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet, kite_testnet
+)
+
 # ERC-20 ABI для взаимодействия с токенами
 ERC20_ABI = [
     {
@@ -205,11 +211,7 @@ def finalize_token_stats():
 
 def get_network_rpc(network):
     """Получение RPC URL для сети"""
-    from config.rpc import (
-        L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
-        Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, 
-        monad_testnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet
-    )
+
     
     mainnet_rpc_urls = {
         '🚀 Ethereum Mainnet': L1,
@@ -232,6 +234,7 @@ def get_network_rpc(network):
         '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Mega ETH': mega_eth_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
+        '🚀 Kite Testnet': kite_testnet,
     }
     
     if network in mainnet_rpc_urls:
@@ -247,6 +250,7 @@ def get_token_address(network, token_symbol):
         '🚀 Base': base,
         '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
+        '🚀 Kite Testnet': kite_testnet,
         # Добавьте другие сети по мере необходимости
     }
     
@@ -1288,6 +1292,7 @@ def choose_token_for_network(network):
         '🚀 Base': base,
         '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
+        '🚀 Kite Testnet': kite_testnet
     }
     
     network_tokens = network_mapping.get(network)

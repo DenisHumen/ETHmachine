@@ -9,7 +9,7 @@ from questionary import Choice, select
 from config.rpc import (
     L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
     Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora,
-    somnia, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet
+    somnia, mega_eth_testnet, Abstract, pharos_testnet, camp_testnet, kite_testnet
 )
 from config.config import (
     expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
@@ -158,6 +158,7 @@ testnet_rpc_urls = {
     '🚀 Mega ETH Testnet': mega_eth_testnet,
     '🚀 Pharos Testnet': pharos_testnet,
     '🚀 Camp Testnet': camp_testnet,
+    '🚀 Kite Testnet': kite_testnet,
 }
 
 

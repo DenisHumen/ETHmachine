@@ -21,7 +21,7 @@ def get_network_rpc_selection():
             L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
             Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, 
             monad_testnet, zora, somnia, mega_eth_testnet, 
-            Abstract, pharos_testnet, camp_testnet
+            Abstract, pharos_testnet, camp_testnet, kite_testnet
         )
         
         mainnet_rpc_urls = {
@@ -46,6 +46,7 @@ def get_network_rpc_selection():
             '🚀 Mega ETH': mega_eth_testnet,
             '🚀 Pharos': pharos_testnet,
             '🚀 Camp Testnet': camp_testnet,
+            '🚀 Kite Testnet': kite_testnet,
         }
     
     network_type = select(

@@ -199,7 +199,7 @@ def apply_trim_to_amount(amount_eth):
     return amount_eth
 
 def get_network_rpc(network):
-    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet
+    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet, kite_testnet
     mainnet_rpc_urls = {
         '🚀 Ethereum Mainnet': L1,
         '🚀 Base': base,
@@ -220,6 +220,7 @@ def get_network_rpc(network):
         '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Mega ETH': mega_eth_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
+        '🚀 Kite Testnet': kite_testnet,
     }
     if network in mainnet_rpc_urls:
         return random.choice(mainnet_rpc_urls[network])

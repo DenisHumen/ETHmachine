@@ -306,6 +306,8 @@ def get_all_networks():
                             formatted_name = "🚀 Pharos"
                         elif attr_name == 'camp_testnet':
                             formatted_name = "🚀 Camp Testnet"
+                        elif attr_name == 'kite_testnet':
+                            formatted_name = "🚀 Kite Testnet"
                         else:
                             formatted_name = f"🚀 {attr_name.replace('_', ' ').title()}"
                         testnet_rpc_urls[formatted_name] = attr_value
