@@ -304,8 +304,6 @@ def get_all_networks():
                             formatted_name = "🚀 Mega ETH"
                         elif attr_name == 'pharos_testnet':
                             formatted_name = "🚀 Pharos"
-                        elif attr_name == 'camp_testnet':
-                            formatted_name = "🚀 Camp Testnet"
                         elif attr_name == 'kite_testnet':
                             formatted_name = "🚀 Kite Testnet"
                         else:

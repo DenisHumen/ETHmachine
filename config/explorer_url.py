@@ -18,7 +18,6 @@ explorers = {
     '🚀 Somnia': {'symbol': 'SOMI', 'tx_url': "https://explorer.somnia.network/tx/"},
     '🚀 Mega ETH': {'symbol': 'ETH', 'tx_url': "https://www.oklink.com/ru/megaeth-testnet/tx/"},
     '🚀 Pharos Testnet': {'symbol': 'ETH', 'tx_url': "https://testnet.pharosscan.xyz/tx/"},
-    '🚀 Camp Testnet': {'symbol': 'ETH', 'tx_url': "https://explorer.camp-network-testnet.gelato.digital/tx/"},
 }
 
 def get_explorer_url(network):

@@ -491,7 +491,6 @@ def get_chain_rpc_list(chain):
         'Kite Testnet': rpc.kite_testnet,
         'MegaETH Testnet': rpc.mega_eth_testnet,
         'Pharos Testnet': rpc.pharos_testnet,
-        'Camp Testnet': rpc.camp_testnet
     }
     
     return chain_mapping.get(chain, rpc.L1)  # По умолчанию используем Ethereum
