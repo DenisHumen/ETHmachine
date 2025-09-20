@@ -3,11 +3,62 @@ from questionary import Choice, select
 
 init(autoreset=True)
 
-# Словарь с гайдами и ссылками
 GUIDES_DICT = {
     "🗂️ Check age discord": "https://youtu.be/7lRYBa0Educ",
     "🏦 CEX >>💲 OKX >> 💲 Withdraw from OKX": "https://youtu.be/iVE2fJgTACQ",
     "🏦 CEX >>💲 OKX >> 💲 Subaccount collector OKX": "",
+    
+    "🔄 Auto Backup": "",
+    "🔍 Check Proxy": "",
+    "⛽ Get Gas Price": "",
+    "🔔 Notifications": "",
+    "🔑 Password Generator": "",
+    
+    "🏦 CEX >>💲 Binance >> 👥 SubAccount": "",
+    "🏦 CEX >>💲 Binance >> 💲 Withdraw from Binance": "",
+    "🏦 CEX >>💲 Bitget >> 👥 SubAccount": "",
+    "🏦 CEX >>💲 Bitget >> 💲 Withdraw from Bitget": "",
+    "🏦 CEX >>💲 OKX >> 📈 Spot Trade": "",
+    
+    "⚡ ETH >> 🔪 Drainers": "",
+    "⚡ ETH >> 💰 Get Balances": "",
+    "⚡ ETH >> 🪙 Get Token Balance": "",
+    "⚡ ETH >> 📋 Last Transaction": "",
+    "⚡ ETH >> 🔐 Mnemonic to Private Key": "",
+    "⚡ ETH >> ✨ Nice Address Generator": "",
+    "⚡ ETH >> 🗝️ Private Key to Wallet Address": "",
+    "⚡ ETH >> 👝 Wallet Generator": "",
+    "⚡ ETH >> 🌐 RPC Return Module": "",
+    "⚡ ETH >> 💸 Transfer ERC20 Tokens": "",
+    "⚡ ETH >> 💱 Transfer Wallets to Wallets": "",
+    
+    "☀️ SOL >> 🔐 Mnemonic to Private Key": "",
+    "☀️ SOL >> ✨ Nice Address Generator": "",
+    "☀️ SOL >> 👝 Wallet Generator": "",
+    
+    "🗂️ Discord >> 📅 Check Age": "",
+    
+    "📧 Email >> 📬 IMAP Checker": "",
+    
+    "🐙 GitHub >> 🔄 Check Version": "",
+    
+    "🌐 Proxy >> ✅ Proxy Check": "",
+    
+    "🔗 Relay >> 🌉 Relay Link": "",
+    
+    "🐦 Twitter >> ✅ Check": "",
+}
+
+MODULES_IN_DEVELOPMENT = {
+    "☀️ SOL >> 🪙 Get Balances": "Файл sol_get_balances.py пустой",
+    "☀️ SOL >> 🪙 Get Token Balances": "Файл sol_get_token_balances.py пустой",
+
+    "🐦 Twitter >> ℹ️ Info": "Файл twitter_info.py пустой",
+    "🐦 Twitter >> 📋 Task": "Файл twitter_task.py пустой",
+    
+    "🚰 Faucets": "Модуль отключен в main.py, папка faucets пуста",
+    
+    "📊 Project Stats": "Модуль отключен в main.py, папка stats_modules пуста",
 }
 
 def show_guide(feature_name):
@@ -21,8 +72,8 @@ def show_guide(feature_name):
     print(Fore.CYAN + f"📖 ГАЙД ДЛЯ: {Style.BRIGHT}{feature_name}")
     print(Fore.CYAN + "=" * 60)
     
-    # Ищем точное совпадение
     guide_url = GUIDES_DICT.get(feature_name)
+    dev_reason = MODULES_IN_DEVELOPMENT.get(feature_name)
     
     if guide_url and guide_url.strip():
         print(Fore.GREEN + "✅ Гайд найден!")
@@ -30,6 +81,11 @@ def show_guide(feature_name):
         print(Fore.WHITE + "\n📝 Описание:")
         print(Fore.WHITE + f"   Подробная инструкция по использованию функции '{feature_name}'")
         print(Fore.BLUE + "\n💡 Совет: Скопируйте ссылку и откройте в браузере")
+    elif dev_reason:
+        print(Fore.CYAN + "🚧 Модуль в разработке")
+        print(Fore.YELLOW + f"📝 Функция: {feature_name}")
+        print(Fore.WHITE + f"📋 Статус: {dev_reason}")
+        print(Fore.BLUE + "\n💬 Есть вопросы? Обращайтесь в Telegram: https://t.me/DenisHumen")
     else:
         print(Fore.RED + "❌ Гайд еще не написан")
         print(Fore.YELLOW + f"📝 Функция: {feature_name}")
@@ -66,6 +122,12 @@ def list_all_guides():
         for i, feature in enumerate(unavailable_guides, 1):
             print(Fore.WHITE + f"   {i:2d}. {feature}")
     
+    if MODULES_IN_DEVELOPMENT:
+        print(Fore.CYAN + f"\n🚧 МОДУЛИ В РАЗРАБОТКЕ ({len(MODULES_IN_DEVELOPMENT)}):")
+        for i, (feature, reason) in enumerate(MODULES_IN_DEVELOPMENT.items(), 1):
+            print(Fore.WHITE + f"   {i:2d}. {feature}")
+            print(Fore.YELLOW + f"       📝 {reason}")
+    
     print(Fore.MAGENTA + "=" * 70)
 
 def search_guide(search_term):
@@ -77,23 +139,36 @@ def search_guide(search_term):
     """
     search_term = search_term.lower()
     found_guides = []
+    found_dev_modules = []
     
     for feature, url in GUIDES_DICT.items():
         if search_term in feature.lower():
             found_guides.append((feature, url))
     
+    for feature, reason in MODULES_IN_DEVELOPMENT.items():
+        if search_term in feature.lower():
+            found_dev_modules.append((feature, reason))
+    
     print(Fore.CYAN + "=" * 60)
     print(Fore.CYAN + f"🔍 ПОИСК ПО ЗАПРОСУ: {Style.BRIGHT}'{search_term}'")
     print(Fore.CYAN + "=" * 60)
     
-    if found_guides:
-        print(Fore.GREEN + f"✅ Найдено {len(found_guides)} совпадений:")
+    total_found = len(found_guides) + len(found_dev_modules)
+    
+    if total_found > 0:
+        print(Fore.GREEN + f"✅ Найдено {total_found} совпадений:")
+        
         for i, (feature, url) in enumerate(found_guides, 1):
             status = "✅ Доступен" if url and url.strip() else "❌ В разработке"
             color = Fore.GREEN if url and url.strip() else Fore.RED
             print(color + f"   {i}. {feature} - {status}")
             if url and url.strip():
                 print(Fore.YELLOW + f"      🔗 {url}")
+        
+        start_num = len(found_guides) + 1
+        for i, (feature, reason) in enumerate(found_dev_modules, start_num):
+            print(Fore.CYAN + f"   {i}. {feature} - 🚧 Модуль в разработке")
+            print(Fore.YELLOW + f"      📝 {reason}")
     else:
         print(Fore.RED + "❌ Ничего не найдено")
         print(Fore.YELLOW + "💡 Попробуйте другой поисковый запрос")
@@ -127,7 +202,3 @@ def info():
             input(Fore.CYAN + "\nНажмите Enter для продолжения...")
         elif action == 'back':
             break
-
-if __name__ == "__main__":
-    # Примеры использования
-    info()

@@ -92,10 +92,8 @@ def check_and_create_files():
                     f.write('email,password,imap_domain\n')
             print(Fore.GREEN + f"File created: {file}")
 
-# Создаем файлы ДО импорта модулей
 check_and_create_files()
 
-# Импорты модулей ПОСЛЕ создания файлов
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balances_menu
