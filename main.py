@@ -13,7 +13,7 @@ from config.rpc import (
 )
 from config.config import (
     expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
-    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY, USE_INTERMEDIARY_TOKEN, expected_completion_time_token
+    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
 )
 
 from modules.auto_backup import create_backup, list_backups
