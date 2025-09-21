@@ -12,8 +12,7 @@ from config.rpc import (
     somnia, mega_eth_testnet, Abstract, pharos_testnet,  kite_testnet
 )
 from config.config import (
-    expected_completion_time, NICE_ADDRESS_WORDS_enable, REPEATED_CHAR_COUNT_enable,
-    DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
+    expected_completion_time, DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
 )
 
 from modules.auto_backup import create_backup, list_backups
@@ -180,13 +179,9 @@ def main_menu():
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('💲 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
-                    Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
-                    Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
-                    Choice('🪙  Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
-                    Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
-                    Choice('🧰 Miscellaneous                🌟 Разные удобные штуки', 'miscellaneous'),
+                    Choice('🧰 Tools                        🌟 Разные удобные инструменты', 'miscellaneous'),
                     Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
@@ -199,18 +194,204 @@ def main_menu():
                     choices = select(
                         "Выберите действие:",
                         choices=[
-                            Choice('🗂️ password generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
+                            Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
+                            Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
+                            Choice('🪙 Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
+                            Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                            Choice('🔑 Password Generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
                             Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
-                            Choice('� Email IMAP Checker           🌟 Проверить почтовые аккаунты через IMAP', 'email_checker'),
-                            Choice('�🔙 Back', 'back')
+                            Choice('📧 Email IMAP Checker           🌟 Проверить почтовые аккаунты через IMAP', 'email_checker'),
+                            Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
 
                     match choices:
+                        case 'twitter':
+                            # Twitter submenu
+                            twitter_action = select(
+                                "Выберите действие с Twitter:",
+                                choices=[
+                                    Choice('🐦 Twitter Check             🌟 Проверка аккаунтов Twitter', 'twitter_check'),
+                                    Choice('🐦 Twitter Info              🌟 Получение информации Twitter', 'twitter_info'),
+                                    Choice('🐦 Twitter Task              🌟 выполнение задач по файлу data/twitter/twitter_task.csv', 'twitter_task'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🐦',
+                                pointer='👉'
+                            ).ask()
+
+                            match twitter_action:
+                                case 'twitter_check':
+                                    platform_choice = select(
+                                        "Выберите платформу на которой запускается скрипт:",
+                                        choices=[
+                                            Choice('🐦 Windows', 'windows'),
+                                            Choice('🐦 Linux', 'linux'),
+                                            Choice('🐦 MacOS', 'macos'),
+                                            Choice('🔙 Back', 'back')
+                                        ],
+                                        qmark='🛠️',
+                                        pointer='👉'
+                                    ).ask()
+
+                                    match platform_choice:
+                                        case 'windows':
+                                            run_twitter_check('windows')
+                                        case 'linux':
+                                            run_twitter_check('linux')
+                                        case 'macos':
+                                            run_twitter_check('macos')
+                                        case 'back':
+                                            continue
+                                case 'twitter_info':
+                                    print(Fore.GREEN + "\n\tФункционал Twitter Info в разработке, скоро будет доступен!\n")
+                                case 'twitter_task':
+                                    print(Fore.GREEN + "\n\tФункционал Twitter Task в разработке, скоро будет доступен!\n")
+                                case 'back':
+                                    continue
+                        case 'check_gas_price':
+                            check_all_gas_prices()
+                        case 'generate_wallets':
+                            # Generate Wallets submenu
+                            wallets_action = select(
+                                "Выберите тип генерации кошельков:",
+                                choices=[
+                                    Choice('⚡ ETH Кошельки              🌟 Генерация ETH кошельков', 'eth_wallets'),
+                                    Choice('☀️ SOL Кошельки              🌟 Генерация SOL кошельков', 'sol_wallets'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🪙',
+                                pointer='👉'
+                            ).ask()
+
+                            match wallets_action:
+                                case 'eth_wallets':
+                                    num_wallets = select(
+                                        "Сколько кошельков вы хотите сгенерировать?",
+                                        choices=[
+                                            Choice('▶️  1', 1),
+                                            Choice('▶️  10', 10),
+                                            Choice('▶️  100', 100),
+                                            Choice('▶️  1000', 1000),
+                                            Choice('▶️  5000', 5000),
+                                            Choice('▶️  10000', 10000),
+                                            Choice('✏️ Ввести вручную', 'manual'),
+                                            Choice('🔙 Back', 'back')
+                                        ],
+                                        qmark='🪙',
+                                        pointer='👉'
+                                    ).ask()
+                                    
+                                    if num_wallets == 'back':
+                                        continue
+                                    if num_wallets == 'manual':
+                                        try:
+                                            num_wallets = int(input(Fore.YELLOW + "Введите количество кошельков для генерации: "))
+                                            if num_wallets <= 0:
+                                                print(Fore.RED + "Пожалуйста, введите положительное число!")
+                                                continue
+                                        except ValueError:
+                                            print(Fore.RED + "Неверный ввод. Пожалуйста, введите правильное число.")
+                                            continue
+                                    
+                                    eth_wallets_choice = select(
+                                        "Выберите тип генерации ETH кошельков:",
+                                        choices=[
+                                            Choice('🪙 Генерация кошельков       🌟 Сгенерировать кошельки', 'generate'),
+                                            Choice('✨ Генерация красивых кошельков 🌟 Сгенерировать красивые кошельки', 'nice_generate'),
+                                            Choice('🔙 Back', 'back')
+                                        ],
+                                        qmark='⚡',
+                                        pointer='👉'
+                                    ).ask()
+                                    match eth_wallets_choice:
+                                        case 'generate':
+                                            eth_generate_wallets(num_wallets)
+                                            print(Fore.GREEN + f"\nСгенерировано {num_wallets} кошельков и сохранено в result/result.csv\n")
+                                        case 'nice_generate':
+                                            eth_generate_nice_wallets(num_wallets)
+                                            print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
+                                        case 'back':
+                                            continue
+                                case 'sol_wallets':
+                                    # Сначала выбираем количество кошельков
+                                    num_wallets = select(
+                                        "Сколько кошельков вы хотите сгенерировать?",
+                                        choices=[
+                                            Choice('▶️  1', 1),
+                                            Choice('▶️  10', 10),
+                                            Choice('▶️  100', 100),
+                                            Choice('▶️  1000', 1000),
+                                            Choice('▶️  5000', 5000),
+                                            Choice('▶️  10000', 10000),
+                                            Choice('✏️ Ввести вручную', 'manual'),
+                                            Choice('🔙 Back', 'back')
+                                        ],
+                                        qmark='🪙',
+                                        pointer='👉'
+                                    ).ask()
+                                    
+                                    if num_wallets == 'back':
+                                        continue
+                                    if num_wallets == 'manual':
+                                        try:
+                                            num_wallets = int(input(Fore.YELLOW + "Введите количество кошельков для генерации: "))
+                                            if num_wallets <= 0:
+                                                print(Fore.RED + "Пожалуйста, введите положительное число!")
+                                                continue
+                                        except ValueError:
+                                            print(Fore.RED + "Неверный ввод. Пожалуйста, введите правильное число.")
+                                            continue
+                                    
+                                    # Теперь выбираем тип генерации
+                                    sol_wallets_choice = select(
+                                        "Выберите тип генерации SOL кошельков:",
+                                        choices=[
+                                            Choice('🪙 Генерация кошельков       🌟 Сгенерировать кошельки', 'generate'),
+                                            Choice('✨ Генерация красивых кошельков 🌟 Сгенерировать красивые кошельки', 'nice_generate'),
+                                            Choice('🔙 Back', 'back')
+                                        ],
+                                        qmark='☀️',
+                                        pointer='👉'
+                                    ).ask()
+                                    match sol_wallets_choice:
+                                        case 'generate':
+                                            sol_generate_wallets(num_wallets)
+                                            print(Fore.GREEN + f"\nСгенерировано {num_wallets} SOL кошельков и сохранено в result/result.csv\n")
+                                        case 'nice_generate':
+                                            sol_generate_nice_wallets(num_wallets)
+                                            print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых SOL кошельков и сохранено в result/result.csv\n")
+                                        case 'back':
+                                            continue
+                                case 'back':
+                                    continue
+                        case 'ETH_convert_tool':
+                            # ETH/SOL Convert tool submenu
+                            convert_action = select(
+                                "Выберите операцию конвертации:",
+                                choices=[
+                                    Choice('⚡ ETH >> 🔐 Mnemonic to Private Key 🌟 Конвертировать мнемонику в приватный ключ', 'eth_mnemonic_to_privkey'),
+                                    Choice('⚡ ETH >> 🗝️ Private Key to Wallet    🌟 Конвертировать приватный ключ в адрес кошелька', 'eth_privkey_to_wallet'),
+                                    Choice('☀️ SOL >> 🔐 Mnemonic to Private Key 🌟 Конвертировать мнемонику в приватный ключ', 'sol_mnemonic_to_privkey'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+
+                            match convert_action:
+                                case 'eth_mnemonic_to_privkey':
+                                    process_mnemonics()
+                                case 'eth_privkey_to_wallet':
+                                    process_private_keys()
+                                case 'sol_mnemonic_to_privkey':
+                                    sol_process_mnemonics()
+                                case 'back':
+                                    continue
                         case 'password_generator':
                             password_generator_menu()
                         case 'check_proxy':
@@ -240,6 +421,8 @@ def main_menu():
                                     continue
                         case 'email_checker':
                             run_email_checker()
+                            continue
+                        case 'back':
                             continue
 
                 case 'check_balances':
@@ -448,50 +631,6 @@ def main_menu():
                         case 'back':
                             continue
 
-                case 'twitter':
-                    count = select(
-                        "Выберите действие:",
-                        choices=[
-                            Choice('🐦 Check Twitter Accounts  🌟 сбор статистики по аккаунтам с data/twitter/twitters.csv', 'check_twitter_accounts'),
-                            Choice('🐦 Twitter Task            🌟 выполнение задач по файлу data/twitter/twitter_task.csv', 'twitter_task'),
-                            Choice('ℹ️ INFO', 'info'),
-                            Choice('🔙 Back', 'back')
-                        ],
-                        qmark='🛠️',
-                        pointer='👉',
-                    ).ask()
-                    match count:
-                        case 'check_twitter_accounts':
-                            choices = select(
-                                "Выберите платформу на которой запускается скрипт:",
-                                choices=[
-                                    Choice('🐦 Windows', 'windows'),
-                                    Choice('🐦 Linux', 'linux'),
-                                    Choice('🐦 MacOS', 'macos'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🛠️',
-                                pointer='👉'
-                            ).ask()
-
-                            match choices:
-                                case 'windows':
-                                    run_twitter_check('windows')
-                                case 'linux':
-                                    run_twitter_check('linux')
-                                case 'macos':
-                                    run_twitter_check('macos')
-                                case 'back':
-                                    continue
-
-                        case 'twitter_task':
-                            print(Fore.GREEN + "\n\tФункционал Twitter Task в разработке, скоро будет доступен!\n")
-                        case 'info':
-                            print(Fore.GREEN + "\n\tИнформация о Twitter Checker (еще делаю):\n")
-
-                        case 'back':
-                            continue
-
                 case 'info':
                     info()
                     continue
@@ -523,76 +662,13 @@ def main_menu():
                         action = select(
                             "Выберите действие (статистика по проектам):",
                             choices=[
-                                Choice('📈 Pharos', 'pharos_stats'),
-                                Choice('📈 Monad', 'monad'),
-                                Choice('📈 Mega ETH', 'MegaETH'),
                                 Choice('🔙 Back', 'back')
                             ],
                             qmark='🛠️',
                             pointer='👉'
                         ).ask()
 
-                        animation = [
-                            "🕐",
-                            "🕑",
-                            "🕒",
-                            "🕓",
-                            "🕔",
-                            "🕕",
-                            "🕖",
-                            "🕗",
-                            "🕘",
-                            "🕙",
-                            "🕚",
-                            "🕛",
-                            "🕐",
-                            "🕑",
-                            "🕒",
-                            "🕓",
-                            "🕔",
-                            "🕕",
-                            "🕖",
-                            "🕗",
-                            "🕘",
-                            "🕙",
-                            "🕚",
-                            "🕛",
-                            "🕐",
-                            "🕑",
-                            "🕒",
-                            "🕓",
-                            "🕔",
-                            "🕕",
-                            "🕖",
-                            "🕗",
-                            "🕘",
-                            "🕙",
-                            "🕚",
-                            "🕛"
-                        ]
-
                         match action:
-                            case 'pharos_stats':
-
-                                #pharos_wallet_stats()
-                                print(Fore.GREEN + "\n\tСтатистика берется из сайта https://pharos-stats.vercel.app/\n")
-                                print(Fore.YELLOW + "\n\tНа данный момент чекер находится в разработке, сейчас не работает\n")
-                                print(Fore.YELLOW + "\tЕсли хотите добавить другие сети, то пишите в тг https://t.me/DenisHumen\n")
-
-                                for frame in animation:
-                                    print(Fore.GREEN + f"\r{frame}", end='', flush=True)
-                                    time.sleep(0.1)
-                                print()
-                                continue
-                            
-                            case 'monad':
-                                print(Fore.GREEN + '\n\tДоступна в скрипте https://github.com/DenisHumen/CryptoProjectChecker\n')
-                                time.sleep(3)
-
-                            case 'MegaETH':
-                                print(Fore.GREEN + '\n\tДоступна в скрипте https://github.com/DenisHumen/CryptoProjectChecker\n')
-                                time.sleep(3)
-
                             case 'back':
                                 break
 
@@ -716,179 +792,10 @@ def main_menu():
                         case 'back':
                             continue
 
-                case 'ETH_convert_tool':
-                    action = select(
-                        'Выберите действие:',
-                        choices=[
-                            Choice('🔑 Convert Mnemonic to Private Key | Конвертация мнемонической фразы в приватный ключ', 'mnemonic_to_priv_key'),
-                            Choice('🔑 Convert Private Key to Wallet Address | Конвертация приватного ключа в адрес кошелька', 'private_key_to_wallet_address'),
-                            Choice('🔙 Back', 'back')
-                        ],
-                        qmark='🛠️',
-                        pointer='👉'
-                    ).ask()
-
-                    match action:
-                        case 'back':
-                            continue
-                        case 'mnemonic_to_priv_key':
-                            blockchain_action = select(
-                                'Sol или ETH?',
-                                choices=[
-                                    Choice('💲 ETH', 'ETH'),
-                                    Choice('💲 SOL', 'SOL'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🛠️',
-                                pointer='👉'
-                            ).ask()
-                            
-                            match blockchain_action:
-                                case 'back':
-                                    continue
-                                case 'SOL':
-                                    #print(Fore.RED + "Конвертация мнемонической фразы в приватный ключ для SOL еще в работе, скоро будет доступна!\n")
-                                    sol_process_mnemonics()
-                                    time.sleep(2)
-                                    continue
-                                case 'ETH':
-                                    if not os.path.exists('data/mnemonic.txt') or os.stat('data/mnemonic.txt').st_size == 0:
-                                        print(Fore.RED + "Файл data/mnemonic.txt пуст или не существует. Пожалуйста, добавьте мнемонические фразы.")
-                                        time.sleep(2)
-                                        continue
-                                    print(Fore.GREEN + "Конвертация мнемонической фразы в приватный ключ для ETH")
-                                    process_mnemonics()
-                                    continue
-                            
-                            time.sleep(2)
-                            continue
-                        case 'private_key_to_wallet_address':
-                            action = select(
-                                'Выберите действие:',
-                                choices=[
-                                    Choice('💲 ETH', 'ETH'),
-                                    Choice('💲 SOL', 'SOL'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🛠️',
-                                pointer='👉'
-                            ).ask()
-
-                            match action:
-                                case 'back':
-                                    continue
-                                case 'SOL':
-                                    print(Fore.RED + "Конвертация приватного ключа в адрес кошелька для SOL еще в работе, скоро будет доступна!\n")
-                                    continue
-                                case 'ETH':
-                                    print(Fore.GREEN + "Конвертация приватного ключа в адрес кошелька")
-                                    process_private_keys()
-                                    time.sleep(2)
-                                    continue
-
-                case 'generate_wallets':
-                    num_wallets = select(
-                        "How many wallets do you want to generate?",
-                        choices=[
-                            Choice('▶️  1', 1),
-                            Choice('▶️  10', 10),
-                            Choice('▶️  100', 100),
-                            Choice('▶️  1000', 1000),
-                            Choice('▶️  5000', 5000),
-                            Choice('▶️  10000', 10000),
-                            Choice('✏️ Enter manually', 'manual'),
-                            Choice('🔙 Back', 'back')
-                        ],
-                        qmark='🛠️',
-                        pointer='👉'
-                    ).ask()
-                    if num_wallets == 'back':
-                        continue
-                    if num_wallets == 'manual':
-                        try:
-                            num_wallets = int(input(Fore.YELLOW + "Enter the number of wallets to generate: "))
-                            if num_wallets <= 0:
-                                print(Fore.RED + "Please enter a positive number: ")
-                                continue
-                        except ValueError:
-                            print(Fore.RED + "Invalid input. Please enter a valid number.")
-                            continue
-
-                    if num_wallets and num_wallets != 'back':
-                        action = select(
-                            f"Для какой сети?",
-                            choices=[
-                                Choice('💲 ETH', 'ETH'),
-                                Choice('💲 SOL', 'SOL'),
-                                Choice('🔙 Back', 'back')
-                            ],
-                            qmark='🛠️',
-                            pointer='👉'
-                        ).ask()
-                        if action == 'ETH':
-
-                            addr_type = select(
-                                f"Какие адреса генерировать ?",
-                                choices=[
-                                    Choice('💲 Normal | Обычные', 'normal'),
-                                    Choice('💲 Nice | Красивые', 'nice'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🛠️',
-                                pointer='👉'
-                            ).ask()
-                            if addr_type == 'normal':
-                                eth_generate_wallets(num_wallets)
-                                print(Fore.GREEN + f"\nGenerated {num_wallets} wallets and saved to result/result.csv\n")
-                                continue
-                            if addr_type == 'nice':
-                                if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
-                                    print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
-                                    print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
-                                    continue
-                                if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
-                                    eth_generate_nice_wallets(num_wallets)
-                                    print(Fore.GREEN + f"\nGenerated {num_wallets} nice wallets and saved to result/result.csv\n")
-                                    continue
-
-
-                        elif action == 'SOL':
-                            addr_type = select(
-                                f"Какие адреса генерировать ?",
-                                choices=[
-                                    Choice('💲 Normal | Обычные', 'normal'),
-                                    Choice('💲 Nice | Красивые', 'nice'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🛠️',
-                                pointer='👉'
-                            ).ask()
-                            if addr_type == 'normal':
-                                sol_generate_wallets(num_wallets)
-                                print(Fore.GREEN + f"\nGenerated {num_wallets} SOL wallets and saved to result/result.csv\n")
-                                continue
-                            elif addr_type == 'nice':
-                                if not NICE_ADDRESS_WORDS_enable and not REPEATED_CHAR_COUNT_enable:
-                                    print(Fore.RED + "\nОшибка: Все параметры поиска отключены.")
-                                    print(Fore.YELLOW + "Включите NICE_ADDRESS_WORDS_enable или REPEATED_CHAR_COUNT_enable в config/config.py и повторите попытку.\n")
-                                    continue
-                                if NICE_ADDRESS_WORDS_enable or REPEATED_CHAR_COUNT_enable:
-                                    sol_generate_nice_wallets(num_wallets)
-                                    print(Fore.GREEN + f"\nGenerated {num_wallets} nice SOL wallets and saved to result/result.csv\n")
-                                    continue
-
-
-                        elif action == 'back':
-                            continue
-                    #continue
-
                 case 'check_all_balances': 
                     print(Fore.GREEN + f"\n\tФункционал CEX в разработке\n \tОбращайтесь с вопросами в тг https://t.me/DenisHumen")
                     time.sleep(3)
                     continue
-
-                case 'check_gas_price':
-                    check_all_gas_prices()
 
                 case'back':
                     continue

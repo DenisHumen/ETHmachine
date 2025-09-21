@@ -1,6 +1,6 @@
 # Mainnet
 L1 = ["https://eth.merkle.io", 'https://eth.llamarpc.com', 'https://rpc.mevblocker.io', 'https://eth.drpc.org', 'https://rpc.payload.de', 'https://eth.blockrazor.xyz']
-base = ["https://base.llamarpc.com"]
+base = ["https://base.llamarpc.com", 'https://base-rpc.publicnode.com']
 arbitrum = ['https://arbitrum.drpc.org']
 optimism = ['https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org']
 soneium = ['https://rpc.soneium.org']
