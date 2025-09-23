@@ -78,6 +78,11 @@ def check_and_create_files():
                         'bitget_api_secret = ""\n'
                         'bitget_passphrase = ""  # Может потребоваться для некоторых API ключей\n'
                         "'------------------------------------------------------------------------------------------------------------'\n"
+                        '\n'
+                        '# https://mexcdevelop.github.io/apidocs/spot_v3_en/\n'
+                        'mexc_api_key = ""\n'
+                        'mexc_api_secret = ""\n'
+                        "'------------------------------------------------------------------------------------------------------------'\n"
                     )
                 elif 'transfer_token.csv' in file:
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
@@ -110,6 +115,7 @@ from modules.cex.binance.binance_withdraw import binance_withdraw
 from modules.cex.binance.binance_SubAccount import get_balances_binance, subaccount_collector_binance
 from modules.cex.bitget.bitget_SubAccount import check_bitget_subaccounts_and_balances
 from modules.cex.bitget.bitget_withdraw import bitget_withdraw
+from modules.cex.mexc.mexc_withdraw import mexc_withdraw
 from modules.GitHub.check_version import check_version
 
 from modules.check_proxy import check_proxy_menu
@@ -700,6 +706,7 @@ def main_menu():
                             Choice('💲 OKX          🌟 Работа с OKX', 'OKX'),
                             Choice('💲 Binance      🌟 Работа с Binance', 'Binance'),
                             Choice('💲 Bitget       🌟 Работа с Bitget', 'Bitget'),
+                            Choice('💲 MEXC         🌟 Работа с MEXC', 'MEXC'),
                             Choice('🔙 Back', 'back')
                         ],
                         qmark='🛠️',
@@ -786,6 +793,24 @@ def main_menu():
                                 case 'subaccount_collector_bitget':
                                     #print(Fore.GREEN + "\n\tФункционал Bitget в разработке, скоро будет доступен\n")
                                     check_bitget_subaccounts_and_balances()
+                                case 'back':
+                                    continue
+
+                        case 'MEXC':
+                            action = select(
+                                'Выберите действие:',
+                                choices=[
+                                    Choice('💲 Withdraw from MEXC           🌟 Вывод с MEXC', 'withdraw_from_mexc'),
+                                    Choice('🔙 Back', 'back')
+                                ],
+                                qmark='🛠️',
+                                pointer='👉'
+                            ).ask()
+
+                            match action:
+                                case 'withdraw_from_mexc':
+                                    mexc_withdraw()
+                                    continue
                                 case 'back':
                                     continue
 
