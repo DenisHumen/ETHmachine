@@ -242,8 +242,8 @@ ETHER_SCAN_API_KEY_v2 = "3BUFCPHAMDA41F4WRZ529SF5J8BS9QZJGZ" # https://etherscan
 # RELAY LINK
 # ========================================================================================
 # в случае если вы добавили например 10 кошельков и они уже отрааботались, можно додавить еще 10 и восстановить выполнение и будет сделанны только те что еще не были сделанны 
-SUM_TO_RELAY = [0.0013, 0.0019] # рандомная сумма для моста
-NETWORKS_TO_RELAY = ['optimism', 'ethereum'] # все доступные сети (base, ethereum, arbitrum, optimism)
+SUM_TO_RELAY = [0.0013, 0.0015] # рандомная сумма для моста
+NETWORKS_TO_RELAY = ['optimism', 'base'] # все доступные сети (base, ethereum, arbitrum, optimism)
 
 GAS = {
     'LIMIT_GAS_COST': 0.1,  # Лимит газа для транзакций (указывать в usdt)

@@ -17,6 +17,10 @@ from config.config import (
 
 from modules.auto_backup import create_backup, list_backups
 
+# Импорт новых модулей для работы с биржами
+from modules.config_validator import validate_configuration
+from modules.cex.exchange_selector import select_exchange_account
+
 def check_and_create_files():
     required_files = [
         'result/result.csv',
@@ -63,26 +67,52 @@ def check_and_create_files():
                     f.write('address,transaction_count,network\n')
                 elif 'cex_settings.py' in file:
                     f.write(
+                        '# Конфигурация для множественных аккаунтов бирж\n'
+                        '# Для каждой биржи можно настроить несколько аккаунтов\n\n'
+                        '# OKX Configuration\n'
                         '# https://www.okx.com/ru/account/my-api\n'
-                        'OKX_API_KEY = ""\n'
-                        'OKX_API_SECRET = ""\n'
-                        'OKX_API_PASSPHRAS = ""\n'
-                        'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n'
-                        "'------------------------------------------------------------------------------------------------------------'\n"
-                        'binance_api_key = ""\n'
-                        'secret_key = ""\n'
-                        "'------------------------------------------------------------------------------------------------------------'\n"
-                        '\n'
+                        'OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта\n\n'
+                        'OKX_ACCOUNTS = [\n'
+                        '    {\n'
+                        '        \'name\': \'OKX Main\',\n'
+                        '        \'api_key\': \'\',\n'
+                        '        \'api_secret\': \'\',\n'
+                        '        \'passphrase\': \'\',\n'
+                        '        \'type\': OKX_EU_TYPE,\n'
+                        '        \'enabled\': False,\n'
+                        '    },\n'
+                        ']\n\n'
+                        '# Binance Configuration\n'
+                        '# https://www.binance.com/en/my/settings/api-management\n'
+                        'BINANCE_ACCOUNTS = [\n'
+                        '    {\n'
+                        '        \'name\': \'Binance Main\',\n'
+                        '        \'api_key\': \'\',\n'
+                        '        \'api_secret\': \'\',\n'
+                        '        \'enabled\': False,\n'
+                        '    },\n'
+                        ']\n\n'
+                        '# Bitget Configuration\n'
                         '# https://www.bitget.com/ru/support/articles/360033773814\n'
-                        'bitget_api_key = ""\n'
-                        'bitget_api_secret = ""\n'
-                        'bitget_passphrase = ""  # Может потребоваться для некоторых API ключей\n'
-                        "'------------------------------------------------------------------------------------------------------------'\n"
-                        '\n'
-                        '# https://mexcdevelop.github.io/apidocs/spot_v3_en/\n'
-                        'mexc_api_key = ""\n'
-                        'mexc_api_secret = ""\n'
-                        "'------------------------------------------------------------------------------------------------------------'\n"
+                        'BITGET_ACCOUNTS = [\n'
+                        '    {\n'
+                        '        \'name\': \'Bitget Main\',\n'
+                        '        \'api_key\': \'\',\n'
+                        '        \'api_secret\': \'\',\n'
+                        '        \'passphrase\': \'\',\n'
+                        '        \'enabled\': False,\n'
+                        '    },\n'
+                        ']\n\n'
+                        '# MEXC Configuration\n'
+                        '# https://www.mexc.com/ru-RU/user/openapi\n'
+                        'MEXC_ACCOUNTS = [\n'
+                        '    {\n'
+                        '        \'name\': \'MEXC Main\',\n'
+                        '        \'api_key\': \'\',\n'
+                        '        \'api_secret\': \'\',\n'
+                        '        \'enabled\': False,\n'
+                        '    },\n'
+                        ']\n'
                     )
                 elif 'transfer_token.csv' in file:
                     f.write('from_wallet,to_wallet,intermediary,amount\n')
@@ -97,6 +127,9 @@ def check_and_create_files():
             print(Fore.GREEN + f"File created: {file}")
 
 check_and_create_files()
+
+# Проверка конфигурации при запуске
+
 
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
@@ -833,6 +866,15 @@ def main_menu():
 if __name__ == "__main__":
     check_version("ETHmachine")
     create_backup()
+
+    print(Fore.CYAN + "\n🔍 Проверка конфигурации...")
+    if not validate_configuration():
+        print(Fore.RED + "\n❌ Обнаружены проблемы в конфигурации!")
+        print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт.")
+        input("\nНажмите Enter для выхода...")
+        exit(1)
+    print(Fore.GREEN + "✅ Конфигурация проверена успешно!\n")
+
     if DISPLAY_LIST_BACKUPS:
         list_backups()
     main_menu()

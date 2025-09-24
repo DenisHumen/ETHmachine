@@ -18,9 +18,10 @@ from loguru import logger
 from web3 import Web3
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import mexc_api_key, mexc_api_secret
+from config.cex_settings import MEXC_ACCOUNTS
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
+from modules.cex.exchange_selector import select_mexc_account
 
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
 os.makedirs(log_path, exist_ok=True)
@@ -245,7 +246,7 @@ def get_token_price_in_usdt(token):
         return None
 
 
-def get_account_balances():
+def get_account_balances(mexc_api_key, mexc_api_secret):
     """Получить все балансы аккаунта"""
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
@@ -300,7 +301,7 @@ def pick_token_to_withdraw(balances):
     return token
 
 
-def pick_chain(token):
+def pick_chain(token, mexc_api_key, mexc_api_secret):
     """Выбор сети для вывода"""
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
@@ -438,7 +439,7 @@ def calculate_individual_withdraw_amount(token, available_balance):
     return round(random.uniform(amount_from, amount_to), 6)
 
 
-def get_withdraw_fee(token, chain):
+def get_withdraw_fee(token, chain, mexc_api_key, mexc_api_secret):
     """Получить комиссию за вывод"""
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
@@ -470,7 +471,9 @@ def get_withdraw_fee(token, chain):
         return 0
 
 
-def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
+def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float, 
+                         mexc_api_key, mexc_api_secret, 
+                         wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
@@ -527,13 +530,17 @@ def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float, wa
                 
             if retry < 3 and error_code != 10232:  
                 time.sleep(10)
-                return execute_mexc_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+                return execute_mexc_withdraw(wallet, token, chain, amount, 
+                                            mexc_api_key, mexc_api_secret, 
+                                            wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
         logger.error(f"{wallet_prefix}MEXC withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_mexc_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+            return execute_mexc_withdraw(wallet, token, chain, amount, 
+                                        mexc_api_key, mexc_api_secret, 
+                                        wallet_number, total_wallets, retry + 1)
     
     return None
 
@@ -929,12 +936,12 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
 
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
-    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets = wallet_data
+    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets, mexc_api_key, mexc_api_secret = wallet_data
     
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         
-        current_balances = get_account_balances()
+        current_balances = get_account_balances(mexc_api_key, mexc_api_secret)
         if not current_balances or token not in current_balances:
             logger.error(f"{wallet_prefix}No balance found for {token}")
             save_progress(db_file, wallet, token, chain, 0, 'error', 'No balance available')
@@ -946,7 +953,9 @@ def process_single_wallet(wallet_data):
         
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
-        result = execute_mexc_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
+        result = execute_mexc_withdraw(wallet, token, chain, individual_amount, 
+                                      mexc_api_key, mexc_api_secret, 
+                                      wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -1027,6 +1036,18 @@ def mexc_withdraw():
     """Основная функция"""
     logger.info("=== MEXC Withdrawal Module ===")
     
+    # Выбор аккаунта MEXC
+    exchange_name, selected_account = select_mexc_account()
+    if not selected_account:
+        logger.error("❌ Не выбран аккаунт MEXC")
+        return
+    
+    # Обновляем переменные API ключей
+    mexc_api_key = selected_account['api_key']
+    mexc_api_secret = selected_account['api_secret']
+    
+    logger.info(f"Используется аккаунт MEXC: {selected_account['name']}")
+    
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
         logger.info("Операция отменена")
@@ -1050,7 +1071,7 @@ def mexc_withdraw():
         return
     
     while True:
-        balances = get_account_balances()
+        balances = get_account_balances(mexc_api_key, mexc_api_secret)
         if not balances:
             logger.error("No tokens with positive balance")
             return
@@ -1059,7 +1080,7 @@ def mexc_withdraw():
         if not token:
             return
         
-        chain = pick_chain(token)
+        chain = pick_chain(token, mexc_api_key, mexc_api_secret)
         if not chain:
             continue
         
@@ -1116,7 +1137,7 @@ def mexc_withdraw():
         
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
-            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets)))
+            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets), mexc_api_key, mexc_api_secret))
         
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")
         successful = 0

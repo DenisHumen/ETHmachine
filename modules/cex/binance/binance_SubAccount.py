@@ -10,6 +10,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_binance_account
+
 init()
 
 # Настройка логгера
@@ -257,22 +260,21 @@ def check_binance_subaccounts_and_balances():
     logger.info(Fore.YELLOW + "🚀 Запуск проверки субаккаунтов и балансов Binance")
     logger.info(Fore.MAGENTA + "="*80)
     
-    # Загрузка API ключей из config/cex_settings.py
-    try:
-        from config.cex_settings import binance_api_key, secret_key
-        
-        if not all([binance_api_key, secret_key]):
-            logger.error("❌ Не настроены API ключи Binance в config/cex_settings.py")
-            logger.info("💡 Заполните в config/cex_settings.py:")
-            logger.info("   binance_api_key = 'your_api_key'")
-            logger.info("   secret_key = 'your_secret_key'")
-            return
-            
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py")
-        logger.info("💡 Создайте файл config/cex_settings.py с настройками:")
-        logger.info("   binance_api_key = 'your_api_key'")
-        logger.info("   secret_key = 'your_secret_key'")
+    # Выбираем аккаунт Binance
+    exchange_name, account = select_binance_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Binance")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Получаем данные аккаунта
+    binance_api_key = account['api_key']
+    secret_key = account['api_secret']
+    
+    # Проверяем настройки API
+    if not all([binance_api_key, secret_key]):
+        logger.error("❌ Не настроены API ключи Binance в выбранном аккаунте")
         return
     
     # Инициализация клиента
@@ -475,20 +477,21 @@ def get_balances_binance():
     logger.info(Fore.YELLOW + "📊 ПОЛУЧЕНИЕ БАЛАНСОВ BINANCE")
     logger.info(Fore.MAGENTA + "="*80)
     
-    # Загрузка API ключей
-    try:
-        from config.cex_settings import binance_api_key, secret_key
-        
-        if not all([binance_api_key, secret_key]):
-            logger.error("❌ Не настроены API ключи Binance в config/cex_settings.py")
-            logger.info("💡 Заполните в config/cex_settings.py:")
-            logger.info("   binance_api_key = 'your_api_key'")
-            logger.info("   secret_key = 'your_secret_key'")
-            return
-            
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py")
-        logger.info("💡 Создайте файл config/cex_settings.py с настройками")
+    # Выбираем аккаунт Binance
+    exchange_name, account = select_binance_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Binance")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Используем выбранный аккаунт
+    binance_api_key = account['api_key']
+    secret_key = account['api_secret']
+    
+    # Проверяем настройки API
+    if not all([binance_api_key, secret_key]):
+        logger.error("❌ Не настроены API ключи Binance в выбранном аккаунте")
         return
     
     # Инициализация клиента
@@ -617,20 +620,21 @@ def subaccount_collector_binance():
     logger.info(Fore.YELLOW + "🤖 СБОРЩИК СРЕДСТВ С СУБАККАУНТОВ BINANCE")
     logger.info(Fore.MAGENTA + "="*80)
     
-    # Загрузка API ключей
-    try:
-        from config.cex_settings import binance_api_key, secret_key
-        
-        if not all([binance_api_key, secret_key]):
-            logger.error("❌ Не настроены API ключи Binance в config/cex_settings.py")
-            logger.info("💡 Заполните в config/cex_settings.py:")
-            logger.info("   binance_api_key = 'your_api_key'")
-            logger.info("   secret_key = 'your_secret_key'")
-            return
-            
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py")
-        logger.info("💡 Создайте файл config/cex_settings.py с настройками")
+    # Выбираем аккаунт Binance
+    exchange_name, account = select_binance_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Binance")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Получаем данные аккаунта
+    binance_api_key = account['api_key']
+    secret_key = account['api_secret']
+    
+    # Проверяем настройки API
+    if not all([binance_api_key, secret_key]):
+        logger.error("❌ Не настроены API ключи Binance в выбранном аккаунте")
         return
     
     # Инициализация клиента

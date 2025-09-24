@@ -18,9 +18,11 @@ from web3 import Web3
 
 # Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import bitget_api_key, bitget_api_secret, bitget_passphrase
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
+
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_bitget_account
 
 # Настройка логирования
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
@@ -224,7 +226,7 @@ def get_token_price_in_usdt(token):
         return None
 
 
-def get_account_balances():
+def get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase):
     """Получить все балансы аккаунта"""
     try:
         base_url, request_path, headers = bitget_data(bitget_api_key, bitget_api_secret, bitget_passphrase,
@@ -275,7 +277,7 @@ def pick_token_to_withdraw(balances):
     return token
 
 
-def pick_chain(token):
+def pick_chain(token, bitget_api_key, bitget_api_secret, bitget_passphrase):
     """Выбор сети для вывода"""
     try:
         # Используем новый публичный endpoint для получения информации о монетах и сетях
@@ -429,7 +431,9 @@ def get_withdraw_fee(token, chain):
         return 0
 
 
-def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
+def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float, 
+                           bitget_api_key, bitget_api_secret, bitget_passphrase, 
+                           wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
@@ -465,13 +469,17 @@ def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float, 
             logger.error(f"{wallet_prefix}Bitget withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_bitget_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+                return execute_bitget_withdraw(wallet, token, chain, amount, 
+                                              bitget_api_key, bitget_api_secret, bitget_passphrase, 
+                                              wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
         logger.error(f"{wallet_prefix}Bitget withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_bitget_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+            return execute_bitget_withdraw(wallet, token, chain, amount, 
+                                          bitget_api_key, bitget_api_secret, bitget_passphrase, 
+                                          wallet_number, total_wallets, retry + 1)
     
     return None
 
@@ -884,14 +892,14 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
 
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
-    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets = wallet_data
+    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets, bitget_api_key, bitget_api_secret, bitget_passphrase = wallet_data
     
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
         
         # Получаем текущий баланс для расчета суммы
-        current_balances = get_account_balances()
+        current_balances = get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not current_balances or token not in current_balances:
             logger.error(f"{wallet_prefix}No balance found for {token}")
             save_progress(db_file, wallet, token, chain, 0, 'error', 'No balance available')
@@ -905,7 +913,9 @@ def process_single_wallet(wallet_data):
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
-        result = execute_bitget_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
+        result = execute_bitget_withdraw(wallet, token, chain, individual_amount, 
+                                        bitget_api_key, bitget_api_secret, bitget_passphrase, 
+                                        wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -990,6 +1000,19 @@ def bitget_withdraw():
     """Основная функция"""
     logger.info("=== Bitget Withdrawal Module ===")
     
+    # Выбираем аккаунт Bitget
+    exchange_name, account = select_bitget_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Bitget")
+        return
+    
+    # Используем выбранный аккаунт
+    bitget_api_key = account['api_key']
+    bitget_api_secret = account['api_secret']
+    bitget_passphrase = account['passphrase']
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
     # Проверяем существующий прогресс
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
@@ -1017,7 +1040,7 @@ def bitget_withdraw():
     
     while True:
         # Получаем балансы
-        balances = get_account_balances()
+        balances = get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not balances:
             logger.error("No tokens with positive balance")
             return
@@ -1028,7 +1051,7 @@ def bitget_withdraw():
             return
         
         # Выбираем сеть
-        chain = pick_chain(token)
+        chain = pick_chain(token, bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not chain:
             continue
         
@@ -1090,7 +1113,7 @@ def bitget_withdraw():
         # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
-            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets)))
+            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets), bitget_api_key, bitget_api_secret, bitget_passphrase))
         
         # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")

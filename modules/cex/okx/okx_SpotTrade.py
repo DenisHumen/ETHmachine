@@ -16,14 +16,25 @@ sys.path.append(project_root)
 from config.config import *
 from config.cex_settings import *
 
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_okx_account
+
 
 class OKXSpotTrader:
-    def __init__(self):
-        # Инициализация биржи
+    def __init__(self, account=None):
+        # Если аккаунт не передан, выбираем его
+        if not account:
+            exchange_name, account = select_okx_account()
+            if not account:
+                raise ValueError("❌ Не выбран аккаунт OKX")
+        
+        logger.info(f"🏢 Используется аккаунт: {account['name']}")
+        
+        # Инициализация биржи с выбранным аккаунтом
         self.exchange = ccxt.okx({
-            'apiKey': OKX_API_KEY,
-            'secret': OKX_API_SECRET,
-            'password': OKX_API_PASSPHRAS,
+            'apiKey': account['api_key'],
+            'secret': account['api_secret'],
+            'password': account['passphrase'],
             'sandbox': False,
             'enableRateLimit': True,
         })
@@ -1156,7 +1167,14 @@ class OKXSpotTrader:
 
 def start_okx_spot_trading():
     """Главная функция для запуска торговли"""
-    trader = OKXSpotTrader()
+    # Выбираем аккаунт OKX
+    exchange_name, account = select_okx_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт OKX")
+        return
+    
+    # Создаем трейдера с выбранным аккаунтом
+    trader = OKXSpotTrader(account=account)
     trader.run_trading_bot()
 
 

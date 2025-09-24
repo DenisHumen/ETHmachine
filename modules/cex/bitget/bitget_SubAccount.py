@@ -26,6 +26,9 @@ import sys
 from pathlib import Path
 import math
 
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_bitget_account
+
 init()
 
 # --- Project paths ---
@@ -487,14 +490,22 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
     logger.info(Fore.YELLOW + "🚀 Запуск проверки стандартных субаккаунтов Bitget")
     logger.info(Fore.MAGENTA + "="*80)
 
-    # Загружаем ключи
-    try:
-        from config.cex_settings import bitget_api_key, bitget_api_secret, bitget_passphrase
-        if not all([bitget_api_key, bitget_api_secret, bitget_passphrase]):
-            logger.error("❌ Не настроены API ключи Bitget в config/cex_settings.py")
-            return
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py или переменные не заданы")
+    # Выбираем аккаунт Bitget
+    exchange_name, account = select_bitget_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Bitget")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Используем выбранный аккаунт
+    bitget_api_key = account['api_key']
+    bitget_api_secret = account['api_secret']
+    bitget_passphrase = account['passphrase']
+    
+    # Проверяем настройки API
+    if not all([bitget_api_key, bitget_api_secret, bitget_passphrase]):
+        logger.error("❌ Не настроены API ключи Bitget в выбранном аккаунте")
         return
 
     logger.info(f"🔑 API key: {bitget_api_key[:8]}...")

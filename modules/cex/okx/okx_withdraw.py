@@ -17,9 +17,12 @@ from web3 import Web3
 
 # Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, OKX_EU_TYPE
+from config.cex_settings import OKX_EU_TYPE
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
+
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_okx_account
 
 # Настройка логирования
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
@@ -214,10 +217,10 @@ def get_token_price_in_usdt(token):
         return None
 
 
-def get_account_balances():
+def get_account_balances(api_key, api_secret, passphrase):
     """Получить все балансы аккаунта"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
+        _, _, headers = okx_data(api_key, api_secret, passphrase, 
                                 request_path="/api/v5/asset/balances", meth="GET")
         
         response = requests.get("https://www.okx.cab/api/v5/asset/balances", timeout=10, headers=headers)
@@ -261,10 +264,10 @@ def pick_token_to_withdraw(balances):
     return token
 
 
-def pick_chain(token):
+def pick_chain(token, api_key, api_secret, passphrase):
     """Выбор сети для вывода"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS,
+        _, _, headers = okx_data(api_key, api_secret, passphrase,
                                 request_path=f"/api/v5/asset/currencies?ccy={token}", meth="GET")
         response = requests.get(f"https://www.okx.cab/api/v5/asset/currencies?ccy={token}", 
                                timeout=10, headers=headers)
@@ -367,10 +370,10 @@ def calculate_individual_withdraw_amount(token, available_balance):
     return round(random.uniform(amount_from, amount_to), 6)
 
 
-def get_withdraw_fee(token, chain):
+def get_withdraw_fee(token, chain, api_key, api_secret, passphrase):
     """Получить комиссию за вывод"""
     try:
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
+        _, _, headers = okx_data(api_key, api_secret, passphrase, 
                                 request_path=f"/api/v5/asset/currencies?ccy={token}", meth="GET")
         response = requests.get(f"https://www.okx.cab/api/v5/asset/currencies?ccy={token}", 
                                timeout=10, headers=headers)
@@ -384,19 +387,21 @@ def get_withdraw_fee(token, chain):
         return 0
 
 
-def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
+def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, 
+                        api_key: str, api_secret: str, passphrase: str,
+                        wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
     
     try:
         # Получаем комиссию
-        fee = get_withdraw_fee(token, chain)
+        fee = get_withdraw_fee(token, chain, api_key, api_secret, passphrase)
         
         # Переводим с торгового на основной счет если нужно
         if OKX_EU_TYPE == 0:
             try:
-                _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
+                _, _, headers = okx_data(api_key, api_secret, passphrase, 
                                         request_path=f"/api/v5/account/balance?ccy={token}")
                 balance = requests.get(f'https://www.okx.cab/api/v5/account/balance?ccy={token}', 
                                      timeout=10, headers=headers)
@@ -407,7 +412,7 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wal
                     
                     if trading_balance > 0:
                         body = {"ccy": token, "amt": trading_balance, "from": 18, "to": 6, "type": "0"}
-                        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
+                        _, _, headers = okx_data(api_key, api_secret, passphrase, 
                                                request_path="/api/v5/asset/transfer", body=str(body), meth="POST")
                         requests.post("https://www.okx.cab/api/v5/asset/transfer", data=str(body), 
                                     timeout=10, headers=headers)
@@ -424,7 +429,7 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wal
             "toAddr": wallet
         }
         
-        _, _, headers = okx_data(OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, 
+        _, _, headers = okx_data(api_key, api_secret, passphrase, 
                                 request_path="/api/v5/asset/withdrawal", meth="POST", body=str(body))
         response = requests.post("https://www.okx.cab/api/v5/asset/withdrawal", 
                                data=str(body), timeout=10, headers=headers)
@@ -438,7 +443,9 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, wal
             logger.error(f"{wallet_prefix}OKX withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+                return execute_okx_withdraw(wallet, token, chain, amount, 
+                                           api_key, api_secret, passphrase,
+                                           wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
         logger.error(f"{wallet_prefix}OKX withdraw error => {wallet} | {error}")
@@ -807,14 +814,14 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
 
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
-    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets = wallet_data
+    wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets, api_key, api_secret, passphrase = wallet_data
     
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
         
         # Получаем текущий баланс для расчета суммы
-        current_balances = get_account_balances()
+        current_balances = get_account_balances(api_key, api_secret, passphrase)
         if not current_balances or token not in current_balances:
             logger.error(f"{wallet_prefix}No balance found for {token}")
             save_progress(db_file, wallet, token, chain, 0, 'error', 'No balance available')
@@ -828,7 +835,9 @@ def process_single_wallet(wallet_data):
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
-        result = execute_okx_withdraw(wallet, token, chain, individual_amount, wallet_number, total_wallets)
+        result = execute_okx_withdraw(wallet, token, chain, individual_amount, 
+                                     api_key, api_secret, passphrase,
+                                     wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -913,6 +922,19 @@ def okx_withdraw():
     """Основная функция"""
     logger.info("=== OKX Withdrawal Module ===")
     
+    # Выбираем аккаунт OKX
+    exchange_name, account = select_okx_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт OKX")
+        return
+    
+    # Получаем данные аккаунта
+    api_key = account['api_key']
+    api_secret = account['api_secret'] 
+    passphrase = account['passphrase']
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
     # Проверяем существующий прогресс
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
@@ -940,7 +962,7 @@ def okx_withdraw():
     
     while True:
         # Получаем балансы
-        balances = get_account_balances()
+        balances = get_account_balances(api_key, api_secret, passphrase)
         if not balances:
             logger.error("No tokens with positive balance")
             return
@@ -951,7 +973,7 @@ def okx_withdraw():
             return
         
         # Выбираем сеть
-        chain = pick_chain(token)
+        chain = pick_chain(token, api_key, api_secret, passphrase)
         if not chain:
             continue
         
@@ -1013,7 +1035,7 @@ def okx_withdraw():
         # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
-            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets)))
+            wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets), api_key, api_secret, passphrase))
         
         # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")

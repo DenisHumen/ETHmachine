@@ -17,9 +17,11 @@ from web3 import Web3
 
 # Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import binance_api_key, secret_key
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
+
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_binance_account
 
 # Настройка логирования
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
@@ -121,7 +123,7 @@ def create_signature(query_string, secret_key):
     ).hexdigest()
 
 
-def binance_request(endpoint, method="GET", params=None):
+def binance_request(endpoint, binance_api_key, secret_key, method="GET", params=None):
     """Универсальная функция для запросов к Binance API"""
     try:
         base_url = "https://api.binance.com"
@@ -176,10 +178,10 @@ def get_token_price_in_usdt(token):
         return None
 
 
-def get_account_balances():
+def get_account_balances(binance_api_key, secret_key):
     """Получить все балансы аккаунта"""
     try:
-        data = binance_request("/api/v3/account")
+        data = binance_request("/api/v3/account", binance_api_key, secret_key)
         
         balances = {}
         if data and 'balances' in data:
@@ -220,12 +222,12 @@ def pick_token_to_withdraw(balances):
     return token
 
 
-def pick_chain(token):
+def pick_chain(token, binance_api_key, secret_key):
     """Выбор сети для вывода"""
     try:
         # Получаем информацию о сетях для токена
         params = {'coin': token}
-        data = binance_request("/sapi/v1/capital/config/getall", params=params)
+        data = binance_request("/sapi/v1/capital/config/getall", binance_api_key, secret_key, params=params)
         
         chains = []
         if data:
@@ -326,11 +328,11 @@ def calculate_individual_withdraw_amount(token, available_balance):
     return round(random.uniform(amount_from, amount_to), 6)
 
 
-def get_withdraw_fee(token, network):
+def get_withdraw_fee(token, network, binance_api_key, secret_key):
     """Получить комиссию за вывод"""
     try:
         params = {'coin': token}
-        data = binance_request("/sapi/v1/capital/config/getall", params=params)
+        data = binance_request("/sapi/v1/capital/config/getall", binance_api_key, secret_key, params=params)
         
         if data:
             for coin_info in data:
@@ -344,7 +346,8 @@ def get_withdraw_fee(token, network):
         return 0
 
 
-def execute_binance_withdraw(wallet: str, token: str, network: str, amount: float, wallet_number: int = 0, total_wallets: int = 0, retry=0):
+def execute_binance_withdraw(wallet: str, token: str, network: str, amount: float, 
+                           binance_api_key, secret_key, wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
@@ -358,7 +361,7 @@ def execute_binance_withdraw(wallet: str, token: str, network: str, amount: floa
             'network': network
         }
         
-        result = binance_request("/sapi/v1/capital/withdraw/apply", method="POST", params=params)
+        result = binance_request("/sapi/v1/capital/withdraw/apply", binance_api_key, secret_key, method="POST", params=params)
         
         if result and 'id' in result:
             logger.success(f"{wallet_prefix}Binance withdraw success => {wallet} | {amount} {token} | ID: {result['id']}")
@@ -368,13 +371,15 @@ def execute_binance_withdraw(wallet: str, token: str, network: str, amount: floa
             logger.error(f"{wallet_prefix}Binance withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_binance_withdraw(wallet, token, network, amount, wallet_number, total_wallets, retry + 1)
+                return execute_binance_withdraw(wallet, token, network, amount, 
+                                               binance_api_key, secret_key, wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
         logger.error(f"{wallet_prefix}Binance withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_binance_withdraw(wallet, token, network, amount, wallet_number, total_wallets, retry + 1)
+            return execute_binance_withdraw(wallet, token, network, amount, 
+                                           binance_api_key, secret_key, wallet_number, total_wallets, retry + 1)
     
     return None
 
@@ -734,14 +739,14 @@ def save_result_to_csv(wallet_address, token, network, amount, status, error_mes
 
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
-    wallet, token, network, db_file, progress_bar, wallet_number, total_wallets = wallet_data
+    wallet, token, network, db_file, progress_bar, wallet_number, total_wallets, binance_api_key, secret_key = wallet_data
     
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
         
         # Получаем текущий баланс для расчета суммы
-        current_balances = get_account_balances()
+        current_balances = get_account_balances(binance_api_key, secret_key)
         if not current_balances or token not in current_balances:
             error_message = f"Token {token} not found in account or insufficient balance"
             logger.error(f"{wallet_prefix}{error_message}")
@@ -756,7 +761,8 @@ def process_single_wallet(wallet_data):
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, network, individual_amount, 'processing')
         
-        result = execute_binance_withdraw(wallet, token, network, individual_amount, wallet_number, total_wallets)
+        result = execute_binance_withdraw(wallet, token, network, individual_amount, 
+                                         binance_api_key, secret_key, wallet_number, total_wallets)
         
         if result:
             status = 'success'
@@ -836,6 +842,18 @@ def binance_withdraw():
     """Основная функция"""
     logger.info("=== Binance Withdrawal Module ===")
     
+    # Выбираем аккаунт Binance
+    exchange_name, account = select_binance_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт Binance")
+        return
+    
+    # Используем выбранный аккаунт
+    binance_api_key = account['api_key']
+    secret_key = account['api_secret']
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
     # Проверяем настройки API
     if not binance_api_key or not secret_key:
         logger.error("Binance API credentials not configured. Please check config/cex_settings.py")
@@ -868,7 +886,7 @@ def binance_withdraw():
     
     while True:
         # Получаем балансы
-        balances = get_account_balances()
+        balances = get_account_balances(binance_api_key, secret_key)
         if not balances:
             logger.error("Cannot get account balances or no positive balances found")
             return
@@ -880,7 +898,7 @@ def binance_withdraw():
             return
         
         # Выбираем сеть
-        network = pick_chain(token)
+        network = pick_chain(token, binance_api_key, secret_key)
         if not network:
             logger.info("Операция отменена пользователем")
             return
@@ -928,7 +946,7 @@ def binance_withdraw():
         # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
-            wallet_data_list.append((wallet, token, network, db_file, progress_bar, i, len(wallets)))
+            wallet_data_list.append((wallet, token, network, db_file, progress_bar, i, len(wallets), binance_api_key, secret_key))
         
         # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")

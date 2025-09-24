@@ -10,6 +10,9 @@ from loguru import logger
 import sys
 from pathlib import Path
 
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_okx_account
+
 init()
 
 # Настройка логгера - исправленные пути
@@ -274,36 +277,31 @@ def check_okx_subaccounts_and_balances():
     logger.info(Fore.YELLOW + "🚀 Запуск проверки субаккаунтов и балансов OKX")
     logger.info(Fore.MAGENTA + "="*80)
     
-    # Загрузка API ключей из config/cex_settings.py
-    try:
-        from config.cex_settings import OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, OKX_EU_TYPE
-        
-        if not all([OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS]):
-            logger.error("❌ Не настроены API ключи OKX в config/cex_settings.py")
-            logger.info("💡 Заполните в config/cex_settings.py:")
-            logger.info("   OKX_API_KEY = 'your_api_key'")
-            logger.info("   OKX_API_SECRET = 'your_secret_key'")
-            logger.info("   OKX_API_PASSPHRAS = 'your_passphrase'")
-            return
-            
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py")
-        logger.info("💡 Создайте файл config/cex_settings.py с настройками:")
-        logger.info("   OKX_API_KEY = 'your_api_key'")
-        logger.info("   OKX_API_SECRET = 'your_secret_key'")
-        logger.info("   OKX_API_PASSPHRAS = 'your_passphrase'")
-        logger.info("   OKX_EU_TYPE = 0")
+    # Выбираем аккаунт OKX
+    exchange_name, account = select_okx_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт OKX")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Получаем данные аккаунта
+    api_key = account['api_key']
+    api_secret = account['api_secret'] 
+    passphrase = account['passphrase']
+    
+    # Проверяем настройки API
+    if not all([api_key, api_secret, passphrase]):
+        logger.error("❌ Не настроены API ключи OKX в выбранном аккаунте")
         return
     
     # Инициализация клиента
     client = OKXClient(
-        api_key=OKX_API_KEY,
-        secret_key=OKX_API_SECRET,
-        passphrase=OKX_API_PASSPHRAS,
+        api_key=api_key,
+        secret_key=api_secret,
+        passphrase=passphrase,
         sandbox=False  # Используем production
     )
-    
-    logger.info(Fore.CYAN + f"🔧 EU Type: {OKX_EU_TYPE}")
     
     all_balances = []
     total_accounts = 0
@@ -485,28 +483,29 @@ def get_balances_okx():
     logger.info(Fore.YELLOW + "📊 ПОЛУЧЕНИЕ БАЛАНСОВ OKX")
     logger.info(Fore.MAGENTA + "="*80)
     
-    # Загрузка API ключей
-    try:
-        from config.cex_settings import OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS, OKX_EU_TYPE
-        
-        if not all([OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRAS]):
-            logger.error("❌ Не настроены API ключи OKX в config/cex_settings.py")
-            logger.info("💡 Заполните в config/cex_settings.py:")
-            logger.info("   OKX_API_KEY = 'your_api_key'")
-            logger.info("   OKX_API_SECRET = 'your_secret_key'")
-            logger.info("   OKX_API_PASSPHRAS = 'your_passphrase'")
-            return
-            
-    except ImportError:
-        logger.error("❌ Не найден файл config/cex_settings.py")
-        logger.info("💡 Создайте файл config/cex_settings.py с настройками")
+    # Выбираем аккаунт OKX
+    exchange_name, account = select_okx_account()
+    if not account:
+        logger.error("❌ Не выбран аккаунт OKX")
+        return
+    
+    logger.info(f"🏢 Используется аккаунт: {account['name']}")
+    
+    # Используем выбранный аккаунт
+    api_key = account['api_key']
+    api_secret = account['api_secret']
+    passphrase = account['passphrase']
+    
+    # Проверяем настройки API
+    if not all([api_key, api_secret, passphrase]):
+        logger.error("❌ Не настроены API ключи OKX в выбранном аккаунте")
         return
     
     # Инициализация клиента
     client = OKXClient(
-        api_key=OKX_API_KEY,
-        secret_key=OKX_API_SECRET,
-        passphrase=OKX_API_PASSPHRAS,
+        api_key=api_key,
+        secret_key=api_secret,
+        passphrase=passphrase,
         sandbox=False
     )
     
