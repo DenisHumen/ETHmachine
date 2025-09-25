@@ -409,6 +409,8 @@ def is_mainnet_network(network_name):
             'Zora',
             '🚀 Abstract',
             'Abstract'
+            '🚀 Somnia'
+            'Somnia',
         ]
         return network_name in mainnet_networks
 

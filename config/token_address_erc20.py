@@ -133,8 +133,11 @@ abstract = {
 }
 
 soneium = {
-    'usdc': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    'usdt': '0x2d1aDB45Bb1d7D2556c6558aDb76CFD4F9F4ed16',
+    'ASTR': '0x2cae934a1e84f693fbb78ca5ed3b0a6893259441',
+    'WETH': '0x4200000000000000000000000000000000000006',
+    'USDC.e': '0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369',
+    'WBTC': '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+    'USDT': '0x3a337a6ada9d885b6ad95ec48f9b75f197b5ae35',
 }
 
 somnia = {

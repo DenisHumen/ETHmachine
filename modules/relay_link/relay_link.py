@@ -61,6 +61,24 @@ def log_progress(message: str):
     """Прогресс выполнения - белый цвет с выделением"""
     logger.opt(colors=True).info(f"<bold><white>{message}</white></bold>")
 
+def log_wallet_summary(wallet_address: str, sent_amount: float, received_amount: float, 
+                       bridge_fee: float, from_network: str, to_network: str, 
+                       token_symbol: str, price_usd: float):
+    """Красивый цветной вывод итогов кошелька"""
+    from colorama import Fore, Style, init
+    init()
+    
+    sent_usd = sent_amount * price_usd
+    received_usd = received_amount * price_usd
+    fee_usd = bridge_fee * price_usd
+    fee_percent = (bridge_fee / sent_amount * 100) if sent_amount > 0 else 0
+    
+    print(f"\n{Fore.CYAN}{'='*20} {wallet_address} {'='*20}{Style.RESET_ALL}")
+    print(f"     {Fore.GREEN}• отправлено: {Fore.YELLOW}{sent_amount:.6f} {token_symbol} {Fore.BLUE}({from_network}) {Fore.GREEN}- ${sent_usd:.2f}{Style.RESET_ALL}")
+    print(f"     {Fore.GREEN}• получено: {Fore.YELLOW}{received_amount:.6f} {token_symbol} {Fore.BLUE}({to_network}) {Fore.GREEN}- ${received_usd:.2f}{Style.RESET_ALL}")
+    print(f"     {Fore.RED}• комиссия: {Fore.YELLOW}{bridge_fee:.6f} {token_symbol} {Fore.MAGENTA}({fee_percent:.2f}%) {Fore.RED}- ${fee_usd:.2f}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'='*84}{Style.RESET_ALL}\n")
+
 class RelayBridge:
     def __init__(self):
         self.base_url = "https://api.relay.link"
@@ -256,17 +274,14 @@ class RelayBridge:
             else:
                 log_warning(f"⚠️ Кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']} не активно, переподключаемся...")
         
-        # Перебираем RPC пока не найдем рабочий
+        # Перебираем RPC пока не найдем рабочий (тихо)
         rpc_list = self.rpc_pools[chain_id]
-        log_info(f"🔍 Пробуем подключиться к {NETWORK_SETTINGS[chain_id]['name']}, доступно RPC: {len(rpc_list)}")
         
         for i, rpc_url in enumerate(rpc_list):
             try:
-                log_info(f"🔄 Попытка {i+1}/{len(rpc_list)}: {rpc_url[:50]}...")
                 web3 = Web3(Web3.HTTPProvider(rpc_url))
                 if web3.is_connected():
                     self.web3_connections[cache_key] = web3
-                    log_success(f"✅ Подключено к {NETWORK_SETTINGS[chain_id]['name']}: {rpc_url[:50]}...")
                     return web3
                 else:
                     log_warning(f"⚠️ RPC не отвечает: {rpc_url[:50]}...")
@@ -277,7 +292,7 @@ class RelayBridge:
         log_error(f"❌ Все RPC для сети {chain_id} ({NETWORK_SETTINGS[chain_id]['name']}) недоступны")
         return None
     
-    def _get_native_balance(self, chain_id: int, wallet_address: str) -> float:
+    def _get_native_balance(self, chain_id: int, wallet_address: str, show_log: bool = False) -> float:
         """Получение баланса нативного токена со всех RPC для получения актуального значения"""
         rpc_list = self.rpc_pools.get(chain_id, [])
         
@@ -302,13 +317,15 @@ class RelayBridge:
         if balances:
             # Возвращаем максимальный баланс (наиболее актуальный)
             max_balance = max(balances)
-            # Выводим только итоговый результат проверки баланса с названием сети
-            network_name = NETWORK_SETTINGS[chain_id]['name']
-            log_info(f"� Текущий баланс {network_name}: {max_balance:.8f} ETH")
+            # Выводим сообщение только при show_log=True (первоначальная проверка)
+            if show_log:
+                network_name = NETWORK_SETTINGS[chain_id]['name']
+                log_info(f"📊 Текущий баланс {network_name}: {max_balance:.8f} ETH")
             return max_balance
         
         # Если все RPC не работают, возвращаем 0
-        log_error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
+        if show_log:
+            log_error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
         return 0.0
     
     def _get_transaction_explorer_link(self, chain_id: int, tx_hash: str) -> str:
@@ -333,7 +350,7 @@ class RelayBridge:
                 continue
             
             chain_id = NETWORK_MAPPING[network_name]
-            balance = self._get_native_balance(chain_id, wallet_address)
+            balance = self._get_native_balance(chain_id, wallet_address, show_log=True)
             
             if balance > 0:
                 balances[network_name] = {
@@ -637,8 +654,6 @@ class RelayBridge:
                 amount_out_wei = int(quote_data['details']['currencyOut']['amount'])
                 amount_out_eth = Web3.from_wei(amount_out_wei, 'ether')
                 calculated_bridge_fee = amount - float(amount_out_eth)
-                
-                log_info(f"💰 Реальные данные: отправлено {amount:.8f} ETH, получено {amount_out_eth:.8f} ETH")
             else:
                 # Fallback к примерной комиссии если нет данных котировки
                 estimated_received = amount * 0.995  # Примерно 0.5% комиссия
@@ -662,8 +677,6 @@ class RelayBridge:
                 f"{amount_out_eth:.8f}",
                 f"{final_bridge_fee:.8f}"
             ])
-            
-            log_info(f"💾 Результат сохранен в CSV: {wallet_address[:10]}...{wallet_address[-6:]}")
     
     def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str) -> Dict:
         """Проверка комиссий в котировке перед выполнением с ожиданием снижения комиссии"""
@@ -688,11 +701,7 @@ class RelayBridge:
                 eth_price = 4300  # Примерная цена ETH
                 fee_usd = actual_fee * eth_price
                 
-                log_info(f"💰 Анализ комиссий котировки:")
-                log_info(f"   📤 Отправка: {amount_eth:.8f} ETH")
-                log_info(f"   📥 Получение: {amount_out_eth:.8f} ETH")
-                log_info(f"   💸 Комиссия: {actual_fee:.8f} ETH ({actual_fee_percentage:.2f}%)")
-                log_info(f"   💵 В USD: ${fee_usd:.4f}")
+                # Тихо проверяем комиссии без лишних логов
                 
                 # Проверяем лимит комиссии
                 if fee_usd > max_fee_usd:
@@ -734,15 +743,13 @@ class RelayBridge:
             # Проверка статуса - если уже выполнен, пропускаем
             if wallet_record['status'] == 'completed' or wallet_record['status'] == 'completed_no_confirmation':
                 return True
-            
+
             log_progress(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
             
             # Получаем данные из записи базы
             from_network = wallet_record['from_network']
             to_network = wallet_record['to_network']
-            amount = wallet_record['amount']
-            
-            # Проверка балансов
+            amount = wallet_record['amount']            # Проверка балансов
             balances = self._check_balances(wallet_address)
             if not balances:
                 log_warning(f"⚠️ Нет балансов для бриджа у кошелька {wallet_address}")
@@ -758,14 +765,11 @@ class RelayBridge:
             # Проверка достаточности баланса
             available_balance = balances[from_network]['balance']
             if amount > available_balance:
-                log_warning(f"⚠️ Недостаточно средств у кошелька {wallet_address}. Доступно: {available_balance:.6f}, требуется: {amount:.6f}")
                 # Попробуем сделать мост на максимально доступную сумму
                 if available_balance > 0.0001:  # Минимальная сумма для моста (0.0001 ETH)
-                    log_info(f"🔄 Пробуем сделать мост на максимально доступную сумму: {available_balance:.6f} ETH")
                     amount = available_balance * 0.95  # Оставляем 5% для газа
-                    log_info(f"💡 Скорректированная сумма с учетом газа: {amount:.6f} ETH")
                 else:
-                    log_warning(f"⚠️ Баланс слишком мал для выполнения моста: {available_balance:.6f} ETH")
+                    log_error(f"❌ {wallet_address}: Баланс слишком мал: {available_balance:.6f} ETH")
                     return False
             
             # Получение котировки
@@ -782,8 +786,6 @@ class RelayBridge:
             quote = self._check_quote_fees(quote, amount, from_chain_id, to_chain_id, amount_wei, wallet_address)
             
             # Выполнение бриджа
-            log_transaction(f"🚀 Отправка {amount:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']} из {from_network} в {to_network}")
-            
             bridge_success = self._execute_bridge(quote, wallet_address, private_key, from_chain_id, to_chain_id, amount)
             if not bridge_success:
                 log_error(f"❌ Ошибка выполнения бриджа для кошелька {wallet_address}")
@@ -804,8 +806,32 @@ class RelayBridge:
             conn.close()
             
             self._save_to_csv(wallet_address, from_network, to_network, amount, last_tx_hash, bridge_fee or 0, status, quote)
+
+            # Красивый вывод итогов кошелька
+            try:
+                # Получаем курс токена
+                token_symbol = NETWORK_SETTINGS[from_chain_id]['native_symbol']
+                price_usd = self._get_native_token_price_in_usdt(from_chain_id)
+                
+                # Рассчитываем полученную сумму (отправленная минус комиссия)
+                received_amount = amount - (bridge_fee or 0)
+                
+                log_wallet_summary(
+                    wallet_address, 
+                    amount, 
+                    received_amount, 
+                    bridge_fee or 0, 
+                    from_network, 
+                    to_network, 
+                    token_symbol, 
+                    price_usd
+                )
+            except Exception as e:
+                log_error(f"❌ Ошибка получения курса для итогов: {e}")
+                print(f"\n{'='*20} {wallet_address} {'='*20}")
+                print(f"     ✅ Обработан успешно: {amount:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
+                print(f"     Из {from_network} в {to_network}\n")
             
-            log_success(f"✅ Кошелек {wallet_address} обработан успешно")
             return True
             
         except Exception as e:
@@ -947,8 +973,6 @@ class RelayBridge:
                         'http': f'http://{api_proxy}',
                         'https': f'http://{api_proxy}'
                     }
-                    if attempt == 0:  # Показываем только первую попытку
-                        log_info(f"🌐 Используем прокси для API: {api_proxy[:20]}...")
                 
                 response = requests.get(
                     f'https://api.coingecko.com/api/v3/simple/price?ids={coingecko_id}&vs_currencies=usd', 
@@ -958,7 +982,6 @@ class RelayBridge:
                 response.raise_for_status()
                 data = response.json()
                 price = data[coingecko_id]['usd']
-                log_info(f"💱 Курс {token_symbol} ({network_name}): ${price:.2f}")
                 return float(price)
                 
             except requests.exceptions.HTTPError as e:
@@ -1033,7 +1056,7 @@ class RelayBridge:
     def run(self):
         """Основная функция запуска"""
         try:
-            log_info("🌉 Запуск Relay Bridge")
+            log_info("🌉 Relay Bridge - запуск обработки кошельков")
             
             # Проверка возможности продолжения
             resume = self._check_resume_option()
@@ -1042,8 +1065,8 @@ class RelayBridge:
             if not self._create_work_plan():
                 return
             
-            # Показ параметров и подтверждение
-            log_info(f"📋 Параметры: {SUM_TO_RELAY[0]} - {SUM_TO_RELAY[1]} ETH, {NETWORKS_TO_RELAY[0]} → {NETWORKS_TO_RELAY[1]}, кошельков: {len(self.private_keys)}")
+            # Показ параметров без подробностей
+            log_info(f"📋 {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} ETH | {NETWORKS_TO_RELAY[0]}→{NETWORKS_TO_RELAY[1]} | Кошельков: {len(self.private_keys)}")
             
             if not resume:
                 choice = select(
