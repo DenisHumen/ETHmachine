@@ -2,7 +2,7 @@ requests==2.32.3
 web3==6.13.0
 inquirer==3.4.0
 colorama==0.4.6
-questionary==2.1.0
+questionary==2.0.1
 python-okx==0.3.8
 mnemonic==0.21
 ecdsa==0.18.0
@@ -14,5 +14,4 @@ base58==2.1.1
 fake-useragent==1.4.0
 loguru==0.7.0
 ccxt==4.5.1
-questionary
 curl-cffi
