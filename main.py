@@ -238,6 +238,7 @@ def main_menu():
                             Choice('🪙 Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
                             Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
                             Choice('🔑 Password Generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
+                            Choice('🎭 Nickname Generator           🌟 Генерация человечески выглядящих никнеймов', 'nickname_generator'),
                             Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
                             Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
                             Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
@@ -433,6 +434,9 @@ def main_menu():
                                     continue
                         case 'password_generator':
                             password_generator_menu()
+                        case 'nickname_generator':
+                            from modules.nickname_generator import generate_nicknames
+                            generate_nicknames()
                         case 'check_proxy':
                             check_proxy_menu()
                         case 'last_transactions':
