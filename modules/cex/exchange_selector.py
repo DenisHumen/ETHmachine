@@ -14,14 +14,23 @@ from loguru import logger
 project_root = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, project_root)
 
-try:
-    from config.cex_settings import (
-        OKX_ACCOUNTS, BINANCE_ACCOUNTS, 
-        BITGET_ACCOUNTS, MEXC_ACCOUNTS
-    )
-except ImportError as e:
-    logger.error(f"Ошибка импорта настроек бирж: {e}")
-    sys.exit(1)
+
+def _get_cex_settings():
+    """Получить настройки бирж с обработкой ошибок"""
+    try:
+        from config.cex_settings import (
+            OKX_ACCOUNTS, BINANCE_ACCOUNTS, 
+            BITGET_ACCOUNTS, MEXC_ACCOUNTS
+        )
+        return OKX_ACCOUNTS, BINANCE_ACCOUNTS, BITGET_ACCOUNTS, MEXC_ACCOUNTS
+    except ImportError as e:
+        logger.error(f"Ошибка импорта настроек бирж: {e}")
+        logger.error("Убедитесь, что файл config/cex_settings.py создан. Запустите main.py для автоматического создания.")
+        return [], [], [], []
+    except Exception as e:
+        logger.error(f"Ошибка в настройках бирж: {e}")
+        return [], [], [], []
+
 
 class ExchangeSelector:
     """Класс для выбора биржи и аккаунта"""
@@ -34,6 +43,9 @@ class ExchangeSelector:
             specific_exchange (str): Если указано, работает только с этой биржей
                                    Возможные значения: 'OKX', 'Binance', 'Bitget', 'MEXC'
         """
+        # Получаем настройки бирж через безопасную функцию
+        OKX_ACCOUNTS, BINANCE_ACCOUNTS, BITGET_ACCOUNTS, MEXC_ACCOUNTS = _get_cex_settings()
+        
         self.exchanges = {
             'OKX': OKX_ACCOUNTS,
             'Binance': BINANCE_ACCOUNTS,

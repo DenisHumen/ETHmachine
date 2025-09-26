@@ -14,14 +14,31 @@ project_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
 sys.path.append(project_root)
 
 from config.config import *
-from config.cex_settings import *
 
 # Импорт селектора аккаунтов
 from modules.cex.exchange_selector import select_okx_account
 
 
+def _get_cex_settings():
+    """Получить настройки OKX с обработкой ошибок"""
+    try:
+        from config.cex_settings import OKX_ACCOUNTS, OKX_EU_TYPE
+        return OKX_ACCOUNTS, OKX_EU_TYPE
+    except ImportError:
+        logger.error("Файл config/cex_settings.py не найден. Запустите main.py для создания.")
+        return [], 0
+    except Exception as e:
+        logger.error(f"Ошибка в настройках OKX: {e}")
+        return [], 0
+
+
 class OKXSpotTrader:
     def __init__(self, account=None):
+        # Получаем настройки безопасно
+        OKX_ACCOUNTS, OKX_EU_TYPE = _get_cex_settings()
+        self.OKX_ACCOUNTS = OKX_ACCOUNTS
+        self.OKX_EU_TYPE = OKX_EU_TYPE
+        
         # Если аккаунт не передан, выбираем его
         if not account:
             exchange_name, account = select_okx_account()

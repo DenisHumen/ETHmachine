@@ -18,7 +18,19 @@ from loguru import logger
 from web3 import Web3
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import MEXC_ACCOUNTS
+
+def _get_mexc_settings():
+    """Получить настройки MEXC с обработкой ошибок"""
+    try:
+        from config.cex_settings import MEXC_ACCOUNTS
+        return MEXC_ACCOUNTS
+    except ImportError:
+        logger.error("Файл config/cex_settings.py не найден. Запустите main.py для создания.")
+        return []
+    except Exception as e:
+        logger.error(f"Ошибка в настройках MEXC: {e}")
+        return []
+
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
 from modules.cex.exchange_selector import select_mexc_account

@@ -17,7 +17,19 @@ from web3 import Web3
 
 # Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.cex_settings import OKX_EU_TYPE
+
+def _get_okx_settings():
+    """Получить настройки OKX с обработкой ошибок"""
+    try:
+        from config.cex_settings import OKX_EU_TYPE, OKX_ACCOUNTS
+        return OKX_EU_TYPE, OKX_ACCOUNTS
+    except ImportError:
+        logger.error("Файл config/cex_settings.py не найден. Запустите main.py для создания.")
+        return 0, []
+    except Exception as e:
+        logger.error(f"Ошибка в настройках OKX: {e}")
+        return 0, []
+
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import rpc
 
@@ -391,6 +403,9 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float,
                         api_key: str, api_secret: str, passphrase: str,
                         wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
+    # Получаем настройки OKX
+    OKX_EU_TYPE, _ = _get_okx_settings()
+    
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
     

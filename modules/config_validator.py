@@ -64,6 +64,14 @@ class ConfigValidator:
                 NUM_THREADS
             )
             
+            # Пытаемся импортировать NICKNAME_GENERATOR (может отсутствовать в старых конфигах)
+            try:
+                from config.config import NICKNAME_GENERATOR
+                nickname_generator_exists = True
+            except ImportError:
+                nickname_generator_exists = False
+                self.warnings.append("⚠️ NICKNAME_GENERATOR не найден в конфиге (добавьте настройки для генератора никнеймов)")
+            
             # Проверки значений
             if TYPE_WITHDRAW not in [0, 1]:
                 self.warnings.append("⚠️ TYPE_WITHDRAW должен быть 1 или 0")
@@ -74,12 +82,69 @@ class ConfigValidator:
             if not isinstance(NUM_THREADS, int) or NUM_THREADS < 1:
                 self.warnings.append("⚠️ NUM_THREADS должен быть положительным числом")
             
+            # Проверка настроек генератора никнеймов (если существует)
+            if nickname_generator_exists:
+                self._validate_nickname_generator(NICKNAME_GENERATOR)
+            
             logger.debug("✅ Файл config/config.py корректен")
             
         except ImportError as e:
             self.errors.append(f"❌ Ошибка импорта config/config.py: {e}")
         except Exception as e:
             self.errors.append(f"❌ Ошибка в config/config.py: {e}")
+    
+    def _validate_nickname_generator(self, config):
+        """Проверка настроек генератора никнеймов"""
+        if not isinstance(config, dict):
+            self.errors.append("❌ NICKNAME_GENERATOR должен быть словарем")
+            return
+        
+        # Проверка MIN_LENGTH
+        min_length = config.get('MIN_LENGTH')
+        if min_length is None or min_length == '':
+            self.errors.append("❌ NICKNAME_GENERATOR['MIN_LENGTH'] не может быть пустым")
+        elif not isinstance(min_length, int) or min_length < 1:
+            self.errors.append("❌ NICKNAME_GENERATOR['MIN_LENGTH'] должен быть положительным числом")
+        elif min_length < 3:
+            self.warnings.append("⚠️ NICKNAME_GENERATOR['MIN_LENGTH'] слишком мал (рекомендуется >= 3)")
+        elif min_length > 20:
+            self.warnings.append("⚠️ NICKNAME_GENERATOR['MIN_LENGTH'] слишком большой (рекомендуется <= 20)")
+        
+        # Проверка MAX_LENGTH  
+        max_length = config.get('MAX_LENGTH')
+        if max_length is None or max_length == '':
+            self.errors.append("❌ NICKNAME_GENERATOR['MAX_LENGTH'] не может быть пустым")
+        elif not isinstance(max_length, int) or max_length < 1:
+            self.errors.append("❌ NICKNAME_GENERATOR['MAX_LENGTH'] должен быть положительным числом")
+        elif max_length > 50:
+            self.warnings.append("⚠️ NICKNAME_GENERATOR['MAX_LENGTH'] слишком большой (рекомендуется <= 50)")
+        
+        # Проверка соотношения MIN_LENGTH и MAX_LENGTH
+        if isinstance(min_length, int) and isinstance(max_length, int):
+            if min_length > max_length:
+                self.errors.append("❌ NICKNAME_GENERATOR['MIN_LENGTH'] не может быть больше MAX_LENGTH")
+            elif max_length - min_length > 30:
+                self.warnings.append("⚠️ Слишком большой диапазон длины никнеймов (рекомендуется <= 30)")
+        
+        # Проверка USE_SPECIAL_CHARS
+        use_special = config.get('USE_SPECIAL_CHARS')
+        if use_special is None or use_special == '':
+            self.errors.append("❌ NICKNAME_GENERATOR['USE_SPECIAL_CHARS'] не может быть пустым")
+        elif not isinstance(use_special, bool):
+            self.errors.append("❌ NICKNAME_GENERATOR['USE_SPECIAL_CHARS'] должен быть True или False")
+        
+        # Проверка QUANTITY
+        quantity = config.get('QUANTITY')
+        if quantity is None or quantity == '':
+            self.errors.append("❌ NICKNAME_GENERATOR['QUANTITY'] не может быть пустым")
+        elif not isinstance(quantity, int) or quantity < 1:
+            self.errors.append("❌ NICKNAME_GENERATOR['QUANTITY'] должен быть положительным числом")
+        elif quantity > 100000:
+            self.warnings.append("⚠️ NICKNAME_GENERATOR['QUANTITY'] очень большой (может занять много времени)")
+        elif quantity < 1:
+            self.warnings.append("⚠️ NICKNAME_GENERATOR['QUANTITY'] слишком мал (рекомендуется >= 1)")
+        
+        logger.debug("✅ Настройки генератора никнеймов проверены")
     
     def check_cex_settings(self):
         """Проверка настроек бирж"""
