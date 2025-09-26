@@ -217,6 +217,7 @@ def main_menu():
                 choices=[
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('💲 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
+                    Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
@@ -229,11 +230,34 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'twitter':
+                    # Twitter submenu
+                    twitter_action = select(
+                        "Выберите действие с Twitter:",
+                        choices=[
+                            Choice('🐦 Twitter Check             🌟 Проверка аккаунтов Twitter', 'twitter_check'),
+                            Choice('🐦 Twitter Info              🌟 Получение информации Twitter', 'twitter_info'),
+                            Choice('🐦 Twitter Task              🌟 Выполнение заданий Twitter', 'twitter_task'),
+                            Choice('🔙 Back', 'back')
+                        ],
+                        qmark='🛠️',
+                        pointer='👉'
+                    ).ask()
+
+                    match twitter_action:
+                        case 'twitter_check':
+                            run_twitter_check('check')
+                        case 'twitter_info':
+                            run_twitter_check('info')
+                        case 'twitter_task':
+                            run_twitter_check('task')
+                        case 'back':
+                            continue
+
                 case 'miscellaneous':
                     choices = select(
                         "Выберите действие:",
                         choices=[
-                            Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                             Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
                             Choice('🪙 Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
                             Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
@@ -250,49 +274,6 @@ def main_menu():
                     ).ask()
 
                     match choices:
-                        case 'twitter':
-                            # Twitter submenu
-                            twitter_action = select(
-                                "Выберите действие с Twitter:",
-                                choices=[
-                                    Choice('🐦 Twitter Check             🌟 Проверка аккаунтов Twitter', 'twitter_check'),
-                                    Choice('🐦 Twitter Info              🌟 Получение информации Twitter', 'twitter_info'),
-                                    Choice('🐦 Twitter Task              🌟 выполнение задач по файлу data/twitter/twitter_task.csv', 'twitter_task'),
-                                    Choice('🔙 Back', 'back')
-                                ],
-                                qmark='🐦',
-                                pointer='👉'
-                            ).ask()
-
-                            match twitter_action:
-                                case 'twitter_check':
-                                    platform_choice = select(
-                                        "Выберите платформу на которой запускается скрипт:",
-                                        choices=[
-                                            Choice('🐦 Windows', 'windows'),
-                                            Choice('🐦 Linux', 'linux'),
-                                            Choice('🐦 MacOS', 'macos'),
-                                            Choice('🔙 Back', 'back')
-                                        ],
-                                        qmark='🛠️',
-                                        pointer='👉'
-                                    ).ask()
-
-                                    match platform_choice:
-                                        case 'windows':
-                                            run_twitter_check('windows')
-                                        case 'linux':
-                                            run_twitter_check('linux')
-                                        case 'macos':
-                                            run_twitter_check('macos')
-                                        case 'back':
-                                            continue
-                                case 'twitter_info':
-                                    print(Fore.GREEN + "\n\tФункционал Twitter Info в разработке, скоро будет доступен!\n")
-                                case 'twitter_task':
-                                    print(Fore.GREEN + "\n\tФункционал Twitter Task в разработке, скоро будет доступен!\n")
-                                case 'back':
-                                    continue
                         case 'check_gas_price':
                             check_all_gas_prices()
                         case 'generate_wallets':
