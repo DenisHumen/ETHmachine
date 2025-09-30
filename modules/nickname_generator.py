@@ -3,6 +3,13 @@
 """
 import random
 import os
+import sys
+
+# Добавляем родительскую папку в путь для импорта config
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 from config.config import NICKNAME_GENERATOR
 from loguru import logger
 
@@ -74,9 +81,16 @@ class NicknameGenerator:
         """Генерирует никнейм из комбинации слов"""
         min_len = NICKNAME_GENERATOR['MIN_LENGTH']
         max_len = NICKNAME_GENERATOR['MAX_LENGTH']
+        use_numbers = NICKNAME_GENERATOR.get('USE_NUMBERS', False)
         
         # Выбираем стратегию генерации
-        strategy = random.choice(['prefix_suffix', 'word_number', 'word_word', 'syllable_word'])
+        strategies = ['prefix_suffix', 'word_word', 'syllable_word']
+        
+        # Добавляем стратегию с числами только если не используется новая система чисел
+        if not use_numbers:
+            strategies.append('word_number')
+        
+        strategy = random.choice(strategies)
         
         if strategy == 'prefix_suffix':
             prefix = random.choice(self.prefixes)
@@ -98,16 +112,78 @@ class NicknameGenerator:
             word_part = random.choice(self.suffixes)
             base_name = syllable_part + word_part
         
-        # Подгоняем под нужную длину
+        # Подгоняем под нужную длину (только если не используются красивые числа)
         if len(base_name) > target_length:
             base_name = base_name[:target_length]
-        elif len(base_name) < min_len:
-            # Добавляем цифры для увеличения длины
+        elif len(base_name) < min_len and not use_numbers:
+            # Добавляем случайные цифры только если не используется новая система
             while len(base_name) < min_len and len(base_name) < target_length:
                 base_name += str(random.randint(0, 9))
         
         return base_name
     
+    def _add_numbers(self, name):
+        """Добавляет красивые числа в никнейм"""
+        use_numbers = NICKNAME_GENERATOR.get('USE_NUMBERS', False)
+        if not use_numbers:
+            return name
+            
+        min_numbers = NICKNAME_GENERATOR.get('MIN_NUMBERS', 1)
+        max_numbers = NICKNAME_GENERATOR.get('MAX_NUMBERS', 3)
+        nice_numbers = NICKNAME_GENERATOR.get('NICE_NUMBERS', [7, 13, 21, 27, 69, 77, 88, 99, 123, 777, 999])
+        
+        # Определяем количество чисел для добавления
+        numbers_count = random.randint(min_numbers, max_numbers)
+        
+        # Выбираем числа из списка красивых чисел
+        selected_numbers = []
+        for _ in range(numbers_count):
+            if nice_numbers:
+                number = random.choice(nice_numbers)
+                selected_numbers.append(str(number))
+        
+        if not selected_numbers:
+            return name
+            
+        # Стратегии размещения чисел
+        strategies = ['end', 'middle', 'start', 'mixed']
+        strategy = random.choice(strategies)
+        
+        if strategy == 'end':
+            # Добавляем все числа в конец
+            for number in selected_numbers:
+                name += number
+                
+        elif strategy == 'start':
+            # Добавляем числа в начало
+            numbers_str = ''.join(selected_numbers)
+            name = numbers_str + name
+            
+        elif strategy == 'middle' and len(name) > 4:
+            # Вставляем число в середину
+            pos = len(name) // 2
+            numbers_str = ''.join(selected_numbers)
+            name = name[:pos] + numbers_str + name[pos:]
+            
+        else:  # mixed - распределяем числа по никнейму
+            if len(name) > 2:
+                # Вставляем числа в разные позиции
+                for i, number in enumerate(selected_numbers):
+                    if i == 0:
+                        # Первое число в конец
+                        name += number
+                    elif len(name) > 4:
+                        # Остальные в случайные позиции
+                        pos = random.randint(1, len(name) - 1)
+                        name = name[:pos] + number + name[pos:]
+                    else:
+                        name += number
+            else:
+                # Если имя слишком короткое, добавляем в конец
+                name += ''.join(selected_numbers)
+        
+        return name
+
     def _add_special_chars(self, name):
         """Добавляет специальные символы в никнейм"""
         if not NICKNAME_GENERATOR.get('USE_SPECIAL_CHARS', True):
@@ -157,13 +233,16 @@ class NicknameGenerator:
         else:
             name = self._generate_word_combination(target_length)
         
-        # Ограничиваем длину
-        if len(name) > max_len:
-            name = name[:max_len]
-        elif len(name) < min_len:
-            # Дополняем цифрами
-            while len(name) < min_len:
-                name += str(random.randint(0, 9))
+        # Ограничиваем длину перед добавлением чисел
+        if len(name) > max_len - 4:  # Оставляем место для чисел
+            name = name[:max_len - 4]
+        elif len(name) < min_len - 4:  # Минимальная базовая длина
+            # Дополняем случайными символами
+            while len(name) < min_len - 4:
+                name += random.choice(self.consonants + self.vowels)
+        
+        # Добавляем числа (если включено)
+        name = self._add_numbers(name)
         
         # Добавляем специальные символы
         name = self._add_special_chars(name)
@@ -174,6 +253,10 @@ class NicknameGenerator:
         # Финальная проверка длины после всех преобразований
         if len(name) > max_len:
             name = name[:max_len]
+        elif len(name) < min_len:
+            # Если все еще слишком короткий, дополняем цифрами
+            while len(name) < min_len:
+                name += str(random.randint(0, 9))
         
         return name
     
@@ -223,6 +306,18 @@ def generate_nicknames():
         log_info(f"📋 Настройки:")
         log_info(f"   • Длина: {settings['MIN_LENGTH']}-{settings['MAX_LENGTH']} символов")
         log_info(f"   • Специальные символы: {'включены' if settings['USE_SPECIAL_CHARS'] else 'отключены'}")
+        
+        # Показываем настройки чисел
+        use_numbers = settings.get('USE_NUMBERS', False)
+        log_info(f"   • Использование чисел: {'включено' if use_numbers else 'отключено'}")
+        if use_numbers:
+            min_nums = settings.get('MIN_NUMBERS', 1)
+            max_nums = settings.get('MAX_NUMBERS', 3)
+            nice_nums = settings.get('NICE_NUMBERS', [])
+            log_info(f"   • Количество чисел: {min_nums}-{max_nums}")
+            if nice_nums:
+                log_info(f"   • Красивые числа: {nice_nums[:5]}{'...' if len(nice_nums) > 5 else ''}")
+        
         log_info(f"   • Количество: {settings['QUANTITY']} никнеймов")
         
         # Создаем генератор

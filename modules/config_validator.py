@@ -144,6 +144,45 @@ class ConfigValidator:
         elif quantity < 1:
             self.warnings.append("⚠️ NICKNAME_GENERATOR['QUANTITY'] слишком мал (рекомендуется >= 1)")
         
+        # Проверка USE_NUMBERS
+        use_numbers = config.get('USE_NUMBERS')
+        if use_numbers is not None and not isinstance(use_numbers, bool):
+            self.errors.append("❌ NICKNAME_GENERATOR['USE_NUMBERS'] должен быть True или False")
+        
+        # Проверка MIN_NUMBERS и MAX_NUMBERS (только если USE_NUMBERS включен)
+        if use_numbers:
+            min_numbers = config.get('MIN_NUMBERS')
+            if min_numbers is not None:
+                if not isinstance(min_numbers, int) or min_numbers < 0:
+                    self.errors.append("❌ NICKNAME_GENERATOR['MIN_NUMBERS'] должен быть неотрицательным числом")
+                elif min_numbers > 5:
+                    self.warnings.append("⚠️ NICKNAME_GENERATOR['MIN_NUMBERS'] слишком большой (рекомендуется <= 5)")
+            
+            max_numbers = config.get('MAX_NUMBERS')
+            if max_numbers is not None:
+                if not isinstance(max_numbers, int) or max_numbers < 0:
+                    self.errors.append("❌ NICKNAME_GENERATOR['MAX_NUMBERS'] должен быть неотрицательным числом")
+                elif max_numbers > 10:
+                    self.warnings.append("⚠️ NICKNAME_GENERATOR['MAX_NUMBERS'] слишком большой (рекомендуется <= 10)")
+            
+            # Проверка что MIN_NUMBERS <= MAX_NUMBERS
+            if (min_numbers is not None and max_numbers is not None and 
+                isinstance(min_numbers, int) and isinstance(max_numbers, int)):
+                if min_numbers > max_numbers:
+                    self.errors.append("❌ NICKNAME_GENERATOR['MIN_NUMBERS'] не может быть больше MAX_NUMBERS")
+        
+        # Проверка NICE_NUMBERS
+        nice_numbers = config.get('NICE_NUMBERS')
+        if nice_numbers is not None:
+            if not isinstance(nice_numbers, list):
+                self.errors.append("❌ NICKNAME_GENERATOR['NICE_NUMBERS'] должен быть списком")
+            else:
+                for i, num in enumerate(nice_numbers):
+                    if not isinstance(num, int) or num < 0:
+                        self.errors.append(f"❌ NICKNAME_GENERATOR['NICE_NUMBERS'][{i}] должен быть неотрицательным числом")
+                    elif num > 99999:
+                        self.warnings.append(f"⚠️ NICKNAME_GENERATOR['NICE_NUMBERS'][{i}] очень большой (может не поместиться в никнейм)")
+        
         logger.debug("✅ Настройки генератора никнеймов проверены")
     
     def check_cex_settings(self):
