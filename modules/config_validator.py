@@ -6,6 +6,8 @@
 
 import os
 import sys
+import re
+import csv
 from pathlib import Path
 from loguru import logger
 
@@ -255,6 +257,7 @@ class ConfigValidator:
         """Проверка файлов данных"""
         logger.debug("📁 Проверка файлов данных...")
         
+        # Проверяем основные файлы на существование
         data_files = {
             'proxy.csv': 'файл прокси',
             'walletss.txt': 'файл кошельков', 
@@ -278,6 +281,256 @@ class ConfigValidator:
                             logger.debug(f"✅ {description}: {lines} записей")
                 except Exception as e:
                     self.warnings.append(f"⚠️ Ошибка чтения {description}: {e}")
+        
+        # Детальная проверка содержимого файлов
+        self._validate_mnemonic_file()
+        self._validate_email_file() 
+        self._validate_private_keys_file()
+        self._validate_proxy_file()
+        self._validate_transfer_token_file()
+        self._validate_wallets_file()
+    
+    def _is_valid_eth_address(self, address):
+        """Проверка корректности ETH адреса"""
+        if not isinstance(address, str):
+            return False
+        # Базовая проверка формата ETH адреса
+        return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address.strip()))
+    
+    def _is_valid_private_key(self, private_key):
+        """Проверка корректности приватного ключа"""
+        if not isinstance(private_key, str):
+            return False
+        private_key = private_key.strip()
+        # Приватный ключ может быть с префиксом 0x или без него
+        if private_key.startswith('0x'):
+            private_key = private_key[2:]
+        return bool(re.match(r'^[a-fA-F0-9]{64}$', private_key))
+    
+    def _is_valid_email(self, email):
+        """Проверка корректности email"""
+        if not isinstance(email, str):
+            return False
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email.strip()))
+    
+    def _is_valid_proxy_format(self, proxy):
+        """Проверка корректности формата прокси login:password@ip:port"""
+        if not isinstance(proxy, str):
+            return False
+        pattern = r'^[^:]+:[^@]+@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}$'
+        return bool(re.match(pattern, proxy.strip()))
+    
+    def _is_valid_amount_format(self, amount):
+        """Проверка корректности формата amount"""
+        if not isinstance(amount, str):
+            return False
+        amount = amount.strip()
+        if not amount:
+            return False
+        
+        # Форматы: 1-2, 1-2eth, 1-2%
+        patterns = [
+            r'^\d+(\.\d+)?-\d+(\.\d+)?$',           # 1-2
+            r'^\d+(\.\d+)?-\d+(\.\d+)?eth$',        # 1-2eth  
+            r'^\d+(\.\d+)?-\d+(\.\d+)?%$',          # 1-2%
+        ]
+        
+        return any(re.match(pattern, amount, re.IGNORECASE) for pattern in patterns)
+    
+    def _validate_mnemonic_file(self):
+        """Проверка файла мнемоник"""
+        file_path = self.data_dir / 'mnemonic.txt'
+        if not file_path.exists():
+            return  # Не показываем предупреждение если файл не существует
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    return  # Не показываем предупреждение если файл пустой
+                
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                for i, line in enumerate(lines, 1):
+                    words = line.split()
+                    if len(words) != 12:
+                        self.warnings.append(f"⚠️ data/mnemonic.txt строка {i}: должно быть 12 слов, найдено {len(words)}")
+                    
+                logger.debug(f"✅ Мнемоники проверены: {len(lines)} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/mnemonic.txt: {e}")
+    
+    def _validate_email_file(self):
+        """Проверка файла email.csv"""
+        file_path = self.data_dir / 'email.csv'
+        if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/email.csv")
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                lines = list(reader)
+                
+                if not lines:
+                    self.warnings.append("⚠️ Пустой файл data/email.csv")
+                    return
+                
+                # Пропускаем заголовок, если он есть
+                start_idx = 1 if lines and lines[0] == ['email', 'password', 'imap_domain'] else 0
+                
+                data_lines = 0
+                for i, row in enumerate(lines[start_idx:], start_idx + 1):
+                    if not row or not any(cell.strip() for cell in row):  # Пропускаем пустые строки
+                        continue
+                        
+                    data_lines += 1
+                    if len(row) != 3:
+                        self.warnings.append(f"⚠️ data/email.csv строка {i}: ожидается 3 колонки (email,password,imap_domain), найдено {len(row)}")
+                        continue
+                    
+                    email, password, imap_domain = [cell.strip() for cell in row]
+                    
+                    if not self._is_valid_email(email):
+                        self.warnings.append(f"⚠️ data/email.csv строка {i}: некорректный email '{email}'")
+                    
+                    if not password:
+                        self.warnings.append(f"⚠️ data/email.csv строка {i}: пустой пароль")
+                        
+                    if not imap_domain:
+                        self.warnings.append(f"⚠️ data/email.csv строка {i}: пустой imap_domain")
+                
+                if data_lines > 0:
+                    logger.debug(f"✅ Email файл проверен: {data_lines} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/email.csv: {e}")
+    
+    def _validate_private_keys_file(self):
+        """Проверка файла private_keys.txt"""
+        file_path = self.data_dir / 'private_keys.txt'
+        if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/private_keys.txt")
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    self.warnings.append("⚠️ Пустой файл data/private_keys.txt")
+                    return
+                
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                for i, line in enumerate(lines, 1):
+                    if not self._is_valid_private_key(line):
+                        self.warnings.append(f"⚠️ data/private_keys.txt строка {i}: некорректный приватный ключ")
+                        
+                logger.debug(f"✅ Приватные ключи проверены: {len(lines)} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/private_keys.txt: {e}")
+    
+    def _validate_proxy_file(self):
+        """Проверка файла proxy.csv"""
+        file_path = self.data_dir / 'proxy.csv'
+        if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/proxy.csv")
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    self.warnings.append("⚠️ Пустой файл data/proxy.csv")
+                    return
+                
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                for i, line in enumerate(lines, 1):
+                    if not self._is_valid_proxy_format(line):
+                        self.warnings.append(f"⚠️ data/proxy.csv строка {i}: некорректный формат прокси (ожидается login:password@ip:port)")
+                        
+                logger.debug(f"✅ Прокси проверены: {len(lines)} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/proxy.csv: {e}")
+    
+    def _validate_transfer_token_file(self):
+        """Проверка файла transfer_token.csv"""
+        file_path = self.data_dir / 'transfer_token.csv'
+        if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/transfer_token.csv")
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                lines = list(reader)
+                
+                if not lines:
+                    self.warnings.append("⚠️ Пустой файл data/transfer_token.csv")
+                    return
+                
+                # Пропускаем заголовок, если он есть
+                start_idx = 1 if lines and lines[0] == ['from_wallet', 'to_wallet', 'intermediary', 'amount'] else 0
+                
+                data_lines = 0
+                for i, row in enumerate(lines[start_idx:], start_idx + 1):
+                    if not row or not any(cell.strip() for cell in row):  # Пропускаем пустые строки
+                        continue
+                        
+                    data_lines += 1
+                    if len(row) != 4:
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: ожидается 4 колонки (from_wallet,to_wallet,intermediary,amount), найдено {len(row)}")
+                        continue
+                    
+                    from_wallet, to_wallet, intermediary, amount = [cell.strip() for cell in row]
+                    
+                    # from_wallet всегда приватный ключ
+                    if not self._is_valid_private_key(from_wallet):
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: from_wallet должен быть приватным ключом")
+                    
+                    # to_wallet всегда публичный адрес
+                    if not self._is_valid_eth_address(to_wallet):
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: to_wallet должен быть публичным ETH адресом")
+                    
+                    # intermediary может быть пустым или приватным ключом
+                    if intermediary and not self._is_valid_private_key(intermediary):
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: intermediary должен быть приватным ключом или пустым")
+                    
+                    # amount должен быть в корректном формате
+                    if not self._is_valid_amount_format(amount):
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: некорректный формат amount (ожидается: 1-2, 1-2eth, или 1-2%)")
+                
+                if data_lines > 0:
+                    logger.debug(f"✅ Transfer token файл проверен: {data_lines} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/transfer_token.csv: {e}")
+    
+    def _validate_wallets_file(self):
+        """Проверка файла walletss.txt"""
+        file_path = self.data_dir / 'walletss.txt'
+        if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/walletss.txt")
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    self.warnings.append("⚠️ Пустой файл data/walletss.txt")
+                    return
+                
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                for i, line in enumerate(lines, 1):
+                    if not self._is_valid_eth_address(line):
+                        self.warnings.append(f"⚠️ data/walletss.txt строка {i}: некорректный ETH адрес")
+                        
+                logger.debug(f"✅ Кошельки проверены: {len(lines)} записей")
+                        
+        except Exception as e:
+            self.warnings.append(f"⚠️ Ошибка чтения data/walletss.txt: {e}")
     
     def show_results(self):
         """Показать результаты проверки"""
