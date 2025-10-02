@@ -19,6 +19,63 @@ from config.config import *
 from modules.cex.exchange_selector import select_okx_account
 
 
+def colorize_price_change(price_change_percent: float) -> str:
+    """
+    Раскрашивает процент изменения цены:
+    - Красный: если падение (отрицательный процент)
+    - Желтый: если близко к нулю (-0.1% до +0.1%)
+    - Зеленый: если рост (положительный процент)
+    """
+    if price_change_percent < -0.1:
+        return f"<red>{price_change_percent:.2f}%</red>"
+    elif -0.1 <= price_change_percent <= 0.1:
+        return f"<yellow>{price_change_percent:.2f}%</yellow>"
+    else:
+        return f"<green>+{price_change_percent:.2f}%</green>"
+
+
+def format_position_message(token: str, buy_price: float, current_price: float, 
+                          price_change_percent: float, action_message: str, 
+                          emoji: str = "📊") -> str:
+    """
+    Форматирует сообщение о позиции с цветной раскраской
+    """
+    colored_change = colorize_price_change(price_change_percent)
+    
+    if price_change_percent < 0:
+        change_word = "падение"
+    elif price_change_percent > 0:
+        change_word = "рост"
+    else:
+        change_word = "изменение"
+    
+    return (f"      │    {emoji} {token}: цена покупки = {buy_price}, "
+            f"текущая = {current_price}, {change_word} = {colored_change} → {action_message}")
+
+
+def format_buy_message(token: str, price_change: float, threshold: float, 
+                      message_type: str = "ПЕРВАЯ ПОКУПКА") -> str:
+    """
+    Форматирует сообщение о покупке с цветной раскраской
+    """
+    colored_change = colorize_price_change(price_change)
+    colored_threshold = f"<red>-{threshold}%</red>"
+    
+    return (f"      │    📉 {token}: {message_type} | изменение за 24ч = {colored_change}, "
+            f"порог = {colored_threshold} → 🛒 ПОКУПАЕМ!")
+
+
+def format_averaging_message(token: str, last_price: float, current_price: float,
+                           price_drop: float, threshold: float) -> tuple[str, str]:
+    """Форматирует сообщение об усреднении с цветной раскраской"""
+    msg1 = (f"      │    📉 {token}: УСРЕДНЕНИЕ | последняя покупка = <yellow>{last_price:.2f}</yellow>, "
+            f"текущая = <yellow>{current_price:.2f}</yellow>")
+    colored_drop = colorize_price_change(-price_drop)  # Делаем падение отрицательным для правильного цвета
+    msg2 = (f"      │    📉 {token}: падение от последней покупки = {colored_drop}, "
+            f"порог = <red>{threshold}%</red> → 🛒 УСРЕДНЯЕМ!")
+    return msg1, msg2
+
+
 def _get_cex_settings():
     """Получить настройки OKX с обработкой ошибок"""
     try:
@@ -765,7 +822,7 @@ class OKXSpotTrader:
             
             if open_transactions:
                 for transaction in open_transactions:
-                    logger.info(f"      │  🔍 Проверяем позицию {transaction['token']}: куплено по {transaction['buy_price']:.2f}")
+                    #logger.info(f"      │  🔍 Проверяем позицию {transaction['token']}: куплено по {transaction['buy_price']:.2f}")
                     if self.should_sell(transaction['token'], transaction['buy_price']):
                         logger.info(f"      │  🎯 Продаем {transaction['token']}")
                         if self.sell_token(
@@ -830,12 +887,24 @@ class OKXSpotTrader:
         should_sell = price_change_percent >= sell_threshold
         
         if should_sell:
-            logger.success(f"      │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
+            colored_message = format_position_message(
+                token, buy_price, current_price, price_change_percent, 
+                "💰 ПРОДАЕМ!", "📈"
+            )
+            logger.opt(colors=True).success(colored_message)
         else:
             if price_change_percent < 0:
-                logger.warning(f"      │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
+                colored_message = format_position_message(
+                    token, buy_price, current_price, price_change_percent, 
+                    "⏳ Ждем роста", "📉"
+                )
+                logger.opt(colors=True).warning(colored_message)
             else:
-                logger.info(f"      │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
+                colored_message = format_position_message(
+                    token, buy_price, current_price, price_change_percent, 
+                    "⏳ Недостаточный рост", "📊"
+                )
+                logger.opt(colors=True).info(colored_message)
         
         return should_sell
 
@@ -859,7 +928,8 @@ class OKXSpotTrader:
             should_buy = price_change <= -buy_threshold
             
             if should_buy:
-                logger.success(f"      │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
+                colored_message = format_buy_message(token, price_change, buy_threshold, "ПЕРВАЯ ПОКУПКА")
+                logger.opt(colors=True).success(colored_message)
             else:
                 if price_change < 0:
                     logger.info(f"      │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
@@ -879,8 +949,9 @@ class OKXSpotTrader:
             should_average = price_drop_from_last >= buy_threshold
             
             if should_average:
-                logger.success(f"      │    📉 {token}: УСРЕДНЕНИЕ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
-                logger.success(f"      │    📉 {token}: падение от последней покупки = {price_drop_from_last:.2f}%, порог = {buy_threshold}% → 🛒 УСРЕДНЯЕМ!")
+                msg1, msg2 = format_averaging_message(token, last_buy_price, current_price, price_drop_from_last, buy_threshold)
+                logger.opt(colors=True).success(msg1)
+                logger.opt(colors=True).success(msg2)
             else:
                 if price_drop_from_last > 0:
                     logger.info(f"      │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
@@ -933,7 +1004,7 @@ class OKXSpotTrader:
             
             if open_transactions:
                 for transaction in open_transactions:
-                    logger.info(f"      │  🔍 Проверяем позицию {transaction['token']}: куплено по {transaction['buy_price']:.2f}")
+                    #logger.info(f"      │  🔍 Проверяем позицию {transaction['token']}: куплено по {transaction['buy_price']:.2f}")
                     if self.should_sell(transaction['token'], transaction['buy_price']):
                         logger.info(f"      │  🎯 Продаем {transaction['token']}")
                         if self.sell_token(
@@ -1121,12 +1192,24 @@ class OKXSpotTrader:
         should_sell = price_change_percent >= sell_threshold
         
         if should_sell:
-            logger.success(f"      │    📈 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → 💰 ПРОДАЕМ!")
+            colored_message = format_position_message(
+                token, buy_price, current_price, price_change_percent, 
+                "💰 ПРОДАЕМ!", "📈"
+            )
+            logger.opt(colors=True).success(colored_message)
         else:
             if price_change_percent < 0:
-                logger.warning(f"      │    📉 {token}: цена покупки = {buy_price}, текущая = {current_price}, падение = {price_change_percent:.2f}% → ⏳ Ждем роста")
+                colored_message = format_position_message(
+                    token, buy_price, current_price, price_change_percent, 
+                    "⏳ Ждем роста", "📉"
+                )
+                logger.opt(colors=True).warning(colored_message)
             else:
-                logger.info(f"      │    📊 {token}: цена покупки = {buy_price}, текущая = {current_price}, рост = +{price_change_percent:.2f}% → ⏳ Недостаточный рост")
+                colored_message = format_position_message(
+                    token, buy_price, current_price, price_change_percent, 
+                    "⏳ Недостаточный рост", "📊"
+                )
+                logger.opt(colors=True).info(colored_message)
         
         return should_sell
 
@@ -1150,7 +1233,8 @@ class OKXSpotTrader:
             should_buy = price_change <= -buy_threshold
             
             if should_buy:
-                logger.success(f"      │    📉 {token}: ПЕРВАЯ ПОКУПКА | изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → 🛒 ПОКУПАЕМ!")
+                colored_message = format_buy_message(token, price_change, buy_threshold, "ПЕРВАЯ ПОКУПКА")
+                logger.opt(colors=True).success(colored_message)
             else:
                 if price_change < 0:
                     logger.info(f"      │    📊 {token}: изменение за 24ч = {price_change:.2f}%, порог = -{buy_threshold}% → ⏳ Недостаточное падение")
@@ -1170,8 +1254,9 @@ class OKXSpotTrader:
             should_average = price_drop_from_last >= buy_threshold
             
             if should_average:
-                logger.success(f"      │    📉 {token}: УСРЕДНЕНИЕ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
-                logger.success(f"      │    📉 {token}: падение от последней покупки = {price_drop_from_last:.2f}%, порог = {buy_threshold}% → 🛒 УСРЕДНЯЕМ!")
+                msg1, msg2 = format_averaging_message(token, last_buy_price, current_price, price_drop_from_last, buy_threshold)
+                logger.opt(colors=True).success(msg1)
+                logger.opt(colors=True).success(msg2)
             else:
                 if price_drop_from_last > 0:
                     logger.info(f"      │    📊 {token}: ЕСТЬ ПОЗИЦИЯ | последняя покупка = {last_buy_price:.2f}, текущая = {current_price:.2f}")
