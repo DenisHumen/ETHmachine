@@ -13,7 +13,7 @@ init()
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RANDOM_PROXIES_TWITTER
 
 # Настройка логирования для модуля twitter_check
 def setup_twitter_logging():
@@ -39,6 +39,30 @@ def setup_twitter_logging():
 class Constants:
     BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
+def load_random_proxy():
+    """Загружает случайный прокси из файла data/proxy.csv"""
+    proxy_file = Path("data/proxy.csv")
+    
+    if not proxy_file.exists():
+        logger.warning(f"Файл прокси не найден: {proxy_file}")
+        return None
+    
+    try:
+        with open(proxy_file, 'r', encoding='utf-8') as f:
+            proxies = [line.strip() for line in f if line.strip()]
+        
+        if not proxies:
+            logger.warning("Файл прокси пустой")
+            return None
+        
+        selected_proxy = random.choice(proxies)
+        logger.info(f"Выбран случайный прокси из {len(proxies)} доступных")
+        return selected_proxy
+    
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке прокси из файла: {e}")
+        return None
+
 async def create_twitter_client():
     """Создает Twitter клиент"""
     if not MAIN_AUTH_TOKEN or MAIN_AUTH_TOKEN == "":
@@ -46,12 +70,24 @@ async def create_twitter_client():
     
     session = AsyncSession()
     
-    if MAIN_PROXY_TWITTER:
+    # Выбираем прокси в зависимости от настроек
+    proxy_to_use = None
+    if RANDOM_PROXIES_TWITTER:
+        proxy_to_use = load_random_proxy()
+        if not proxy_to_use:
+            logger.warning("Не удалось загрузить случайный прокси, используем MAIN_PROXY_TWITTER")
+            proxy_to_use = MAIN_PROXY_TWITTER
+    else:
+        proxy_to_use = MAIN_PROXY_TWITTER
+    
+    if proxy_to_use:
         session.proxies = {
-            'http': f'http://{MAIN_PROXY_TWITTER}',
-            'https': f'http://{MAIN_PROXY_TWITTER}'
+            'http': f'http://{proxy_to_use}',
+            'https': f'http://{proxy_to_use}'
         }
-        logger.info(f"Using proxy: {MAIN_PROXY_TWITTER.split('@')[1] if '@' in MAIN_PROXY_TWITTER else MAIN_PROXY_TWITTER}")
+        # Маскируем часть прокси для безопасности в логах
+        proxy_display = proxy_to_use.split('@')[1] if '@' in proxy_to_use else proxy_to_use
+        logger.info(f"Using proxy: {proxy_display}")
     else:
         logger.info("No proxy configured")
     

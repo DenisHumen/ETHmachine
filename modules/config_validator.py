@@ -74,6 +74,14 @@ class ConfigValidator:
                 nickname_generator_exists = False
                 self.warnings.append("⚠️ NICKNAME_GENERATOR не найден в конфиге (добавьте настройки для генератора никнеймов)")
             
+            # Пытаемся импортировать RANDOM_PROXIES_TWITTER (может отсутствовать в старых конфигах)
+            try:
+                from config.config import RANDOM_PROXIES_TWITTER
+                if not isinstance(RANDOM_PROXIES_TWITTER, bool):
+                    self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER должен быть True или False")
+            except ImportError:
+                self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER не найден в конфиге (добавьте для использования рандомных прокси в Twitter)")
+            
             # Проверки значений
             if TYPE_WITHDRAW not in [0, 1]:
                 self.warnings.append("⚠️ TYPE_WITHDRAW должен быть 1 или 0")
