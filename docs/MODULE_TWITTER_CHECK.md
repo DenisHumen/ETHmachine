@@ -2,16 +2,46 @@
 
 ## 📖 Описание
 
-Модуль для асинхронной проверки аккаунтов Twitter/X с получением детальной информации о пользователях, включая количество подписчиков, статус верификации и активность. Поддерживает работу с прокси и массовую обработку.
+Модуль для асинхронной проверки аккаунтов Twitter/X с получением детальной информации о пользователях, включая количество подписчиков, статус верификации и активность. Поддерживает работу с прокси, **автоматическую ротацию токенов** и массовую обработку.
+
+**Новое в версии 2.0 (2025):**
+- 🔄 Автоматическая ротация токенов для обхода rate limits
+- 🌐 Случайные прокси из CSV файла
+- ✅ Валидация достаточности токенов перед запуском
+- 📊 Расширенная статистика использования
+- ⏱️ Умные задержки с random паузами
 
 ## 🎯 Основные функции
+
+### `TokenManager` 🆕
+
+- **NEW 2025** - Класс для автоматической ротации токенов
+- Отслеживание количества использований каждого токена
+- Автоматическое переключение после достижения лимита
+- Валидация достаточности токенов перед запуском
+- Предоставление статистики использования
+
+**Методы:**
+- `get_current_token()` - получить текущий активный токен
+- `increment_usage()` - увеличить счетчик использования
+- `get_max_possible_checks()` - рассчитать максимум проверок
+- `has_tokens_available()` - проверить доступность
+- `get_stats()` - получить статистику
+
+### `load_random_proxy()` 🆕
+
+- **NEW 2025** - Загрузка случайного прокси из файла
+- Поддержка формата `user:pass@ip:port`
+- Fallback на основной прокси при ошибках
+- Логирование выбранного прокси
 
 ### `create_twitter_client()`
 
 - Создание асинхронного HTTP клиента для Twitter API
 - Настройка заголовков и cookies для аутентификации
 - Получение CSRF токена для защищенных запросов
-- Поддержка прокси соединений
+- Поддержка прокси соединений и их ротации
+- **NEW**: Интеграция с TokenManager
 
 ### `TwitterFollowersChecker`
 
@@ -19,6 +49,7 @@
 - Async context manager для автоматического управления ресурсами
 - Retry механизм при ошибках API
 - Детальная обработка различных типов ошибок
+- **NEW**: Интеграция с TokenManager для ротации
 
 ### `get_user_followers_count(nickname)`
 
@@ -26,6 +57,7 @@
 - Извлечение количества подписчиков и подписок
 - Проверка статуса верификации (legacy и blue checkmark)
 - Получение метаданных профиля
+- **NEW**: Автоматическое инкрементирование счетчика токена
 
 ### `setup_twitter_logging()`
 
@@ -38,11 +70,44 @@
 
 ```python
 # config/config.py
-MAIN_AUTH_TOKEN = "your_auth_token"           # Auth token из cookies Twitter
-MAIN_PROXY_TWITTER = "user:pass@ip:port"      # Прокси для Twitter (опционально)
-NUM_THREADS = 5                               # Количество потоков
-SLEEP_BETWEEN_ACTIONS = 2                     # Пауза между запросами (сек)
+
+# === Токены Twitter ===
+MAIN_AUTH_TOKEN = ['token1', 'token2', 'token3']  # Массив auth токенов для ротации
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 5              # Максимум использований каждого токена
+
+# === Прокси ===
+MAIN_PROXY_TWITTER = "user:pass@ip:port"          # Основной прокси для Twitter
+RANDOM_PROXIES_TWITTER = True                     # Использовать случайные прокси из data/proxy.csv
+
+# === Производительность ===
+NUM_THREADS = 5                                   # Количество потоков
+SLEEP_BETWEEN_ACTIONS = (2, 5)                    # Случайная пауза между запросами (мин, макс сек)
 ```
+
+### 🔄 Ротация токенов
+
+Модуль автоматически ротирует токены для предотвращения rate limiting:
+
+- **Автоматическое переключение**: после достижения `COUNT_REPLACE_TWITTER_AUTH_TOKEN` использований
+- **Валидация токенов**: проверка достаточности токенов перед запуском
+- **Расчет лимитов**: `количество_токенов × max_uses_per_token = максимум_проверок`
+
+**Пример:**
+```python
+MAIN_AUTH_TOKEN = ['token1', 'token2']
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 10
+
+# Результат: максимум 20 проверок (2 токена × 10 использований)
+```
+
+### 🌐 Случайные прокси
+
+При включенной опции `RANDOM_PROXIES_TWITTER = True`:
+
+- Автоматически загружаются прокси из `data/proxy.csv`
+- Случайный выбор прокси для каждой проверки
+- Fallback на `MAIN_PROXY_TWITTER` при ошибках
+- Формат прокси: `user:pass@ip:port` или `ip:port`
 
 ## 🔐 Аутентификация
 
@@ -53,6 +118,58 @@ SLEEP_BETWEEN_ACTIONS = 2                     # Пауза между запро
 3. **Перейти в Application/Storage → Cookies**
 4. **Найти cookie с именем `auth_token`**
 5. **Скопировать значение** в config
+
+**Важно:** Для работы ротации токенов укажите массив токенов:
+
+```python
+# Один токен (старый формат)
+MAIN_AUTH_TOKEN = ['your_auth_token_here']
+
+# Несколько токенов для ротации (рекомендуется)
+MAIN_AUTH_TOKEN = [
+    'token_from_account_1',
+    'token_from_account_2',
+    'token_from_account_3'
+]
+```
+
+### 🔄 TokenManager - Система ротации токенов
+
+Класс `TokenManager` автоматически управляет использованием токенов:
+
+**Основные методы:**
+
+- `get_current_token()` - получить текущий активный токен
+- `increment_usage()` - увеличить счетчик использования токена
+- `get_max_possible_checks()` - рассчитать максимум проверок
+- `has_tokens_available()` - проверить доступность токенов
+- `get_stats()` - получить статистику использования
+
+**Логика работы:**
+
+```python
+# Инициализация
+token_manager = TokenManager(
+    tokens=['token1', 'token2'],
+    max_uses_per_token=10
+)
+
+# Автоматическое переключение после 10 использований
+for i in range(25):
+    token = token_manager.get_current_token()  # Автосмена каждые 10 раз
+    # ... выполнение проверки ...
+    token_manager.increment_usage()            # Увеличение счетчика
+
+# Статистика
+stats = token_manager.get_stats()
+# {
+#   'total_tokens': 2,
+#   'max_uses_per_token': 10,
+#   'max_possible_checks': 20,
+#   'current_token_index': 1,
+#   'current_token_uses': 5
+# }
+```
 
 ### Bearer Token
 
@@ -186,6 +303,107 @@ async def process_twitter_accounts():
 asyncio.run(process_twitter_accounts())
 ```
 
+## 🆕 Новые возможности (2025)
+
+### 1. Ротация токенов
+
+Автоматическая ротация токенов для обхода rate limits:
+
+```python
+# config/config.py
+MAIN_AUTH_TOKEN = [
+    'token_from_account_1',
+    'token_from_account_2',
+    'token_from_account_3'
+]
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 10  # Каждый токен используется 10 раз
+
+# При запуске модуль покажет:
+# 🔑 Конфигурация токенов:
+#    📊 Всего токенов: 3
+#    🔢 Использований на токен: 10
+#    📈 Максимум проверок: 30
+```
+
+**Автоматическая валидация:**
+
+```python
+# Если аккаунтов больше чем max_checks:
+# ⚠️ ВНИМАНИЕ: Недостаточно токенов!
+#    📊 Аккаунтов для проверки: 50
+#    🔑 Максимум проверок с текущими токенами: 30
+#    ❌ Не хватает проверок: 20
+#
+# 💡 Решение:
+#    1. Добавьте еще 2 токен(ов)
+#    2. Или увеличьте COUNT_REPLACE_TWITTER_AUTH_TOKEN до 17
+```
+
+### 2. Случайные прокси
+
+Автоматическая ротация прокси из файла:
+
+```python
+# config/config.py
+RANDOM_PROXIES_TWITTER = True  # Включить случайные прокси
+MAIN_PROXY_TWITTER = "user:pass@backup.proxy:8080"  # Fallback прокси
+
+# data/proxy.csv
+user1:pass1@192.168.1.1:8080
+user2:pass2@192.168.1.2:8080
+user3:pass3@192.168.1.3:8080
+```
+
+**Работа модуля:**
+
+- Загружает все прокси из `data/proxy.csv` при старте
+- Случайно выбирает прокси для каждой проверки
+- При ошибке прокси использует `MAIN_PROXY_TWITTER`
+- Логирует выбранный прокси: `🌐 Используем прокси: 192.168.1.1:8080`
+
+### 3. Расширенная статистика
+
+При запуске модуль показывает:
+
+```text
+🚀 Twitter Followers Checker
+==================================================
+Current Date and Time (UTC): 2025-10-08 14:30:25
+Operating System: Windows
+Threads: 5
+Delay between requests: 2-5s
+Proxy: user:pass@proxy.com:8080
+==================================================
+
+🔑 Конфигурация токенов:
+   📊 Всего токенов: 3
+   🔢 Использований на токен: 10
+   📈 Максимум проверок: 30
+==================================================
+
+📋 Found 25 nicknames to check
+✅ Токенов достаточно: 30 проверок доступно для 25 аккаунтов
+```
+
+### 4. Умные задержки
+
+Случайные паузы между запросами:
+
+```python
+# config/config.py
+SLEEP_BETWEEN_ACTIONS = (2, 5)  # От 2 до 5 секунд
+
+# В коде:
+import random
+await asyncio.sleep(random.uniform(2, 5))  # Случайная пауза
+```
+
+**Преимущества:**
+
+- Имитация человеческого поведения
+- Снижение вероятности бана
+- Более естественный паттерн запросов
+
 ## 📁 Входные и выходные данные
 
 ### Входной файл
@@ -228,15 +446,17 @@ nonexistent,,,,,,,error,User not found (404)
 2024-01-15 14:30:27 | INFO | @elonmusk: 153M followers
 2024-01-15 14:30:30 | ERROR | Access denied (403) for @private_user
 2024-01-15 14:30:33 | ERROR | Rate limit exceeded (429). Waiting...
+2024-01-15 14:30:34 | INFO | 🔄 Переключение токена: 0 → 1 (использовано 10/10)
 ```
 
 ## ⚡ Производительность и ограничения
 
 ### Rate Limits
 
-- **Официальные лимиты**: ~300 запросов/15 минут
+- **Официальные лимиты**: ~300 запросов/15 минут (на токен)
 - **Рекомендуемые паузы**: 2-5 секунд между запросами
 - **Прокси ротация**: для увеличения лимитов
+- **Ротация токенов**: автоматическая смена после лимита
 
 ### Оптимизации
 
@@ -253,30 +473,48 @@ async def smart_delay(response_status):
 
 ## 🛠️ Диагностика ошибок
 
-### HTTP Status Codes
+### Диагностика ошибок
 
 1. **403 Forbidden**
-   ```
+
+   ```text
    Error: Access denied - invalid token or suspended account
    Solution: Обновить auth_token, проверить аккаунт
    ```
 
 2. **401 Unauthorized**
-   ```
+
+   ```text
    Error: Auth token expired or invalid
    Solution: Получить новый auth_token из браузера
    ```
 
 3. **429 Too Many Requests**
-   ```
+
+   ```text
    Error: Rate limit exceeded
-   Solution: Увеличить паузы, использовать прокси
+   Solution: Увеличить паузы, использовать прокси, добавить токены
    ```
 
 4. **404 Not Found**
-   ```
+
+   ```text
    Error: User not found or suspended
    Solution: Проверить правильность никнейма
+   ```
+
+5. **Недостаточно токенов**
+
+   ```text
+   ⚠️ ВНИМАНИЕ: Недостаточно токенов!
+   📊 Аккаунтов для проверки: 50
+   🔑 Максимум проверок с текущими токенами: 20
+   ❌ Не хватает проверок: 30
+   
+   💡 Решение:
+   1. Добавьте еще 3 токен(ов)
+   2. Или увеличьте COUNT_REPLACE_TWITTER_AUTH_TOKEN
+   3. Или уменьшите количество аккаунтов для проверки
    ```
 
 ### Отладочная информация
@@ -351,3 +589,107 @@ async def check_with_notifications(nickname):
         
         return result
 ```
+
+## 💡 Best Practices
+
+### Рекомендуемая конфигурация
+
+```python
+# config/config.py
+
+# Для малой нагрузки (до 20 аккаунтов)
+MAIN_AUTH_TOKEN = ['token1', 'token2']
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 10
+SLEEP_BETWEEN_ACTIONS = (3, 6)
+RANDOM_PROXIES_TWITTER = False
+
+# Для средней нагрузки (20-100 аккаунтов)
+MAIN_AUTH_TOKEN = ['token1', 'token2', 'token3', 'token4']
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 15
+SLEEP_BETWEEN_ACTIONS = (2, 5)
+RANDOM_PROXIES_TWITTER = True
+
+# Для высокой нагрузки (100+ аккаунтов)
+MAIN_AUTH_TOKEN = ['token1', 'token2', 'token3', 'token4', 'token5', 'token6']
+COUNT_REPLACE_TWITTER_AUTH_TOKEN = 20
+SLEEP_BETWEEN_ACTIONS = (2, 4)
+RANDOM_PROXIES_TWITTER = True
+NUM_THREADS = 10
+```
+
+### Безопасность токенов
+
+1. **Не коммитьте токены в Git**
+2. **Используйте .env файлы** для хранения токенов
+3. **Регулярно обновляйте** токены
+4. **Используйте разные аккаунты** для токенов
+5. **Мониторьте использование** через логи
+
+### Оптимизация производительности
+
+```python
+# 1. Предварительная валидация
+def validate_nicknames(nicknames):
+    """Проверка корректности никнеймов перед запуском"""
+    valid = []
+    for nick in nicknames:
+        if nick and len(nick) <= 15 and nick.replace('_', '').isalnum():
+            valid.append(nick)
+    return valid
+
+# 2. Батчинг запросов
+async def process_in_batches(nicknames, batch_size=50):
+    """Обработка аккаунтов батчами"""
+    for i in range(0, len(nicknames), batch_size):
+        batch = nicknames[i:i + batch_size]
+        await check_multiple_users(batch)
+        await asyncio.sleep(300)  # Пауза между батчами
+
+# 3. Кэширование результатов
+from functools import lru_cache
+from datetime import datetime, timedelta
+
+@lru_cache(maxsize=1000)
+def get_cached_result(nickname, timestamp):
+    """Кэш результатов на 1 час"""
+    # timestamp округлен до часа
+    pass
+```
+
+## 📝 Changelog
+
+### Версия 2.0 (Октябрь 2025)
+
+- ✨ **NEW**: Автоматическая ротация токенов с TokenManager
+- ✨ **NEW**: Случайные прокси из CSV файла (data/proxy.csv)
+- ✨ **NEW**: Валидация достаточности токенов перед запуском
+- ✨ **NEW**: Расширенная статистика использования токенов
+- ✨ **NEW**: Умные задержки с random паузами (tuple support)
+- ✨ **NEW**: Автоматический fallback на основной прокси
+- 🐛 **FIX**: Улучшена обработка ошибок Twitter API
+- 🐛 **FIX**: Оптимизирована работа с прокси-серверами
+- 📚 **DOCS**: Полностью обновлена документация с примерами
+- 🎨 **UI**: Улучшенные логи с эмодзи и цветами
+
+### Версия 1.0 (2024)
+
+- Начальная версия модуля
+- Базовая проверка аккаунтов Twitter
+- Поддержка прокси
+- Асинхронная обработка
+
+## 🤝 Поддержка
+
+Если у вас возникли вопросы или проблемы:
+
+1. Проверьте логи в `log/twitter_check_*.log`
+2. Убедитесь что токены актуальны
+3. Проверьте конфигурацию в `config/config.py`
+4. Создайте issue в репозитории
+
+---
+
+**Автор:** DenisHumen  
+**Дата обновления:** 8 октября 2025  
+**Версия:** 2.0
+

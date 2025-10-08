@@ -13,7 +13,7 @@ init()
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RANDOM_PROXIES_TWITTER
+from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
 
 # Настройка логирования для модуля twitter_check
 def setup_twitter_logging():
@@ -38,6 +38,71 @@ def setup_twitter_logging():
 
 class Constants:
     BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+
+class TokenManager:
+    """Менеджер для управления ротацией auth токенов"""
+    
+    def __init__(self):
+        self.tokens = MAIN_AUTH_TOKEN if isinstance(MAIN_AUTH_TOKEN, list) else [MAIN_AUTH_TOKEN]
+        self.max_uses_per_token = COUNT_REPLACE_TWITTER_AUTH_TOKEN
+        self.current_token_index = 0
+        self.current_token_uses = 0
+        self.total_checks_made = 0
+        
+        # Валидация токенов
+        self.tokens = [token.strip() for token in self.tokens if token and token.strip()]
+        
+        if not self.tokens:
+            raise Exception("MAIN_AUTH_TOKEN пуст! Добавьте хотя бы один токен.")
+    
+    def get_current_token(self) -> str:
+        """Возвращает текущий активный токен"""
+        return self.tokens[self.current_token_index]
+    
+    def get_max_possible_checks(self) -> int:
+        """Возвращает максимальное количество проверок с доступными токенами"""
+        return len(self.tokens) * self.max_uses_per_token
+    
+    def increment_usage(self):
+        """Увеличивает счетчик использований и переключает токен при необходимости"""
+        self.current_token_uses += 1
+        self.total_checks_made += 1
+        
+        if self.current_token_uses >= self.max_uses_per_token:
+            # Переключаемся на следующий токен
+            if self.current_token_index < len(self.tokens) - 1:
+                self.current_token_index += 1
+                self.current_token_uses = 0
+                logger.info(f"🔄 Переключение на токен #{self.current_token_index + 1}/{len(self.tokens)}")
+            else:
+                # Все токены исчерпаны
+                logger.warning(f"⚠️ Все токены использованы ({self.total_checks_made} проверок)")
+    
+    def has_tokens_available(self) -> bool:
+        """Проверяет, есть ли доступные токены"""
+        return self.total_checks_made < self.get_max_possible_checks()
+    
+    def get_stats(self) -> dict:
+        """Возвращает статистику использования токенов"""
+        return {
+            "total_tokens": len(self.tokens),
+            "current_token": self.current_token_index + 1,
+            "current_token_uses": self.current_token_uses,
+            "max_uses_per_token": self.max_uses_per_token,
+            "total_checks_made": self.total_checks_made,
+            "max_possible_checks": self.get_max_possible_checks(),
+            "remaining_checks": self.get_max_possible_checks() - self.total_checks_made
+        }
+
+# Глобальный экземпляр менеджера токенов
+token_manager = None
+
+def initialize_token_manager():
+    """Инициализирует глобальный менеджер токенов"""
+    global token_manager
+    if token_manager is None:
+        token_manager = TokenManager()
+    return token_manager
 
 def load_random_proxy():
     """Загружает случайный прокси из файла data/proxy.csv"""
@@ -65,7 +130,18 @@ def load_random_proxy():
 
 async def create_twitter_client():
     """Создает Twitter клиент"""
-    if not MAIN_AUTH_TOKEN or MAIN_AUTH_TOKEN == "":
+    global token_manager
+    
+    if token_manager is None:
+        token_manager = initialize_token_manager()
+    
+    # Проверяем доступность токенов
+    if not token_manager.has_tokens_available():
+        raise Exception("Все токены исчерпаны! Невозможно продолжить проверку.")
+    
+    current_token = token_manager.get_current_token()
+    
+    if not current_token:
         raise Exception("MAIN_AUTH_TOKEN is not set! Please set your auth token in config/config.py")
     
     session = AsyncSession()
@@ -107,7 +183,7 @@ async def create_twitter_client():
         "x-twitter-client-language": "en",
     })
     
-    session.cookies.set("auth_token", MAIN_AUTH_TOKEN)
+    session.cookies.set("auth_token", current_token)
     
     try:
         response = await session.get("https://x.com/home")
@@ -433,10 +509,20 @@ async def check_single_nickname(nickname: str, checker: TwitterFollowersChecker,
     Returns:
         dict: Результат проверки
     """
+    global token_manager
+    
     logger.info(f"[{index+1}/{total}] Checking @{nickname}...")
     
     try:
         user_info = await checker.get_user_followers_count(nickname)
+        
+        # Увеличиваем счетчик использования токена после успешной проверки
+        if token_manager:
+            token_manager.increment_usage()
+            stats = token_manager.get_stats()
+            logger.debug(f"📊 Token usage: {stats['current_token_uses']}/{stats['max_uses_per_token']} "
+                        f"(Token {stats['current_token']}/{stats['total_tokens']}, "
+                        f"Total: {stats['total_checks_made']}/{stats['max_possible_checks']})")
         
         if user_info:
             if user_info['status'] == 'success':
@@ -535,6 +621,32 @@ async def main(os_type: str = 'linux'):
     logger.info(f"Proxy: {MAIN_PROXY_TWITTER if MAIN_PROXY_TWITTER else 'No proxy'}")
     logger.info("=" * 50)
     
+    # Инициализируем менеджер токенов
+    global token_manager
+    try:
+        token_manager = initialize_token_manager()
+        stats = token_manager.get_stats()
+        
+        logger.info("\n🔑 Конфигурация токенов:")
+        logger.info(f"   📊 Всего токенов: {stats['total_tokens']}")
+        logger.info(f"   🔢 Использований на токен: {stats['max_uses_per_token']}")
+        logger.info(f"   📈 Максимум проверок: {stats['max_possible_checks']}")
+        logger.info("=" * 50)
+    except Exception as e:
+        logger.error(f"❌ ОШИБКА инициализации токенов: {e}")
+        logger.info("\n📋 Как настроить MAIN_AUTH_TOKEN:")
+        logger.info("="*60)
+        logger.info("1. Откройте браузер и войдите в Twitter/X")
+        logger.info("2. Нажмите F12 (Developer Tools)")
+        logger.info("3. Перейдите на вкладку Application/Storage → Cookies")
+        logger.info("4. Найдите cookie с именем 'auth_token'")
+        logger.info("5. Скопируйте его значение")
+        logger.info("="*60)
+        logger.info("💡 Пример в config.py:")
+        logger.info("   MAIN_AUTH_TOKEN = ['токен1', 'токен2']")
+        logger.info("   COUNT_REPLACE_TWITTER_AUTH_TOKEN = 5")
+        return
+    
     if not MAIN_AUTH_TOKEN or MAIN_AUTH_TOKEN == "":
         logger.error("❌ ОШИБКА: Необходимо указать MAIN_AUTH_TOKEN в config/config.py!")
         logger.info("\n📋 Как получить MAIN_AUTH_TOKEN:")
@@ -545,7 +657,7 @@ async def main(os_type: str = 'linux'):
         logger.info("4. Найдите cookie с именем 'auth_token'")
         logger.info("5. Скопируйте его значение и вставьте в MAIN_AUTH_TOKEN в config/config.py")
         logger.info("="*60)
-        logger.info("💡 Пример: MAIN_AUTH_TOKEN = 'ваш_длинный_токен_здесь'")
+        logger.info("💡 Пример: MAIN_AUTH_TOKEN = ['ваш_длинный_токен_здесь']")
         return
     
     nicknames = load_nicknames_from_csv(INPUT_FILE)
@@ -562,6 +674,24 @@ async def main(os_type: str = 'linux'):
         return
     
     logger.success(f"📋 Found {len(nicknames)} nicknames to check")
+    
+    # Проверяем достаточность токенов
+    max_checks = token_manager.get_max_possible_checks()
+    if len(nicknames) > max_checks:
+        logger.warning("\n⚠️ ВНИМАНИЕ: Недостаточно токенов!")
+        logger.warning(f"   📊 Аккаунтов для проверки: {len(nicknames)}")
+        logger.warning(f"   🔑 Максимум проверок с текущими токенами: {max_checks}")
+        logger.warning(f"   ❌ Не хватает проверок: {len(nicknames) - max_checks}")
+        logger.warning("\n💡 Решение:")
+        logger.warning(f"   1. Добавьте еще {((len(nicknames) - max_checks) // COUNT_REPLACE_TWITTER_AUTH_TOKEN) + 1} токен(ов)")
+        logger.warning(f"   2. Или увеличьте COUNT_REPLACE_TWITTER_AUTH_TOKEN")
+        logger.warning(f"   3. Или уменьшите количество аккаунтов для проверки")
+        logger.info("\n⚠️ Будут проверены только первые {} аккаунтов!".format(max_checks))
+        
+        # Ограничиваем список до максимально возможного
+        nicknames = nicknames[:max_checks]
+    else:
+        logger.success(f"✅ Токенов достаточно: {max_checks} проверок доступно для {len(nicknames)} аккаунтов")
     
     batch_size = max(1, len(nicknames) // NUM_THREADS)
     if len(nicknames) % NUM_THREADS != 0:
