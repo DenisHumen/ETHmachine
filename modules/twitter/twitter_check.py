@@ -16,25 +16,44 @@ sys.path.append(str(project_root))
 from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
 
 # Настройка логирования для модуля twitter_check
+_logging_configured = False
+
 def setup_twitter_logging():
     """Настраивает логирование для модуля проверки Twitter"""
+    global _logging_configured
+    
+    if not _logging_configured:
+        # Удаляем стандартный обработчик и добавляем свой с colorize
+        logger.remove()
+        
+        # Добавляем цветной вывод в консоль
+        logger.add(
+            sys.stderr,
+            format="\033[32m{time:HH:mm:ss}\033[0m | <level>{level: <8}</level> | <level>{message}</level>",
+            level="INFO",
+            colorize=True
+        )
+        
+        _logging_configured = True
+    
     log_dir = Path("log")
     log_dir.mkdir(exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f'twitter_check_{timestamp}.log'
     
-    # Добавляем обработчик для записи в файл
+    # Добавляем файловый обработчик (без цветов)
     logger.add(
         log_file,
         rotation="10 MB",
         retention="7 days",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
         level="DEBUG",
-        encoding="utf-8"
+        encoding="utf-8",
+        colorize=False
     )
     
-    logger.info(f"Логирование настроено. Файл: {log_file}")
+    logger.info(f"\033[32m📝 Логирование настроено. Файл:\033[0m \033[36m{log_file}\033[0m")
 
 class Constants:
     BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
@@ -71,12 +90,13 @@ class TokenManager:
         if self.current_token_uses >= self.max_uses_per_token:
             # Переключаемся на следующий токен
             if self.current_token_index < len(self.tokens) - 1:
+                old_index = self.current_token_index
                 self.current_token_index += 1
                 self.current_token_uses = 0
-                logger.info(f"🔄 Переключение на токен #{self.current_token_index + 1}/{len(self.tokens)}")
+                logger.info(f"\033[35m🔄 Переключение токена:\033[0m \033[33m{old_index + 1}\033[0m \033[37m→\033[0m \033[32m{self.current_token_index + 1}\033[0m \033[37m(использовано {self.max_uses_per_token}/{self.max_uses_per_token})\033[0m")
             else:
                 # Все токены исчерпаны
-                logger.warning(f"⚠️ Все токены использованы ({self.total_checks_made} проверок)")
+                logger.warning(f"\033[31m⚠️  Все токены использованы\033[0m \033[37m({self.total_checks_made} проверок)\033[0m")
     
     def has_tokens_available(self) -> bool:
         """Проверяет, есть ли доступные токены"""
@@ -109,7 +129,7 @@ def load_random_proxy():
     proxy_file = Path("data/proxy.csv")
     
     if not proxy_file.exists():
-        logger.warning(f"Файл прокси не найден: {proxy_file}")
+        logger.warning(f"\033[33mФайл прокси не найден:\033[0m \033[37m{proxy_file}\033[0m")
         return None
     
     try:
@@ -117,15 +137,15 @@ def load_random_proxy():
             proxies = [line.strip() for line in f if line.strip()]
         
         if not proxies:
-            logger.warning("Файл прокси пустой")
+            logger.warning("\033[33mФайл прокси пустой\033[0m")
             return None
         
         selected_proxy = random.choice(proxies)
-        logger.info(f"Выбран случайный прокси из {len(proxies)} доступных")
+        logger.info(f"\033[32m🌐 Выбран случайный прокси из\033[0m \033[36m{len(proxies)}\033[0m \033[37mдоступных\033[0m")
         return selected_proxy
     
     except Exception as e:
-        logger.error(f"Ошибка при загрузке прокси из файла: {e}")
+        logger.error(f"\033[31mОшибка при загрузке прокси из файла:\033[0m \033[33m{e}\033[0m")
         return None
 
 async def create_twitter_client():
@@ -151,7 +171,7 @@ async def create_twitter_client():
     if RANDOM_PROXIES_TWITTER:
         proxy_to_use = load_random_proxy()
         if not proxy_to_use:
-            logger.warning("Не удалось загрузить случайный прокси, используем MAIN_PROXY_TWITTER")
+            logger.warning("\033[33mНе удалось загрузить случайный прокси, используем MAIN_PROXY_TWITTER\033[0m")
             proxy_to_use = MAIN_PROXY_TWITTER
     else:
         proxy_to_use = MAIN_PROXY_TWITTER
@@ -163,9 +183,9 @@ async def create_twitter_client():
         }
         # Маскируем часть прокси для безопасности в логах
         proxy_display = proxy_to_use.split('@')[1] if '@' in proxy_to_use else proxy_to_use
-        logger.info(f"Using proxy: {proxy_display}")
+        logger.info(f"\033[32m🌐 Использую прокси:\033[0m \033[36m{proxy_display}\033[0m")
     else:
-        logger.info("No proxy configured")
+        logger.info("\033[37m🌐 Прокси не настроен\033[0m")
     
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -257,36 +277,36 @@ class TwitterFollowersChecker:
             )
 
             if response.status_code == 403:
-                logger.error(f"Access denied (403) for @{nickname}. Token may be invalid or rate limited.")
+                logger.error(f"\033[31mAccess denied (403) для\033[0m \033[33m@{nickname}\033[0m\033[37m. Токен может быть невалидным или rate limited.\033[0m")
                 return self._create_error_result(nickname, "Access denied (403)")
             elif response.status_code == 401:
-                logger.error(f"Unauthorized (401) for @{nickname}. Auth token is invalid or expired.")
+                logger.error(f"\033[31mUnauthorized (401) для\033[0m \033[33m@{nickname}\033[0m\033[37m. Auth token невалиден или истек.\033[0m")
                 return self._create_error_result(nickname, "Unauthorized (401)")
             elif response.status_code == 429:
-                logger.error(f"Rate limit exceeded (429) for @{nickname}. Please wait.")
+                logger.error(f"\033[33mRate limit exceeded (429) для\033[0m \033[33m@{nickname}\033[0m\033[37m. Пожалуйста, подождите.\033[0m")
                 return self._create_error_result(nickname, "Rate limit exceeded (429)")
             elif response.status_code == 404:
-                logger.error(f"User not found (404) for @{nickname}.")
+                logger.error(f"\033[31mUser not found (404) для\033[0m \033[33m@{nickname}\033[0m\033[37m.\033[0m")
                 return self._create_error_result(nickname, "User not found (404)")
             elif response.status_code != 200:
-                logger.error(f"Failed to get user info for @{nickname}. Status: {response.status_code}")
+                logger.error(f"\033[31mНе удалось получить информацию для\033[0m \033[33m@{nickname}\033[0m\033[37m. Status:\033[0m \033[31m{response.status_code}\033[0m")
                 return self._create_error_result(nickname, f"HTTP {response.status_code}")
 
             data = response.json()
             
             if "errors" in data:
                 error_msg = str(data['errors'])
-                logger.error(f"API returned errors for @{nickname}: {error_msg}")
+                logger.error(f"\033[31mAPI вернул ошибки для\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m \033[31m{error_msg}\033[0m")
                 return self._create_error_result(nickname, f"API Error: {error_msg}")
                 
             if "data" not in data or "user" not in data["data"]:
-                logger.error(f"Invalid response structure for @{nickname}")
+                logger.error(f"\033[31mНеверная структура ответа для\033[0m \033[33m@{nickname}\033[0m")
                 return self._create_error_result(nickname, "Invalid response structure")
                 
             user_data = data["data"]["user"]["result"]
             
             if not user_data or "legacy" not in user_data:
-                logger.error(f"User data not found for @{nickname}")
+                logger.error(f"\033[31mДанные пользователя не найдены для\033[0m \033[33m@{nickname}\033[0m")
                 return self._create_error_result(nickname, "User data not found")
                 
             legacy_data = user_data.get("legacy", {})
@@ -310,7 +330,7 @@ class TwitterFollowersChecker:
             return user_info
 
         except Exception as e:
-            logger.error(f"Failed to get user followers count for @{nickname}: {e}")
+            logger.error(f"\033[31mНе удалось получить количество подписчиков для\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m \033[31m{e}\033[0m")
             return self._create_error_result(nickname, f"Exception: {str(e)}")
 
     def _create_error_result(self, nickname: str, error_msg: str):
@@ -443,7 +463,7 @@ def load_nicknames_from_csv(filename: str):
     nicknames = []
     
     if not Path(filename).exists():
-        logger.error(f"File {filename} not found!")
+        logger.error(f"\033[31mФайл не найден:\033[0m \033[33m{filename}\033[0m\033[37m!\033[0m")
         return nicknames
     
     # Сначала проверяем и исправляем формат CSV
@@ -461,11 +481,11 @@ def load_nicknames_from_csv(filename: str):
                     if nickname:
                         nicknames.append(nickname)
                     
-        logger.info(f"Loaded {len(nicknames)} nicknames from {filename}")
+        logger.info(f"\033[32m📥 Загружено\033[0m \033[36m{len(nicknames)}\033[0m \033[37mникнеймов из\033[0m \033[33m{filename}\033[0m")
         return nicknames
         
     except Exception as e:
-        logger.error(f"Error loading nicknames from {filename}: {e}")
+        logger.error(f"\033[31mОшибка загрузки никнеймов из\033[0m \033[33m{filename}\033[0m\033[37m:\033[0m \033[31m{e}\033[0m")
         return nicknames
 
 def save_results_to_csv(results: list, filename: str, delimiter: str = ','):
@@ -491,10 +511,10 @@ def save_results_to_csv(results: list, filename: str, delimiter: str = ','):
                 writer.writeheader()
                 writer.writerows(results)
                 
-        logger.success(f"Results saved to {filename} (delimiter: '{delimiter}')")
+        logger.success(f"\033[32m💾 Результаты сохранены в\033[0m \033[36m{filename}\033[0m \033[37m(разделитель: '{delimiter}')\033[0m")
         
     except Exception as e:
-        logger.error(f"Error saving results to {filename}: {e}")
+        logger.error(f"\033[31mОшибка сохранения результатов в\033[0m \033[33m{filename}\033[0m\033[37m:\033[0m \033[31m{e}\033[0m")
 
 async def check_single_nickname(nickname: str, checker: TwitterFollowersChecker, index: int, total: int):
     """
@@ -511,7 +531,7 @@ async def check_single_nickname(nickname: str, checker: TwitterFollowersChecker,
     """
     global token_manager
     
-    logger.info(f"[{index+1}/{total}] Checking @{nickname}...")
+    logger.info(f"\033[36m[{index+1}/{total}]\033[0m \033[37mПроверка\033[0m \033[33m@{nickname}\033[0m\033[37m...\033[0m")
     
     try:
         user_info = await checker.get_user_followers_count(nickname)
@@ -520,22 +540,37 @@ async def check_single_nickname(nickname: str, checker: TwitterFollowersChecker,
         if token_manager:
             token_manager.increment_usage()
             stats = token_manager.get_stats()
-            logger.debug(f"📊 Token usage: {stats['current_token_uses']}/{stats['max_uses_per_token']} "
-                        f"(Token {stats['current_token']}/{stats['total_tokens']}, "
-                        f"Total: {stats['total_checks_made']}/{stats['max_possible_checks']})")
+            logger.debug(f"\033[35m📊 Token usage: {stats['current_token_uses']}/{stats['max_uses_per_token']}\033[0m "
+                        f"\033[37m(Token {stats['current_token']}/{stats['total_tokens']}, "
+                        f"Total: {stats['total_checks_made']}/{stats['max_possible_checks']})\033[0m")
         
         if user_info:
             if user_info['status'] == 'success':
-                logger.success(f"✅ @{nickname}: {user_info['followers_count']:,} followers")
+                # Форматируем количество подписчиков с красивым выводом
+                followers = user_info['followers_count']
+                if followers >= 1_000_000:
+                    followers_str = f"{followers/1_000_000:.1f}M"
+                    color = "\033[32m"
+                elif followers >= 100_000:
+                    followers_str = f"{followers/1_000:.0f}K"
+                    color = "\033[36m"
+                elif followers >= 10_000:
+                    followers_str = f"{followers/1_000:.1f}K"
+                    color = "\033[33m"
+                else:
+                    followers_str = f"{followers:,}"
+                    color = "\033[37m"
+                
+                logger.success(f"\033[32m✅\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m {color}{followers_str}\033[0m \033[37mподписчиков\033[0m")
             else:
-                logger.error(f"❌ @{nickname}: {user_info['status']}")
+                logger.error(f"\033[31m❌\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m \033[31m{user_info['status']}\033[0m")
             return user_info
         else:
-            logger.error(f"❌ No data returned for @{nickname}")
+            logger.error(f"\033[31m❌ Нет данных для\033[0m \033[33m@{nickname}\033[0m")
             return checker._create_error_result(nickname, "No data returned")
             
     except Exception as e:
-        logger.error(f"❌ Error checking @{nickname}: {e}")
+        logger.error(f"\033[31m❌ Ошибка при проверке\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m \033[31m{e}\033[0m")
         return checker._create_error_result(nickname, f"Exception: {str(e)}")
 
 async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_batches: int):
@@ -550,7 +585,7 @@ async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_b
     Returns:
         list: Результаты проверки
     """
-    logger.info(f"🔄 Обработка пакета {batch_num}/{total_batches} ({len(nicknames_batch)} аккаунтов)")
+    logger.info(f"\033[35m🔄 Обработка пакета\033[0m \033[36m{batch_num}/{total_batches}\033[0m \033[37m({len(nicknames_batch)} аккаунтов)\033[0m")
     
     batch_results = []
     
@@ -572,10 +607,10 @@ async def process_nicknames_batch(nicknames_batch: list, batch_num: int, total_b
         for i, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 nickname = nicknames_batch[i]
-                logger.error(f"❌ Exception for @{nickname}: {result}")
+                logger.error(f"\033[31m❌ Исключение для\033[0m \033[33m@{nickname}\033[0m\033[37m:\033[0m \033[31m{result}\033[0m")
                 batch_results[i] = checker._create_error_result(nickname, f"Exception: {str(result)}")
     
-    logger.success(f"✅ Пакет {batch_num}/{total_batches} завершен")
+    logger.success(f"\033[32m✅ Пакет\033[0m \033[36m{batch_num}/{total_batches}\033[0m \033[32mзавершен\033[0m")
     return batch_results
 
 def run_twitter_check(os_type: str = 'linux'):
@@ -610,16 +645,18 @@ async def main(os_type: str = 'linux'):
     INPUT_FILE = project_root / "data" / "twitter" / "twitters.csv"
     OUTPUT_FILE = project_root / "result" / "twitter" / "result.csv"
 
-    logger.info("🚀 Twitter Followers Checker")
-    logger.info("=" * 50)
-    logger.info(f"Current Date and Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Current User's Login: DenisHumen")
-    logger.info(f"Operating System: {os_display}")
-    logger.info(f"CSV Delimiter: '{csv_delimiter}'")
-    logger.info(f"Threads: {NUM_THREADS}")
-    logger.info(f"Delay between requests: {SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]}s")
-    logger.info(f"Proxy: {MAIN_PROXY_TWITTER if MAIN_PROXY_TWITTER else 'No proxy'}")
-    logger.info("=" * 50)
+    logger.info(f"\033[36m🚀 Twitter Followers Checker\033[0m")
+    logger.info(f"\033[34m{'=' * 50}\033[0m")
+    logger.info(f"⏰ Дата и время (UTC): \033[33m{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}\033[0m")
+    logger.info(f"👤 Пользователь: \033[36mDenisHumen\033[0m")
+    logger.info(f"💻 Операционная система: \033[32m{os_display}\033[0m")
+    logger.info(f"📄 Разделитель CSV: \033[33m'{csv_delimiter}'\033[0m")
+    logger.info(f"🧵 Потоков: \033[35m{NUM_THREADS}\033[0m")
+    logger.info(f"⏱️  Задержка между запросами: \033[33m{SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]}s\033[0m")
+    logger.info(f"🌐 Прокси: \033[36m{MAIN_PROXY_TWITTER if MAIN_PROXY_TWITTER else 'Не используется'}\033[0m")
+    if RANDOM_PROXIES_TWITTER:
+        logger.info(f"🔄 Случайные прокси: \033[32mВключено\033[0m")
+    logger.info(f"\033[34m{'=' * 50}\033[0m")
     
     # Инициализируем менеджер токенов
     global token_manager
@@ -627,71 +664,71 @@ async def main(os_type: str = 'linux'):
         token_manager = initialize_token_manager()
         stats = token_manager.get_stats()
         
-        logger.info("\n🔑 Конфигурация токенов:")
-        logger.info(f"   📊 Всего токенов: {stats['total_tokens']}")
-        logger.info(f"   🔢 Использований на токен: {stats['max_uses_per_token']}")
-        logger.info(f"   📈 Максимум проверок: {stats['max_possible_checks']}")
-        logger.info("=" * 50)
+        logger.info("\n\033[32m🔑 Конфигурация токенов:\033[0m")
+        logger.info(f"   \033[37m📊 Всего токенов:\033[0m \033[36m{stats['total_tokens']}\033[0m")
+        logger.info(f"   \033[37m🔢 Использований на токен:\033[0m \033[33m{stats['max_uses_per_token']}\033[0m")
+        logger.info(f"   \033[37m📈 Максимум проверок:\033[0m \033[32m{stats['max_possible_checks']}\033[0m")
+        logger.info("\033[34m" + "═" * 50 + "\033[0m")
     except Exception as e:
-        logger.error(f"❌ ОШИБКА инициализации токенов: {e}")
-        logger.info("\n📋 Как настроить MAIN_AUTH_TOKEN:")
-        logger.info("="*60)
-        logger.info("1. Откройте браузер и войдите в Twitter/X")
-        logger.info("2. Нажмите F12 (Developer Tools)")
-        logger.info("3. Перейдите на вкладку Application/Storage → Cookies")
-        logger.info("4. Найдите cookie с именем 'auth_token'")
-        logger.info("5. Скопируйте его значение")
-        logger.info("="*60)
-        logger.info("💡 Пример в config.py:")
-        logger.info("   MAIN_AUTH_TOKEN = ['токен1', 'токен2']")
-        logger.info("   COUNT_REPLACE_TWITTER_AUTH_TOKEN = 5")
+        logger.error(f"\033[31m❌ ОШИБКА инициализации токенов:\033[0m \033[33m{e}\033[0m")
+        logger.info("\n\033[36m📋 Как настроить MAIN_AUTH_TOKEN:\033[0m")
+        logger.info("\033[34m" + "═" * 60 + "\033[0m")
+        logger.info("\033[37m1. Откройте браузер и войдите в Twitter/X\033[0m")
+        logger.info("\033[37m2. Нажмите F12 (Developer Tools)\033[0m")
+        logger.info("\033[37m3. Перейдите на вкладку Application/Storage → Cookies\033[0m")
+        logger.info("\033[37m4. Найдите cookie с именем 'auth_token'\033[0m")
+        logger.info("\033[37m5. Скопируйте его значение\033[0m")
+        logger.info("\033[34m" + "═" * 60 + "\033[0m")
+        logger.info("\033[32m💡 Пример в config.py:\033[0m")
+        logger.info("\033[33m   MAIN_AUTH_TOKEN = ['токен1', 'токен2']\033[0m")
+        logger.info("\033[33m   COUNT_REPLACE_TWITTER_AUTH_TOKEN = 5\033[0m")
         return
     
     if not MAIN_AUTH_TOKEN or MAIN_AUTH_TOKEN == "":
-        logger.error("❌ ОШИБКА: Необходимо указать MAIN_AUTH_TOKEN в config/config.py!")
-        logger.info("\n📋 Как получить MAIN_AUTH_TOKEN:")
-        logger.info("="*60)
-        logger.info("1. Откройте браузер и войдите в Twitter/X")
-        logger.info("2. Нажмите F12 (Developer Tools)")
-        logger.info("3. Перейдите на вкладку Application/Storage → Cookies")
-        logger.info("4. Найдите cookie с именем 'auth_token'")
-        logger.info("5. Скопируйте его значение и вставьте в MAIN_AUTH_TOKEN в config/config.py")
-        logger.info("="*60)
-        logger.info("💡 Пример: MAIN_AUTH_TOKEN = ['ваш_длинный_токен_здесь']")
+        logger.error("\033[31m❌ ОШИБКА: Необходимо указать MAIN_AUTH_TOKEN в config/config.py!\033[0m")
+        logger.info("\n\033[36m📋 Как получить MAIN_AUTH_TOKEN:\033[0m")
+        logger.info("\033[34m" + "═" * 60 + "\033[0m")
+        logger.info("\033[37m1. Откройте браузер и войдите в Twitter/X\033[0m")
+        logger.info("\033[37m2. Нажмите F12 (Developer Tools)\033[0m")
+        logger.info("\033[37m3. Перейдите на вкладку Application/Storage → Cookies\033[0m")
+        logger.info("\033[37m4. Найдите cookie с именем 'auth_token'\033[0m")
+        logger.info("\033[37m5. Скопируйте его значение и вставьте в MAIN_AUTH_TOKEN в config/config.py\033[0m")
+        logger.info("\033[34m" + "═" * 60 + "\033[0m")
+        logger.info("\033[32m💡 Пример:\033[0m \033[33mMAIN_AUTH_TOKEN = ['ваш_длинный_токен_здесь']\033[0m")
         return
     
     nicknames = load_nicknames_from_csv(INPUT_FILE)
     if not nicknames:
-        logger.error(f"❌ No nicknames found in {INPUT_FILE}")
-        logger.info(f"\n📋 Создайте файл {INPUT_FILE} с форматом:")
-        logger.info("="*40)
-        logger.info("nickname,auth_token,ct0")
-        logger.info("s_nakotomo,,,")
-        logger.info("elonmusk,,,")
-        logger.info("twitter,,,")
-        logger.info("="*40)
-        logger.info("💡 Скрипт использует только колонку 'nickname'")
+        logger.error(f"\033[31m❌ No nicknames found in {INPUT_FILE}\033[0m")
+        logger.info(f"\n\033[36m📋 Создайте файл {INPUT_FILE} с форматом:\033[0m")
+        logger.info("\033[34m" + "═" * 40 + "\033[0m")
+        logger.info("\033[37mnickname,auth_token,ct0\033[0m")
+        logger.info("\033[33ms_nakotomo,,,\033[0m")
+        logger.info("\033[33melonmusk,,,\033[0m")
+        logger.info("\033[33mtwitter,,,\033[0m")
+        logger.info("\033[34m" + "═" * 40 + "\033[0m")
+        logger.info("\033[32m💡 Скрипт использует только колонку 'nickname'\033[0m")
         return
     
-    logger.success(f"📋 Found {len(nicknames)} nicknames to check")
+    logger.success(f"\033[32m📋 Загружено {len(nicknames)} никнеймов для проверки\033[0m")
     
     # Проверяем достаточность токенов
     max_checks = token_manager.get_max_possible_checks()
     if len(nicknames) > max_checks:
-        logger.warning("\n⚠️ ВНИМАНИЕ: Недостаточно токенов!")
-        logger.warning(f"   📊 Аккаунтов для проверки: {len(nicknames)}")
-        logger.warning(f"   🔑 Максимум проверок с текущими токенами: {max_checks}")
-        logger.warning(f"   ❌ Не хватает проверок: {len(nicknames) - max_checks}")
-        logger.warning("\n💡 Решение:")
-        logger.warning(f"   1. Добавьте еще {((len(nicknames) - max_checks) // COUNT_REPLACE_TWITTER_AUTH_TOKEN) + 1} токен(ов)")
-        logger.warning(f"   2. Или увеличьте COUNT_REPLACE_TWITTER_AUTH_TOKEN")
-        logger.warning(f"   3. Или уменьшите количество аккаунтов для проверки")
-        logger.info("\n⚠️ Будут проверены только первые {} аккаунтов!".format(max_checks))
+        logger.warning("\n\033[33m⚠️  ВНИМАНИЕ: Недостаточно токенов!\033[0m")
+        logger.warning(f"   \033[37m📊 Аккаунтов для проверки:\033[0m \033[31m{len(nicknames)}\033[0m")
+        logger.warning(f"   \033[37m🔑 Максимум проверок с текущими токенами:\033[0m \033[33m{max_checks}\033[0m")
+        logger.warning(f"   \033[37m❌ Не хватает проверок:\033[0m \033[31m{len(nicknames) - max_checks}\033[0m")
+        logger.warning("\n\033[36m💡 Решение:\033[0m")
+        logger.warning(f"   \033[37m1. Добавьте еще\033[0m \033[32m{((len(nicknames) - max_checks) // COUNT_REPLACE_TWITTER_AUTH_TOKEN) + 1}\033[0m \033[37mтокен(ов)\033[0m")
+        logger.warning(f"   \033[37m2. Или увеличьте\033[0m \033[33mCOUNT_REPLACE_TWITTER_AUTH_TOKEN\033[0m")
+        logger.warning(f"   \033[37m3. Или уменьшите количество аккаунтов для проверки\033[0m")
+        logger.info(f"\n\033[33m⚠️  Будут проверены только первые {max_checks} аккаунтов!\033[0m")
         
         # Ограничиваем список до максимально возможного
         nicknames = nicknames[:max_checks]
     else:
-        logger.success(f"✅ Токенов достаточно: {max_checks} проверок доступно для {len(nicknames)} аккаунтов")
+        logger.success(f"\033[32m✅ Токенов достаточно: {max_checks} проверок доступно для {len(nicknames)} аккаунтов\033[0m")
     
     batch_size = max(1, len(nicknames) // NUM_THREADS)
     if len(nicknames) % NUM_THREADS != 0:
@@ -702,7 +739,8 @@ async def main(os_type: str = 'linux'):
         batch = nicknames[i:i + batch_size]
         batches.append(batch)
     
-    logger.info(f"🔄 Разделено на {len(batches)} пакетов по ~{batch_size} аккаунтов")
+    logger.info(f"\033[35m🔄 Разделено на {len(batches)} пакетов по ~{batch_size} аккаунтов\033[0m")
+    logger.info("\033[34m" + "═" * 50 + "\033[0m\n")
     
     all_results = []
     
@@ -713,11 +751,11 @@ async def main(os_type: str = 'linux'):
             
             if batch_num < len(batches):
                 delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0] * 2, SLEEP_BETWEEN_ACTIONS[1] * 2)  # Увеличенная задержка между пакетами
-                logger.info(f"⏳ Пауза {delay:.1f}с между пакетами...")
+                logger.info(f"\033[33m⏳ Пауза {delay:.1f}с между пакетами...\033[0m")
                 await asyncio.sleep(delay)
                 
         except Exception as e:
-            logger.error(f"❌ Ошибка обработки пакета {batch_num}: {e}")
+            logger.error(f"\033[31m❌ Ошибка обработки пакета\033[0m \033[36m{batch_num}\033[0m\033[37m:\033[0m \033[31m{e}\033[0m")
             for nickname in batch:
                 error_result = {
                     "nickname": nickname,
@@ -739,11 +777,11 @@ async def main(os_type: str = 'linux'):
     if all_results:
         save_results_to_csv(all_results, OUTPUT_FILE, csv_delimiter)
         
-        logger.info("="*80)
-        logger.info(f"РЕЗУЛЬТАТЫ ПРОВЕРКИ ({len(all_results)} аккаунтов)")
-        logger.info("="*80)
-        logger.info(f"{'Nickname':<20} | {'Name':<25} | {'Followers':<12} | {'Status':<15}")
-        logger.info("-"*80)
+        logger.info("\n\033[34m" + "═" * 80 + "\033[0m")
+        logger.info(f"\033[36m📊 РЕЗУЛЬТАТЫ ПРОВЕРКИ ({len(all_results)} аккаунтов)\033[0m")
+        logger.info("\033[34m" + "═" * 80 + "\033[0m")
+        logger.info(f"\033[37m{'Nickname':<20} | {'Name':<25} | {'Followers':<12} | {'Status':<15}\033[0m")
+        logger.info("\033[34m" + "─" * 80 + "\033[0m")
         
         successful_checks = 0
         total_followers = 0
@@ -752,17 +790,21 @@ async def main(os_type: str = 'linux'):
             if user['status'] == 'success':
                 successful_checks += 1
                 total_followers += user['followers_count']
-                status_display = "✅ Success"
+                status_display = "\033[32m✅ Success\033[0m"
+                followers_color = "\033[36m"
+                nickname_color = "\033[33m"
             else:
-                status_display = "❌ Error"
+                status_display = "\033[31m❌ Error\033[0m"
+                followers_color = "\033[31m"
+                nickname_color = "\033[37m"
             
-            logger.info(f"@{user['nickname']:<19} | {user['name'][:24]:<25} | {user['followers_count']:>10,} | {status_display}")
+            logger.info(f"{nickname_color}@{user['nickname']:<19}\033[0m | \033[37m{user['name'][:24]:<25}\033[0m | {followers_color}{user['followers_count']:>10,}\033[0m | {status_display}")
         
-        logger.info("-"*80)
-        logger.success(f"Успешно проверено: {successful_checks}/{len(all_results)} аккаунтов")
-        logger.info(f"Общее количество подписчиков: {total_followers:,}")
-        logger.info(f"Время проверки: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        logger.success(f"Результаты сохранены в: {OUTPUT_FILE} (разделитель: '{csv_delimiter}')")
-        logger.info("="*80)
+        logger.info("\033[34m" + "─" * 80 + "\033[0m")
+        logger.success(f"\033[32m✅ Успешно проверено: {successful_checks}/{len(all_results)} аккаунтов\033[0m")
+        logger.info(f"\033[36m👥 Общее количество подписчиков:\033[0m \033[33m{total_followers:,}\033[0m")
+        logger.info(f"\033[37m⏰ Время проверки:\033[0m \033[33m{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\033[0m")
+        logger.success(f"\033[32m💾 Результаты сохранены в:\033[0m \033[36m{OUTPUT_FILE}\033[0m \033[37m(разделитель: '{csv_delimiter}')\033[0m")
+        logger.info("\033[34m" + "═" * 80 + "\033[0m")
     else:
-        logger.error("❌ No results to save")
+        logger.error("\033[31m❌ No results to save\033[0m")

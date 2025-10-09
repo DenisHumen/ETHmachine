@@ -49,7 +49,7 @@ def format_position_message(token: str, buy_price: float, current_price: float,
     else:
         change_word = "изменение"
     
-    return (f"      │    {emoji} {token}: цена покупки = {buy_price}, "
+    return (f"      │    {emoji} {token}: цена покупки = {buy_price:.2f}, "
             f"текущая = {current_price}, {change_word} = {colored_change} → {action_message}")
 
 

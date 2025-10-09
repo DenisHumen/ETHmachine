@@ -2,6 +2,7 @@ import os
 import time
 import json
 import csv
+import platform
 
 from colorama import Fore, init
 from questionary import Choice, select
@@ -197,6 +198,21 @@ testnet_rpc_urls = {
 }
 
 
+def get_os_type():
+    """
+    Определяет тип операционной системы
+    
+    Returns:
+        str: 'windows', 'linux' или 'macos'
+    """
+    system = platform.system().lower()
+    if system == 'windows':
+        return 'windows'
+    elif system == 'darwin':
+        return 'macos'
+    else:
+        return 'linux'
+
 
 def main_menu():
     try:
@@ -246,11 +262,11 @@ def main_menu():
 
                     match twitter_action:
                         case 'twitter_check':
-                            run_twitter_check('check')
+                            run_twitter_check(get_os_type())
                         case 'twitter_info':
-                            run_twitter_check('info')
+                            run_twitter_check(get_os_type())
                         case 'twitter_task':
-                            run_twitter_check('task')
+                            run_twitter_check(get_os_type())
                         case 'back':
                             continue
 
