@@ -121,6 +121,10 @@ class OKXSpotTrader:
         self.db_name = os.path.join(self.db_dir, f"okx_{BASE_NAME}.db")
         self.init_database()
         logger.info(f"Инициализирован OKX Spot Trader с базой данных: {self.db_name}")
+        
+        # Словарь для отслеживания отправленных уведомлений о недостаточной ликвидности
+        # Ключ: токен, Значение: время последнего уведомления
+        self.liquidity_warnings_sent = {}
 
     def init_database(self):
         """Инициализация базы данных"""
@@ -497,12 +501,26 @@ class OKXSpotTrader:
             # Проверяем достаточность баланса
             if base_balance < buy_amount_usdt:
                 logger.warning(f"❌ Недостаточно баланса для покупки {token}: нужно {buy_amount_usdt:.6f}, доступно {base_balance:.6f}")
-                self.send_notification(
-                    "warning",
-                    "Недостаточно ликвидности",
-                    f"Нужно {buy_amount_usdt} {TOKEN_TO_BUY_FOR}, доступно {base_balance}",
-                    token=token
-                )
+                
+                # Отправляем уведомление только если оно еще не было отправлено для этого токена
+                # или прошло более 1 часа с последнего уведомления
+                current_time = time.time()
+                last_warning_time = self.liquidity_warnings_sent.get(token, 0)
+                
+                # Проверяем: если прошло больше 3600 секунд (1 час) или уведомление не отправлялось
+                if current_time - last_warning_time > 3600:
+                    self.send_notification(
+                        "warning",
+                        "Недостаточно ликвидности",
+                        f"Нужно {buy_amount_usdt} {TOKEN_TO_BUY_FOR}, доступно {base_balance}",
+                        token=token
+                    )
+                    # Запоминаем время отправки уведомления
+                    self.liquidity_warnings_sent[token] = current_time
+                    logger.info(f"📨 Уведомление о недостаточной ликвидности отправлено для {token}")
+                else:
+                    logger.debug(f"⏭️ Уведомление о недостаточной ликвидности для {token} уже отправлено недавно")
+                
                 return False
             
             # Рассчитываем количество токенов для покупки
