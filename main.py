@@ -166,6 +166,8 @@ from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
 from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
 
+from modules.claimer.claimer_monad import monad_claimer
+
 from modules.eth.transfer_wallets_to_wallets import (
     process_wallets_transfer, get_proxy_list
 )
@@ -238,6 +240,7 @@ def main_menu():
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🧰 Tools                        🌟 Разные удобные инструменты', 'miscellaneous'),
+                    Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
                     Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
@@ -246,6 +249,12 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'claimer':
+                    print(Fore.RED + "\n\tФункционал Claimer в разработке, скоро будет доступен!\n")
+                    time.sleep(3)
+                    #monad_claimer()
+                    continue
+
                 case 'twitter':
                     # Twitter submenu
                     twitter_action = select(
