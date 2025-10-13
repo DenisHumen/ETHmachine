@@ -18,7 +18,7 @@ project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
 # Импорты из проекта
-from config.config import SUM_TO_RELAY, NETWORKS_TO_RELAY, GAS, MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
+from config.config import SUM_TO_RELAY, GAS, MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
 from config.rpc import *
 from config.explorer_url import get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
@@ -98,7 +98,8 @@ class RelayBridge:
             10: optimism,  # Optimism
             137: Polygon,  # Polygon
             8453: base,  # Base
-            42161: arbitrum  # Arbitrum
+            42161: arbitrum,  # Arbitrum
+            1868: soneium  # Soneium
         }
         
         # Маппинг chain_id на названия сетей в explorer_url.py
@@ -107,7 +108,8 @@ class RelayBridge:
             10: '🚀 Optimism',
             137: '🚀 Polygon',
             8453: '🚀 Base',
-            42161: '🚀 Arbitrum One'
+            42161: '🚀 Arbitrum One',
+            1868: '🚀 Soneium'
         }
         
         # Кеш для Web3 подключений
@@ -157,14 +159,102 @@ class RelayBridge:
         conn.commit()
         conn.close()
     
-    def _create_work_plan(self):
-        """Создание полного плана работ в базе данных"""
-        if len(NETWORKS_TO_RELAY) != 2:
-            log_error("❌ Должно быть указано ровно 2 сети в NETWORKS_TO_RELAY")
-            return False
+    def _select_network_and_token(self, prompt_text: str, exclude_chain_id: int = None) -> Tuple[Optional[int], Optional[str]]:
+        """
+        Интерактивный выбор сети и токена
+        
+        Args:
+            prompt_text: Текст приглашения для выбора
+            exclude_chain_id: ID сети которую нужно исключить из списка
             
-        from_network = NETWORKS_TO_RELAY[0]
-        to_network = NETWORKS_TO_RELAY[1]
+        Returns:
+            Tuple[chain_id, token_symbol] или (None, None) при отмене
+        """
+        # Список доступных сетей
+        available_networks = []
+        for network_name, chain_id in NETWORK_MAPPING.items():
+            if exclude_chain_id and chain_id == exclude_chain_id:
+                continue
+            network_display = f"🌐 {NETWORK_SETTINGS[chain_id]['name']}"
+            available_networks.append(Choice(network_display, (network_name, chain_id)))
+        
+        available_networks.append(Choice('🔙 Назад', None))
+        
+        # Выбор сети
+        log_info(f"\n{prompt_text}")
+        selected = select(
+            "Выберите сеть:",
+            choices=available_networks,
+            qmark='🛠️',
+            pointer='👉'
+        ).ask()
+        
+        if selected is None:
+            return None, None
+        
+        network_name, chain_id = selected
+        
+        # Получаем доступные токены для выбранной сети
+        available_tokens = TOKEN_ADDRESSES.get(chain_id, {})
+        if not available_tokens:
+            log_error(f"❌ Нет доступных токенов для сети {NETWORK_SETTINGS[chain_id]['name']}")
+            return None, None
+        
+        # Формируем список токенов с нативным первым
+        native_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
+        token_choices = []
+        
+        # Нативный токен всегда первый
+        if native_symbol in available_tokens:
+            token_choices.append(Choice(f"💎 {native_symbol} (нативный)", native_symbol))
+        
+        # Остальные токены
+        for token_symbol in available_tokens.keys():
+            if token_symbol != native_symbol:
+                token_choices.append(Choice(f"🪙 {token_symbol}", token_symbol))
+        
+        token_choices.append(Choice('🔙 Назад', None))
+        
+        # Выбор токена
+        selected_token = select(
+            f"Выберите токен в сети {NETWORK_SETTINGS[chain_id]['name']}:",
+            choices=token_choices,
+            qmark='💰',
+            pointer='👉'
+        ).ask()
+        
+        if selected_token is None:
+            return None, None
+        
+        return chain_id, selected_token
+    
+    def _check_wallet_token_balance(self, wallet_address: str, chain_id: int, token_symbol: str) -> float:
+        """
+        Проверка баланса токена на кошельке
+        
+        Args:
+            wallet_address: Адрес кошелька
+            chain_id: ID сети
+            token_symbol: Символ токена
+            
+        Returns:
+            Баланс токена
+        """
+        native_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
+        
+        # Для нативного токена используем _get_native_balance
+        if token_symbol == native_symbol:
+            return self._get_native_balance(chain_id, wallet_address, show_log=False)
+        
+        # Для ERC20 токенов (если потребуется в будущем)
+        # TODO: добавить поддержку ERC20 токенов
+        log_warning(f"⚠️ Проверка баланса ERC20 токенов пока не реализована")
+        return 0.0
+    
+    def _create_work_plan(self, from_chain_id: int, from_token: str, to_chain_id: int, to_token: str):
+        """Создание полного плана работ в базе данных"""
+        from_network = CHAIN_ID_TO_NAME[from_chain_id]
+        to_network = CHAIN_ID_TO_NAME[to_chain_id]
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -340,16 +430,12 @@ class RelayBridge:
         network_name = NETWORK_SETTINGS.get(chain_id, {}).get('name', 'Unknown')
         return f"Транзакция {tx_hash} в сети {network_name}"
     
-    def _check_balances(self, wallet_address: str) -> Dict[str, Dict]:
-        """Проверка балансов во всех сетях"""
+    def _check_balances(self, wallet_address: str, from_chain_id: int, to_chain_id: int) -> Dict[str, Dict]:
+        """Проверка балансов в указанных сетях"""
         balances = {}
         
-        for network_name in NETWORKS_TO_RELAY:
-            if network_name not in NETWORK_MAPPING:
-                log_error(f"❌ Сеть {network_name} не найдена в NETWORK_MAPPING!")
-                continue
-            
-            chain_id = NETWORK_MAPPING[network_name]
+        for chain_id in [from_chain_id, to_chain_id]:
+            network_name = CHAIN_ID_TO_NAME[chain_id]
             balance = self._get_native_balance(chain_id, wallet_address, show_log=True)
             
             if balance > 0:
@@ -680,7 +766,8 @@ class RelayBridge:
     
     def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str) -> Dict:
         """Проверка комиссий в котировке перед выполнением с ожиданием снижения комиссии"""
-        max_fee_usd = 0.20  # Лимит комиссии в USD
+        # Берем лимит комиссии из конфигурации
+        max_fee_usd = GAS.get('LIMIT_GAS_COST', 0.1)  # Лимит комиссии в USD из config.py
         
         while True:
             if not quote_data or 'details' not in quote_data:
@@ -749,8 +836,14 @@ class RelayBridge:
             # Получаем данные из записи базы
             from_network = wallet_record['from_network']
             to_network = wallet_record['to_network']
-            amount = wallet_record['amount']            # Проверка балансов
-            balances = self._check_balances(wallet_address)
+            amount = wallet_record['amount']
+            
+            # Получаем chain_id для сетей
+            from_chain_id = NETWORK_MAPPING[from_network]
+            to_chain_id = NETWORK_MAPPING[to_network]
+            
+            # Проверка балансов
+            balances = self._check_balances(wallet_address, from_chain_id, to_chain_id)
             if not balances:
                 log_warning(f"⚠️ Нет балансов для бриджа у кошелька {wallet_address}")
                 return False
@@ -758,9 +851,6 @@ class RelayBridge:
             if from_network not in balances:
                 log_warning(f"⚠️ Нет баланса в сети {from_network} у кошелька {wallet_address}")
                 return False
-            
-            from_chain_id = NETWORK_MAPPING[from_network]
-            to_chain_id = NETWORK_MAPPING[to_network]
             
             # Проверка достаточности баланса
             available_balance = balances[from_network]['balance']
@@ -1061,25 +1151,63 @@ class RelayBridge:
             # Проверка возможности продолжения
             resume = self._check_resume_option()
             
-            # Создание плана работ если еще не создан
-            if not self._create_work_plan():
-                return
-            
-            # Показ параметров без подробностей
-            log_info(f"📋 {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} ETH | {NETWORKS_TO_RELAY[0]}→{NETWORKS_TO_RELAY[1]} | Кошельков: {len(self.private_keys)}")
-            
+            # Если не resume mode, то выбираем сети и токены
             if not resume:
+                log_info("\n" + "="*60)
+                log_info("🔧 НАСТРОЙКА ПАРАМЕТРОВ МОСТА")
+                log_info("="*60)
+                
+                # Шаг 1: Выбор исходной сети и токена
+                log_info("\n📤 ШАГ 1: Выбор сети и токена для отправки")
+                from_chain_id, from_token = self._select_network_and_token("Откуда отправить?")
+                if from_chain_id is None:
+                    log_info("👋 Работа отменена пользователем")
+                    return
+                
+                log_success(f"✅ Выбрано: {NETWORK_SETTINGS[from_chain_id]['name']} → {from_token}")
+                
+                # Шаг 2: Выбор целевой сети и токена
+                log_info(f"\n📥 ШАГ 2: Выбор сети и токена для получения")
+                to_chain_id, to_token = self._select_network_and_token("Куда отправить?", exclude_chain_id=from_chain_id)
+                if to_chain_id is None:
+                    log_info("👋 Работа отменена пользователем")
+                    return
+                
+                log_success(f"✅ Выбрано: {NETWORK_SETTINGS[to_chain_id]['name']} → {to_token}")
+                
+                # Показываем итоговую конфигурацию
+                log_info("="*60)
+                log_info("🔧 ИТОГОВАЯ КОНФИГУРАЦИЯ")
+                log_info("="*60)
+                log_info(f"🌐 Из сети: {NETWORK_SETTINGS[from_chain_id]['name']}")
+                log_info(f"💎 Токен отправки: {from_token}")
+                log_info(f"🌐 В сеть: {NETWORK_SETTINGS[to_chain_id]['name']}")
+                log_info(f"💎 Токен получения: {to_token}")
+                log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
+                log_info(f"👛 Кошельков: {len(self.private_keys)}")
+                log_info("="*60 + "\n")
+                
+                # Подтверждение запуска
                 choice = select(
-                    "Запустить с этими параметрами?",
+                    "Запустить мост с этими параметрами?",
                     choices=[
-                        Choice("Да", True),
-                        Choice("Нет", False)
-                    ]
+                        Choice("✅ Да, запустить", True),
+                        Choice("❌ Нет, отменить", False)
+                    ],
+                    qmark='🛠️',
+                    pointer='👉'
                 ).ask()
                 
                 if not choice:
                     log_info("👋 Работа отменена пользователем")
                     return
+                
+                # Создание плана работ с новыми параметрами
+                if not self._create_work_plan(from_chain_id, from_token, to_chain_id, to_token):
+                    return
+            else:
+                # Resume mode - параметры уже есть в базе
+                log_info("📂 Продолжение работы с существующими параметрами")
             
             # Обработка кошельков
             total_wallets = len(self.private_keys)

@@ -227,6 +227,8 @@ def main_menu():
             + Fore.MAGENTA + "https://github.com/DenisHumen"
             + Fore.GREEN + "\n Steam  🌟 - "
             + Fore.MAGENTA + "https://steamcommunity.com/id/Krokosha/"
+            + Fore.GREEN + "\n Web    🌟 - "
+            + Fore.MAGENTA + "https://krokosha.xyz/"
             + Fore.GREEN + "\n\n"
         )
         while True:

@@ -28,6 +28,11 @@ TOKEN_ADDRESSES = {
         "ETH": "0x0000000000000000000000000000000000000000",
         "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
         "USDC": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
+    },
+    1868: {  # Soneium
+        "ETH": "0x0000000000000000000000000000000000000000",
+        "USDT": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "USDC": "0xA0b86a33E6441446FF2EAE9f6c6B0DfEc9E8Ca51"
     }
 }
 
@@ -37,7 +42,8 @@ NETWORK_MAPPING = {
     'optimism': 10,
     'polygon': 137,
     'base': 8453,
-    'arbitrum': 42161
+    'arbitrum': 42161,
+    'soneium': 1868
 }
 
 # Reverse mapping для получения названия по ID
@@ -71,6 +77,12 @@ NETWORK_SETTINGS = {
     },
     42161: {
         "name": "Arbitrum",
+        "native_symbol": "ETH",
+        "decimals": 18,
+        "min_native_balance": 0.005
+    },
+    1868: {
+        "name": "Soneium",
         "native_symbol": "ETH",
         "decimals": 18,
         "min_native_balance": 0.005
