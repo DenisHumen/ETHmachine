@@ -37,7 +37,7 @@ SFTP_SERVER_INTO_BACKUP = {
 # ========================================================================================
 # ЧЕКЕР TWITTER
 # ========================================================================================
-MAIN_AUTH_TOKEN = ['54237926e872e486600e1dfe6f71d879c9accd09', '7b1e081c8f57b3c7a0d0ad9d04c1562adb6ef704', '6ccd46275de3377c31f8914620b6d3cf089e635d','91467ea008649f5ded3e51f0838335c26e2d871a','859206ed344b86aa0edf4e6412f8416da380aa3b']  # Основной auth_token для проверки Twitter (нужен всегда) заполнять ['111', '222'...] если несколько
+MAIN_AUTH_TOKEN = ['']  # Основной auth_token для проверки Twitter (нужен всегда) заполнять ['111', '222'...] если несколько
 COUNT_REPLACE_TWITTER_AUTH_TOKEN = 50  # Сколько максимум раз можно использовать один auth_token перед заменой на следующий из MAIN_AUTH_TOKEN
 MAIN_PROXY_TWITTER = ''  # Основной прокси для Twitter (если используется) log:password@ip:port
 RANDOM_PROXIES_TWITTER = True  # Рандомный выбор прокси из файла data/proxy.csv (если false то будет использоваться MAIN_PROXY_TWITTER)
