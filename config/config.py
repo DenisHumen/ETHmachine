@@ -22,14 +22,17 @@ DIRECTORIES_TO_BACKUP = [
 ]
 
 # SFTP Backup Configuration
-SFTP_SERVER_INTO_BACKUP_ENABLE = False  # Включить/выключить SFTP сервер для бекапов
+SFTP_SERVER_INTO_BACKUP_ENABLE = True  # Включить/выключить SFTP сервер для бекапов
+SFTP_LIVE_SYNC_ENABLE = True  # Включить/выключить живую синхронизацию (автоматический мониторинг изменений)
 SFTP_SERVER_INTO_BACKUP = {
-    'host': '',  # Хост SFTP сервера (например: 'sftp.example.com')
+    'host': '192.168.0.40',  # Хост SFTP сервера (например: 'sftp.example.com')
     'port': 22,  # Порт SFTP сервера
-    'username': '',  # Имя пользователя SFTP сервера
-    'password': '',  # Пароль SFTP сервера (оставить пустым если используется ключ)
+    'username': 'denishumen',  # Имя пользователя SFTP сервера
+    'password': 'Ltybc2019',  # Пароль SFTP сервера (оставить пустым если используется ключ)
     'key_file': '',  # Путь к файлу ключа SSH (например: '/home/user/.ssh/id_rsa') - приоритет над паролем
-    'remote_path': 'backups/'  # Путь на SFTP сервере для бекапов
+    'remote_path': 'backups/',  # Путь на SFTP сервере для бекапов
+    'identificator': 'maintest',  # Уникальный идентификатор для live бекапа (на случай нескольких копий)
+    'password_encryption': '1111'  # Пароль для шифрования бекапов (оставить пустым для ручного ввода)
 }
 
 

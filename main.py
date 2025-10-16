@@ -18,6 +18,7 @@ from config.config import (
 
 # Импорт модуля бэкапа
 from modules.backup import create_backup, list_backups, backup_menu
+from modules.backup.backup_manager import BackupManager
 
 # Импорт новых модулей для работы с биржами
 from modules.config_validator import validate_configuration
@@ -167,7 +168,6 @@ from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
 from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
 
-from modules.claimer.claimer_monad import monad_claimer
 
 from modules.eth.transfer_wallets_to_wallets import (
     process_wallets_transfer, get_proxy_list
@@ -194,7 +194,6 @@ mainnet_rpc_urls = {
 
 testnet_rpc_urls = {
     '🚀 Sepolia': sepolia,
-    '🚀 Monad Testnet (native token MON)': monad_testnet,
     '🚀 Mega ETH Testnet': mega_eth_testnet,
     '🚀 Pharos Testnet': pharos_testnet,
     '🚀 Kite Testnet': kite_testnet,
@@ -899,8 +898,26 @@ if __name__ == "__main__":
         print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт.")
         input("\nНажмите Enter для выхода...")
         exit(1)
-    print(Fore.GREEN + "✅ Конфигурация проверена успешно!\n")
+    #print(Fore.GREEN + "✅ Конфигурация проверена успешно!\n")
+
+    # Запускаем live мониторинг если включен
+    backup_manager = None
+    try:
+        from config.config import SFTP_LIVE_SYNC_ENABLE, SFTP_SERVER_INTO_BACKUP_ENABLE
+        
+        if SFTP_SERVER_INTO_BACKUP_ENABLE and SFTP_LIVE_SYNC_ENABLE:
+            backup_manager = BackupManager()
+            backup_manager.start_live_monitoring()
+    except Exception as e:
+        print(Fore.YELLOW + f"⚠️  Не удалось запустить live мониторинг: {e}")
 
     if DISPLAY_LIST_BACKUPS:
         list_backups()
-    main_menu()
+    
+    try:
+        main_menu()
+    finally:
+        # Останавливаем мониторинг при выходе
+        if backup_manager:
+            backup_manager.stop_live_monitoring()
+            print(Fore.YELLOW + "\n🔄 Live синхронизация остановлена")

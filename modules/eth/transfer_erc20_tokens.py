@@ -229,7 +229,6 @@ def get_network_rpc(network):
     
     testnet_rpc_urls = {
         '🚀 Sepolia': sepolia,
-        '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Mega ETH': mega_eth_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
     }
@@ -245,7 +244,6 @@ def get_token_address(network, token_symbol):
     """Получение адреса токена для конкретной сети"""
     network_mapping = {
         '🚀 Base': base,
-        '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
         # Добавьте другие сети по мере необходимости
     }
@@ -1286,7 +1284,6 @@ def choose_token_for_network(network):
     
     network_mapping = {
         '🚀 Base': base,
-        '🚀 Monad Testnet (native token MON)': monad_testnet,
         '🚀 Pharos Testnet': pharos_testnet,
     }
     
@@ -1357,7 +1354,7 @@ def run_transfer_erc20_tokens():
             return
         
         # Ограничиваем выбор сетей только теми, которые поддерживают токены
-        supported_networks = ['🚀 Base', '🚀 Monad Testnet (native token MON)', '🚀 Pharos Testnet']
+        supported_networks = ['🚀 Base', '🚀 Pharos Testnet']
         if network_type == 'mainnet':
             available_networks = [n for n in supported_networks if 'Testnet' not in n]
         else:

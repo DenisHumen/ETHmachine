@@ -42,7 +42,6 @@ def get_network_rpc_selection():
         
         testnet_rpc_urls = {
             '🚀 Sepolia': sepolia,
-            '🚀 Monad Testnet (native token MON)': monad_testnet,
             '🚀 Mega ETH': mega_eth_testnet,
             '🚀 Pharos': pharos_testnet,
             '🚀 Kite Testnet': kite_testnet,

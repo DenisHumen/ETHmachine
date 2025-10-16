@@ -298,9 +298,7 @@ def get_all_networks():
                     # Определяем тип сети по названию
                     if any(testnet_keyword in attr_name.lower() for testnet_keyword in ['testnet', 'test']):
                         # Форматируем название для testnet сетей
-                        if attr_name == 'monad_testnet':
-                            formatted_name = "🚀 Monad Testnet (native token MON)"
-                        elif attr_name == 'mega_eth_testnet':
+                        if attr_name == 'mega_eth_testnet':
                             formatted_name = "🚀 Mega ETH"
                         elif attr_name == 'pharos_testnet':
                             formatted_name = "🚀 Pharos"

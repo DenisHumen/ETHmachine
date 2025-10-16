@@ -509,7 +509,6 @@ def get_chain_rpc_list(chain):
         'Soneium': rpc.soneium,
         # Testnets
         'Sepolia': rpc.sepolia,
-        'Monad Testnet': rpc.monad_testnet,
         'Kite Testnet': rpc.kite_testnet,
         'MegaETH Testnet': rpc.mega_eth_testnet,
         'Pharos Testnet': rpc.pharos_testnet,

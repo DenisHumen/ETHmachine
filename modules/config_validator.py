@@ -28,7 +28,7 @@ class ConfigValidator:
         
     def validate_all(self):
         """Выполнить полную проверку конфигурации"""
-        logger.info("🔍 Начинаем проверку конфигурации...")
+        #logger.info("🔍 Начинаем проверку конфигурации...")
         
         self.check_config_files()
         self.check_cex_settings()

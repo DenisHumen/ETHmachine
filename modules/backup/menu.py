@@ -4,7 +4,7 @@
 
 import os
 import sys
-from questionary import select, Choice, confirm
+from questionary import select, Choice, confirm, Separator
 from loguru import logger
 
 # Добавляем путь к корневой директории проекта
@@ -14,6 +14,77 @@ sys.path.append(project_root)
 
 from modules.backup.backup_manager import BackupManager
 from config import config
+
+
+def toggle_live_sync():
+    """Включение/выключение live синхронизации"""
+    
+    current_status = config.SFTP_LIVE_SYNC_ENABLE
+    status_text = "✅ Включена" if current_status else "❌ Выключена"
+    
+    logger.info("=" * 60)
+    logger.info("⚙️  НАСТРОЙКА LIVE СИНХРОНИЗАЦИИ")
+    logger.info("=" * 60)
+    logger.info(f"Текущий статус: {status_text}")
+    logger.info("=" * 60)
+    logger.info("ℹ️  Live синхронизация автоматически отслеживает изменения")
+    logger.info("   в файлах и создает зашифрованный бекап на SFTP сервере")
+    logger.info("=" * 60)
+    
+    if not config.SFTP_SERVER_INTO_BACKUP_ENABLE:
+        logger.error("❌ SFTP бэкап должен быть включен для live синхронизации!")
+        return
+    
+    choice = select(
+        "Что вы хотите сделать?",
+        choices=[
+            Choice("✅ Включить live синхронизацию", "enable"),
+            Choice("❌ Выключить live синхронизацию", "disable"),
+            Choice("🔙 Вернуться в меню", "back")
+        ]
+    ).ask()
+    
+    if choice == "back":
+        return
+    
+    new_status = choice == "enable"
+    
+    if new_status == current_status:
+        action = "включена" if new_status else "выключена"
+        logger.info(f"ℹ️  Live синхронизация уже {action}")
+        return
+    
+    # Обновляем настройку в файле конфигурации
+    config_path = os.path.join(project_root, 'config', 'config.py')
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Заменяем значение
+        old_line = f"SFTP_LIVE_SYNC_ENABLE = {current_status}"
+        new_line = f"SFTP_LIVE_SYNC_ENABLE = {new_status}"
+        
+        if old_line in content:
+            content = content.replace(old_line, new_line)
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Обновляем в памяти
+            config.SFTP_LIVE_SYNC_ENABLE = new_status
+            
+            action = "включена" if new_status else "выключена"
+            logger.success(f"✅ Live синхронизация {action}")
+            
+            if new_status:
+                logger.info("💡 Live мониторинг будет запущен автоматически при старте программы")
+                logger.info("💡 Изменения будут отслеживаться каждые 60 секунд")
+        else:
+            logger.error("❌ Не удалось найти настройку в файле конфигурации")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обновлении конфигурации: {e}")
 
 
 def toggle_sftp_backup():
@@ -113,9 +184,12 @@ def backup_menu():
     
     while True:
         sftp_status = "✅ Включен" if manager.sftp_enabled else "❌ Выключен"
+        live_status = "✅ Активна" if config.SFTP_LIVE_SYNC_ENABLE else "❌ Отключена"
         
         logger.info("=" * 60)
         logger.info(f"💾 УПРАВЛЕНИЕ БЭКАПАМИ | SFTP: {sftp_status}")
+        if manager.sftp_enabled:
+            logger.info(f"🔄 Live синхронизация: {live_status}")
         logger.info("=" * 60)
         
         choices = [
@@ -133,8 +207,24 @@ def backup_menu():
                 Choice("🔄 Восстановить из SFTP бэкапа", "restore_sftp"),
                 Choice("🧹 Очистить старые SFTP бэкапы", "cleanup_sftp"),
                 Choice("🧪 Тест подключения к SFTP", "test_sftp"),
-                Choice("⚙️  Выключить SFTP бэкап", "toggle_sftp"),
             ])
+            
+            # Live backup секция
+            choices.extend([
+                Separator(),
+                Choice(f"🔄 Live синхронизация: {live_status}", "live_toggle"),
+            ])
+            
+            # Показываем live backup опции только если функция включена
+            if config.SFTP_LIVE_SYNC_ENABLE:
+                choices.extend([
+                    Choice("🔴 Создать Live Backup сейчас", "live_create"),
+                    Choice("📥 Восстановить из Live Backup", "live_restore"),
+                    Choice("ℹ️ Информация о Live Backup", "live_info"),
+                    Choice("🗑️ Удалить Live Backup", "live_delete"),
+                ])
+            
+            choices.append(Choice("⚙️  Выключить SFTP бэкап", "toggle_sftp"))
         else:
             choices.append(Choice("⚙️  Настроить SFTP бэкап", "toggle_sftp"))
         
@@ -226,6 +316,31 @@ def backup_menu():
             
         elif choice == "test_sftp":
             manager.test_sftp_connection()
+        
+        # Live backup опции
+        elif choice == "live_toggle":
+            toggle_live_sync()
+            # Пересоздаем manager чтобы обновить статус
+            manager = BackupManager()
+        
+        elif choice == "live_create":
+            logger.info("🔴 Создание Live Backup...")
+            manager.create_live_backup()
+        
+        elif choice == "live_restore":
+            logger.warning("⚠️  ВНИМАНИЕ! Текущие данные будут перезаписаны!")
+            logger.info("💡 Будет загружен и расшифрован последний Live Backup с сервера")
+            
+            if confirm("Продолжить восстановление из Live Backup?", default=False).ask():
+                manager.restore_live_backup()
+            else:
+                logger.info("❌ Отменено пользователем")
+        
+        elif choice == "live_info":
+            show_live_backup_info(manager)
+        
+        elif choice == "live_delete":
+            manager.delete_live_backup_with_confirmation()
             
         elif choice == "toggle_sftp":
             toggle_sftp_backup()
@@ -235,5 +350,53 @@ def backup_menu():
         input("\n🔄 Нажмите Enter для продолжения...")
 
 
+def show_live_backup_info(manager: BackupManager):
+    """Показать информацию о Live Backup"""
+    
+    logger.info("=" * 60)
+    logger.info("ℹ️  ИНФОРМАЦИЯ О LIVE BACKUP")
+    logger.info("=" * 60)
+    
+    if not manager.sftp_enabled:
+        logger.error("❌ SFTP бэкап не включен!")
+        return
+    
+    if not config.SFTP_LIVE_SYNC_ENABLE:
+        logger.warning("⚠️  Live синхронизация отключена")
+        logger.info("💡 Включите её в настройках для автоматической синхронизации")
+        return
+    
+    # Получаем имя файла
+    live_backup_name = manager.get_live_backup_name()
+    logger.info(f"📄 Имя файла: {live_backup_name}")
+    
+    # Информация об identificator
+    identificator = config.SFTP_SERVER_INTO_BACKUP.get('identificator', 'main')
+    logger.info(f"🔑 Идентификатор: {identificator}")
+    
+    # Проверяем наличие на сервере
+    exists = manager.check_live_backup_exists()
+    
+    if exists:
+        logger.success("✅ Live Backup существует на сервере")
+        logger.info("💡 Вы можете восстановить его на любом устройстве")
+    else:
+        logger.warning("⚠️  Live Backup не найден на сервере")
+        logger.info("💡 Создайте его через 'Создать Live Backup сейчас'")
+    
+    # Информация об шифровании
+    if config.SFTP_SERVER_INTO_BACKUP.get('password_encryption'):
+        logger.info("🔐 Шифрование: включено (пароль из конфига)")
+    else:
+        logger.info("🔐 Шифрование: включено (будет запрошен пароль)")
+    
+    logger.info("=" * 60)
+    logger.info("💡 Live Backup автоматически синхронизируется каждые 60 секунд")
+    logger.info("💡 При изменении файлов создается новый зашифрованный бекап")
+    logger.info("💡 На сервере всегда только одна актуальная версия")
+    logger.info("=" * 60)
+
+
 if __name__ == '__main__':
     backup_menu()
+
