@@ -22,7 +22,7 @@ DIRECTORIES_TO_BACKUP = [
 ]
 
 # SFTP Backup Configuration
-SFTP_SERVER_INTO_BACKUP_ENABLE = True  # Включить/выключить SFTP сервер для бекапов
+SFTP_SERVER_INTO_BACKUP_ENABLE = False  # Включить/выключить SFTP сервер для бекапов
 SFTP_SERVER_INTO_BACKUP = {
     'host': '',  # Хост SFTP сервера (например: 'sftp.example.com')
     'port': 22,  # Порт SFTP сервера
