@@ -82,6 +82,13 @@ class ConfigValidator:
             except ImportError:
                 self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER не найден в конфиге (добавьте для использования рандомных прокси в Twitter)")
             
+            # Проверка SFTP конфигурации
+            try:
+                from config.config import SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP
+                self._validate_sftp_config(SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP)
+            except ImportError:
+                self.warnings.append("⚠️ Настройки SFTP бэкапа не найдены в конфиге (добавьте SFTP_SERVER_INTO_BACKUP_ENABLE и SFTP_SERVER_INTO_BACKUP)")
+            
             # Проверки значений
             if TYPE_WITHDRAW not in [0, 1]:
                 self.warnings.append("⚠️ TYPE_WITHDRAW должен быть 1 или 0")
@@ -194,6 +201,54 @@ class ConfigValidator:
                         self.warnings.append(f"⚠️ NICKNAME_GENERATOR['NICE_NUMBERS'][{i}] очень большой (может не поместиться в никнейм)")
         
         logger.debug("✅ Настройки генератора никнеймов проверены")
+    
+    def _validate_sftp_config(self, enabled, config):
+        """Проверка настроек SFTP бэкапа"""
+        # Проверяем только если SFTP включен
+        if not enabled:
+            logger.debug("ℹ️ SFTP бэкап отключен, пропускаем проверку")
+            return
+        
+        if not isinstance(config, dict):
+            self.warnings.append("⚠️ SFTP_SERVER_INTO_BACKUP должен быть словарем")
+            return
+        
+        # Проверка обязательных параметров
+        required_fields = {
+            'host': 'Хост SFTP сервера',
+            'port': 'Порт SFTP сервера', 
+            'username': 'Имя пользователя SFTP',
+            'remote_path': 'Путь на SFTP сервере'
+        }
+        
+        for field, description in required_fields.items():
+            value = config.get(field)
+            
+            if field == 'port':
+                # Порт - это число
+                if not isinstance(value, int) or value <= 0 or value > 65535:
+                    self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['{field}'] ({description}) должен быть числом от 1 до 65535")
+            else:
+                # Остальные поля - строки
+                if not value or (isinstance(value, str) and not value.strip()):
+                    self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['{field}'] ({description}) не может быть пустым при включенном SFTP")
+        
+        # Проверка что заполнен хотя бы один метод авторизации
+        password = config.get('password', '')
+        key_file = config.get('key_file', '')
+        
+        if (not password or not password.strip()) and (not key_file or not key_file.strip()):
+            self.warnings.append("⚠️ SFTP_SERVER_INTO_BACKUP: должен быть заполнен либо 'password' либо 'key_file' для авторизации")
+        
+        # Проверка существования файла ключа (если указан)
+        if key_file and key_file.strip():
+            key_path = Path(key_file)
+            if not key_path.exists():
+                self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['key_file']: файл '{key_file}' не найден")
+            elif not key_path.is_file():
+                self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['key_file']: '{key_file}' не является файлом")
+        
+        logger.debug("✅ Настройки SFTP бэкапа проверены")
     
     def check_cex_settings(self):
         """Проверка настроек бирж"""

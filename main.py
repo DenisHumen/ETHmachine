@@ -16,7 +16,8 @@ from config.config import (
     expected_completion_time, DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
 )
 
-from modules.auto_backup import create_backup, list_backups
+# Импорт модуля бэкапа
+from modules.backup import create_backup, list_backups, backup_menu
 
 # Импорт новых модулей для работы с биржами
 from modules.config_validator import validate_configuration
@@ -236,13 +237,15 @@ def main_menu():
                 f"Что вы хотите сделать?",
                 choices=[
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
-                    Choice('💲 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
+                    Choice('🚀 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
+                    #Choice('🔍 Selenium Profile              🌟 Профиль Selenium', 'selenium_profile'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🧰 Tools                        🌟 Разные удобные инструменты', 'miscellaneous'),
-                    Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
+                    #Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
+                    Choice('💾 Backup                       🌟 Локальные и SFTP бэкапы', 'backup_menu'),
                     Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
                 ],
@@ -251,6 +254,10 @@ def main_menu():
             ).ask()
 
             match action:
+                case 'backup_menu':
+                    backup_menu()
+                    continue
+
                 case 'claimer':
                     print(Fore.RED + "\n\tФункционал Claimer в разработке, скоро будет доступен!\n")
                     time.sleep(3)
@@ -282,20 +289,24 @@ def main_menu():
                             continue
 
                 case 'miscellaneous':
+                    # Формируем список пунктов меню
+                    misc_choices = [
+                        Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
+                        Choice('🪙 Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
+                        Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
+                        Choice('🔑 Password Generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
+                        Choice('🎭 Nickname Generator           🌟 Генерация человечески выглядящих никнеймов', 'nickname_generator'),
+                        Choice('👤 Fullname Generator           🌟 Генерация имён и фамилий (RU/UA/ENG)', 'fullname_generator'),
+                        Choice('🛠️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
+                        Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
+                        Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
+                        Choice('📧 Email IMAP Checker           🌟 Проверить почтовые аккаунты через IMAP', 'email_checker'),
+                        Choice('🔙 Back', 'back')
+                    ]
+                    
                     choices = select(
                         "Выберите действие:",
-                        choices=[
-                            Choice('⛽ Check Gas Price              🌟 Проверить цену газа', 'check_gas_price'),
-                            Choice('🪙 Generate Wallets             🌟 Генерация кошельков', 'generate_wallets'),
-                            Choice('🛠️ ETH/SOL convert tool          🌟 Конвертация мнемоники/priv_key в wallet_address/priv_key', 'ETH_convert_tool'),
-                            Choice('🔑 Password Generator           🌟 Генерация паролей по заданым параметра в "config/config.py"', 'password_generator'),
-                            Choice('🎭 Nickname Generator           🌟 Генерация человечески выглядящих никнеймов', 'nickname_generator'),
-                            Choice('🗂️ Check Proxy                  🌟 Проверить прокси', 'check_proxy'),
-                            Choice('🗂️ Last Transactions            🌟 Проверить последние транзакции', 'last_transactions'),
-                            Choice('🗂️ Check age discord            🌟 Проверить возраст аккаунта Discord', 'check_age_discord'),
-                            Choice('📧 Email IMAP Checker           🌟 Проверить почтовые аккаунты через IMAP', 'email_checker'),
-                            Choice('🔙 Back', 'back')
-                        ],
+                        choices=misc_choices,
                         qmark='🛠️',
                         pointer='👉'
                     ).ask()
@@ -445,6 +456,9 @@ def main_menu():
                         case 'nickname_generator':
                             from modules.nickname_generator import generate_nicknames
                             generate_nicknames()
+                        case 'fullname_generator':
+                            from modules.fullname_generator import generate_fullnames_menu
+                            generate_fullnames_menu()
                         case 'check_proxy':
                             check_proxy_menu()
                         case 'last_transactions':
