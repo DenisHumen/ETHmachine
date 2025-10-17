@@ -309,7 +309,6 @@ def get_token_price_usdt(token_symbol):
             'AVAX': 'avalanche-2',
             'FTM': 'fantom',
             'G': 'gravity',
-            'MON': 'monad',
             'SOMI': 'somnia'
         }
         

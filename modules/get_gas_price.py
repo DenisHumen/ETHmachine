@@ -89,7 +89,6 @@ def get_token_price_usd(token_symbol):
             'AVAX': 'avalanche-2',
             'FTM': 'fantom',
             'G': 'gravity',
-            'MON': 'monad'  # Если есть на CoinGecko
         }
         
         token_id = token_ids.get(token_symbol.upper())

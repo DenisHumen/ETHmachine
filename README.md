@@ -19,7 +19,7 @@
 ## Основной функционал
 
 ### 🚰 Faucet-модули
-- Автоматизация работы с кранами тестовых сетей (Somnia, Monad, Sahara, MegaETH, Pharos)
+- Автоматизация работы с кранами тестовых сетей (Somnia, Sahara, MegaETH, Pharos)
 - Поддержка прокси, логирования, проверки балансов
 - Telegram-уведомления о статусе работы
 - Гибкая настройка таймингов и потоков
@@ -71,7 +71,7 @@ python main.py
 
 **Mainnet:** Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, Fantom, Gravity, Zora, Abstract
 
-**Testnet:** Sepolia, Monad, Sahara, Somnia, Mega ETH, Pharos
+**Testnet:** Sepolia, Sahara, Somnia, Mega ETH, Pharos
 
 ## Важные замечания
 
@@ -89,7 +89,7 @@ python main.py
 
 - `main.py` — основной скрипт с меню
 - `modules/` — все вспомогательные модули:
-  - `faucets/` — автоматизация работы с кранами (Somnia, Monad, Sahara, MegaETH, Pharos и др.)
+  - `faucets/` — автоматизация работы с кранами (Somnia, Sahara, MegaETH, Pharos и др.)
   - `get_wallet_balance.py` — медленная проверка баланса
   - `get_wallet_balance_fast.py` — быстрая проверка баланса через прокси
   - `sum_balances.py` — суммирование балансов
@@ -109,7 +109,7 @@ python main.py
 ## Поддерживаемые сети и краны
 
 - Ethereum Mainnet, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, Fantom, Gravity, Zora, Abstract и др.
-- Тестовые сети: Sepolia, Monad, Sahara, Somnia, Mega ETH, Pharos и др.
+- Тестовые сети: Sepolia, Sahara, Somnia, Mega ETH, Pharos и др.
 - Краны: автоматизация получения токенов из популярных faucet для тестовых сетей
 
 ## Важно

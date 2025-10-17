@@ -61,7 +61,6 @@ token_ids = {
     'AVAX': 'avalanche-2',
     'FTM': 'fantom',
     'G': 'gravity',
-    'MON': 'monad'
 }
 ```
 

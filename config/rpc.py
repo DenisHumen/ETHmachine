@@ -15,7 +15,6 @@ somnia = ['https://api.infra.mainnet.somnia.network/']
 
 # Testnets
 sepolia = ['https://1rpc.io/sepolia']
-monad_testnet = ['https://testnet-rpc.monad.xyz']
 mega_eth_testnet = ['https://carrot.megaeth.com/rpc']
 pharos_testnet = ['https://testnet.dplabs-internal.com']
 kite_testnet = ['https://rpc-testnet.gokite.ai']

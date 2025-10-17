@@ -9,7 +9,7 @@ from questionary import Choice, select
 
 from config.rpc import (
     L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
-    Avalanche, Fantom, Gravity_Alpha_Mainnet, monad_testnet, zora,
+    Avalanche, Fantom, Gravity_Alpha_Mainnet, zora,
     somnia, mega_eth_testnet, Abstract, pharos_testnet,  kite_testnet
 )
 from config.config import (
@@ -38,7 +38,6 @@ def check_and_create_files():
         'data/private_keys.txt',
         'data/twitter/twitters.csv',
         'result/twitter/result.csv',
-        'data/twitter/twitter_task.csv',
         'data/discord_token.txt',
         'data/email.csv',
     ]
@@ -46,8 +45,6 @@ def check_and_create_files():
         'result',
         'data',
         'db',
-        'result/json/pharos_faucet',
-        'result/faucet',
         'result/twitter',
         'data/twitter',
         'backups',
@@ -260,7 +257,6 @@ def main_menu():
                 case 'claimer':
                     print(Fore.RED + "\n\tФункционал Claimer в разработке, скоро будет доступен!\n")
                     time.sleep(3)
-                    #monad_claimer()
                     continue
 
                 case 'twitter':
