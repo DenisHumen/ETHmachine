@@ -31,7 +31,9 @@ from config.config import (
 
 # Импортируем Twitter класс из существующего модуля
 from .tiwtter_task import Twitter
+from .twitter_task_db import TwitterTaskDatabase
 import random
+import uuid
 
 class Config:
     """Конфигурация для Twitter модуля"""
@@ -44,13 +46,15 @@ class Config:
 
 
 class TwitterTaskRunner:
-    """Класс для выполнения Twitter задач"""
+    """Класс для выполнения Twitter задач с поддержкой БД"""
     
     def __init__(self):
         self.config = Config()
         self.accounts = []
         self.tasks = []
         self.results = []
+        self.db = TwitterTaskDatabase()
+        self.session_id = str(uuid.uuid4())[:8]
     
     def load_accounts(self):
         """Загружает аккаунты из data/twitter/twitters.csv"""
@@ -259,96 +263,168 @@ class TwitterTaskRunner:
         except Exception as e:
             return False, f"Ошибка выполнения задачи: {e}"
     
+    async def check_and_choose_mode(self) -> str:
+        """Проверяет наличие незавершенных задач и предлагает выбор"""
+        if self.db.has_pending_operations():
+            stats = self.db.get_statistics()
+            pending = stats.get('pending', 0)
+            completed = stats.get('successful', 0) + stats.get('failed', 0)
+            total = stats.get('total', 0)
+            
+            print(Fore.YELLOW + f"\n⚠️  Найдены незавершенные задачи в базе данных!")
+            print(Fore.WHITE + f"  📊 Прогресс: {completed}/{total} операций выполнено")
+            print(Fore.WHITE + f"  ⏳ Осталось: {pending} операций\n")
+            
+            choice = questionary.select(
+                "Что делать?",
+                choices=[
+                    Choice("🔄 Продолжить выполнение с места остановки", value="continue"),
+                    Choice("🆕 Начать заново (удалить старые данные)", value="restart"),
+                    Choice("❌ Отмена", value="cancel")
+                ]
+            ).ask()
+            
+            if choice == "restart":
+                confirm = questionary.confirm(
+                    "Вы уверены? Все данные о прогрессе будут удалены!",
+                    default=False
+                ).ask()
+                
+                if confirm:
+                    self.db.clear_all_data()
+                    logger.warning("База данных очищена")
+                    return "new"
+                else:
+                    return "cancel"
+            
+            return choice if choice else "cancel"
+        
+        return "new"
+
     async def run_all_tasks(self):
         """
-        Выполняет задачи распределяя их по аккаунтам с поддержкой многопоточности.
-        Каждая задача выполняется уникальным аккаунтом (с учетом повторений).
+        Выполняет задачи с поддержкой БД для сохранения прогресса.
+        Поддерживает продолжение с места остановки.
         """
         if not self.accounts:
             logger.error("Нет загруженных аккаунтов")
-            return
+            return []
         
-        if not self.tasks:
-            logger.error("Нет загруженных задач")
-            return
+        # Проверяем режим работы
+        mode = await self.check_and_choose_mode()
         
-        # Подсчитываем общее количество операций
-        total_operations = 0
-        for task in self.tasks:
-            if task['type'] in ['tweet', 'comment']:
-                total_operations += 1
-            else:
-                try:
-                    repetitions = int(task['value']) if task['value'] else 1
-                    total_operations += max(1, repetitions)
-                except (ValueError, TypeError):
-                    total_operations += 1
+        if mode == "cancel":
+            print(Fore.YELLOW + "Операция отменена пользователем")
+            return []
         
-        print(Fore.CYAN + f"\n📊 Планирование выполнения:")
-        print(Fore.WHITE + f"  • Всего задач: {len(self.tasks)}")
-        print(Fore.WHITE + f"  • Всего операций: {total_operations}")
-        print(Fore.WHITE + f"  • Доступно аккаунтов: {len(self.accounts)}")
-        print(Fore.WHITE + f"  • Количество потоков: {self.config.NUM_THREADS}")
+        if mode == "continue":
+            # Продолжаем выполнение незавершенных операций
+            return await self._continue_execution()
+        else:
+            # Новый запуск
+            if not self.tasks:
+                logger.error("Нет загруженных задач")
+                return []
+            
+            return await self._start_new_execution()
+    
+    async def _start_new_execution(self):
+        """Начинает новое выполнение задач"""
+        # Сохраняем задачи в БД
+        task_ids = self.db.save_tasks(self.tasks)
         
-        if total_operations > len(self.accounts):
-            print(Fore.YELLOW + f"  ⚠️  Операций больше чем аккаунтов - некоторые аккаунты будут использованы повторно")
-        
-        logger.info(f"Начало выполнения {len(self.tasks)} задач ({total_operations} операций) в {self.config.NUM_THREADS} потоков")
-        
-        # Создаем семафор для ограничения количества одновременных задач
-        semaphore = asyncio.Semaphore(self.config.NUM_THREADS)
-        
-        # Подготовка списка всех операций для выполнения
+        # Подготавливаем операции
         operations = []
         account_index = 0
         
-        # Проходим по каждой задаче
-        for task_num, task in enumerate(self.tasks, 1):
+        for task_idx, task in enumerate(self.tasks):
+            task_id = task_ids[task_idx]
             task_type = task['type']
-            task_link = task['link']
-            task_value = task['value']
             
             # Определяем количество повторений
             if task_type in ['tweet', 'comment']:
                 repetitions = 1
             else:
                 try:
-                    repetitions = int(task_value) if task_value else 1
+                    repetitions = int(task['value']) if task['value'] else 1
                     repetitions = max(1, repetitions)
                 except (ValueError, TypeError):
                     repetitions = 1
             
             # Создаем операции для каждого повторения
             for rep in range(repetitions):
-                # Выбираем аккаунт в зависимости от настроек
+                # Выбираем аккаунт
                 if self.config.RANDOM_ACCOUNT_SELECTION:
-                    # Случайный выбор аккаунта
                     account = random.choice(self.accounts)
                     account_display_index = self.accounts.index(account) + 1
                 else:
-                    # Последовательный выбор
                     if account_index >= len(self.accounts):
                         account_index = 0
-                    
                     account = self.accounts[account_index]
                     account_display_index = account_index + 1
                     account_index += 1
                 
-                # Добавляем операцию в список
                 operations.append({
-                    'task_num': task_num,
-                    'total_tasks': len(self.tasks),
+                    'task_id': task_id,
                     'task': task,
                     'account': account,
                     'account_index': account_display_index,
                     'repetition': rep + 1,
-                    'total_repetitions': repetitions,
-                    'semaphore': semaphore
+                    'total_repetitions': repetitions
                 })
+        
+        # Сохраняем операции в БД
+        operation_ids = self.db.save_operations(operations)
+        
+        # Добавляем ID операций
+        for i, op in enumerate(operations):
+            op['operation_id'] = operation_ids[i]
+        
+        # Создаем сессию
+        self.db.create_session(self.session_id, len(operations))
+        
+        print(Fore.CYAN + f"\n📊 Планирование выполнения:")
+        print(Fore.WHITE + f"  • Всего задач: {len(self.tasks)}")
+        print(Fore.WHITE + f"  • Всего операций: {len(operations)}")
+        print(Fore.WHITE + f"  • Доступно аккаунтов: {len(self.accounts)}")
+        print(Fore.WHITE + f"  • Количество потоков: {self.config.NUM_THREADS}")
+        print(Fore.WHITE + f"  • ID сессии: {self.session_id}")
+        
+        logger.info(f"Начало выполнения {len(self.tasks)} задач ({len(operations)} операций)")
+        
+        # Выполняем операции
+        return await self._execute_operations(operations)
+    
+    async def _continue_execution(self):
+        """Продолжает выполнение незавершенных операций"""
+        # Получаем незавершенные операции из БД
+        pending_ops = self.db.get_pending_operations()
+        
+        if not pending_ops:
+            print(Fore.GREEN + "✅ Все задачи уже выполнены!")
+            return []
+        
+        print(Fore.CYAN + f"\n🔄 Продолжение выполнения:")
+        print(Fore.WHITE + f"  • Осталось операций: {len(pending_ops)}")
+        print(Fore.WHITE + f"  • Количество потоков: {self.config.NUM_THREADS}")
+        
+        logger.info(f"Продолжение выполнения {len(pending_ops)} операций")
+        
+        # Выполняем операции
+        return await self._execute_operations(pending_ops)
+    
+    async def _execute_operations(self, operations: list):
+        """Выполняет список операций с многопоточностью"""
+        # Создаем семафор
+        semaphore = asyncio.Semaphore(self.config.NUM_THREADS)
+        
+        # Добавляем семафор в каждую операцию
+        for op in operations:
+            op['semaphore'] = semaphore
         
         print(Fore.CYAN + f"\n🚀 Запуск {len(operations)} операций...\n")
         
-        # Выполняем все операции параллельно с ограничением через семафор
+        # Выполняем параллельно
         tasks_list = [
             self._execute_operation_with_semaphore(op) 
             for op in operations
@@ -356,8 +432,14 @@ class TwitterTaskRunner:
         
         all_results = await asyncio.gather(*tasks_list, return_exceptions=True)
         
-        # Фильтруем результаты от исключений
+        # Фильтруем исключения
         self.results = [r for r in all_results if not isinstance(r, Exception)]
+        
+        # Обновляем статистику сессии
+        successful = sum(1 for r in self.results if r.get('status') == 'success')
+        failed = len(self.results) - successful
+        self.db.update_session_progress(self.session_id, len(self.results), successful, failed)
+        self.db.complete_session(self.session_id)
         
         print(Fore.CYAN + f"\n{'='*70}")
         logger.success(f"✅ Все задачи завершены! Выполнено {len(self.results)} операций")
@@ -366,18 +448,16 @@ class TwitterTaskRunner:
         return self.results
     
     async def _execute_operation_with_semaphore(self, operation):
-        """Выполняет операцию с учетом семафора для контроля многопоточности"""
+        """Выполняет операцию с учетом семафора и сохраняет в БД"""
         async with operation['semaphore']:
-            task_num = operation['task_num']
-            total_tasks = operation['total_tasks']
+            operation_id = operation.get('operation_id') or operation.get('id')
             task = operation['task']
             account = operation['account']
             account_index = operation['account_index']
             repetition = operation['repetition']
-            total_repetitions = operation['total_repetitions']
+            total_repetitions = operation.get('total_repetitions', 1)
             
-            print(Fore.GREEN + f"[Поток] Задача {task_num}/{total_tasks} | " +
-                  f"{task['type'].upper()} | " +
+            print(Fore.GREEN + f"[Поток] {task['type'].upper()} | " +
                   f"Повтор {repetition}/{total_repetitions} | " +
                   f"Аккаунт: {account['nickname']} (#{account_index})")
             
@@ -389,6 +469,17 @@ class TwitterTaskRunner:
                 repetition,
                 total_repetitions
             )
+            
+            # Сохраняем результат в БД
+            if operation_id:
+                status = 'success' if result.get('status') == 'success' else 'failed'
+                self.db.update_operation_status(
+                    operation_id,
+                    status,
+                    result.get('username'),
+                    result.get('message')
+                )
+                self.db.save_result(operation_id, result)
             
             # Задержка между операциями
             delay = random.uniform(
@@ -446,10 +537,16 @@ class TwitterTaskRunner:
         return result
     
     def save_results(self):
-        """Сохраняет результаты в файл с датой и временем"""
-        if not self.results:
+        """Сохраняет результаты из БД в CSV файл"""
+        # Получаем все результаты из БД
+        db_results = self.db.get_all_results()
+        
+        if not db_results and not self.results:
             logger.warning("Нет результатов для сохранения")
             return
+        
+        # Используем результаты из БД если они есть
+        results_to_save = db_results if db_results else self.results
         
         # Создаем папку для результатов если её нет
         results_dir = Path('result/twitter')
@@ -461,66 +558,239 @@ class TwitterTaskRunner:
         
         try:
             with open(results_file, 'w', encoding='utf-8', newline='') as f:
-                if self.results:
-                    fieldnames = self.results[0].keys()
+                if results_to_save:
+                    # Определяем поля для CSV
+                    fieldnames = ['account', 'username', 'task_type', 'task_link', 
+                                'task_value', 'repetition', 'status', 'message', 'timestamp']
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
-                    writer.writerows(self.results)
+                    
+                    for result in results_to_save:
+                        # Фильтруем только нужные поля
+                        row = {k: result.get(k, '') for k in fieldnames}
+                        writer.writerow(row)
             
             logger.success(f"Результаты сохранены в: {results_file}")
             
-            # Показываем статистику
-            success_count = sum(1 for r in self.results if r['status'] == 'success')
-            failed_count = len(self.results) - success_count
-            
-            # Группируем по типам задач
-            task_stats = {}
-            for r in self.results:
-                task_type = r['task_type']
-                if task_type not in task_stats:
-                    task_stats[task_type] = {'success': 0, 'failed': 0}
-                if r['status'] == 'success':
-                    task_stats[task_type]['success'] += 1
-                else:
-                    task_stats[task_type]['failed'] += 1
+            # Получаем статистику из БД
+            stats = self.db.get_statistics()
             
             print(Fore.CYAN + f"\n{'='*70}")
             print(Fore.CYAN + f"📊 ИТОГОВАЯ СТАТИСТИКА")
             print(Fore.CYAN + f"{'='*70}")
-            print(Fore.WHITE + f"\n  Всего операций: {len(self.results)}")
-            print(Fore.GREEN + f"  ✅ Успешно: {success_count}")
-            if failed_count > 0:
-                print(Fore.RED + f"  ❌ Ошибки: {failed_count}")
+            print(Fore.WHITE + f"\n  Всего операций: {stats.get('total', 0)}")
+            print(Fore.GREEN + f"  ✅ Успешно: {stats.get('successful', 0)}")
             
-            print(Fore.CYAN + f"\n  По типам задач:")
-            for task_type, stats in task_stats.items():
-                total = stats['success'] + stats['failed']
-                print(Fore.WHITE + f"    • {task_type.upper():10} - {stats['success']}/{total} успешно")
+            if stats.get('failed', 0) > 0:
+                print(Fore.RED + f"  ❌ Ошибки: {stats.get('failed', 0)}")
+            
+            if stats.get('pending', 0) > 0:
+                print(Fore.YELLOW + f"  ⏳ В ожидании: {stats.get('pending', 0)}")
+            
+            # Статистика по типам задач
+            if stats.get('by_task_type'):
+                print(Fore.CYAN + f"\n  По типам задач:")
+                for task_type, task_stats in stats['by_task_type'].items():
+                    total = task_stats.get('total', 0)
+                    successful = task_stats.get('successful', 0)
+                    print(Fore.WHITE + f"    • {task_type.upper():10} - {successful}/{total} успешно")
             
             print(Fore.CYAN + f"\n  📁 Результаты: {results_file.name}")
+            print(Fore.CYAN + f"  🗄️  База данных: {self.db.db_path}")
             print(Fore.CYAN + f"{'='*70}\n")
             
         except Exception as e:
             logger.error(f"Ошибка сохранения результатов: {e}")
+    
+    def show_detailed_statistics(self):
+        """Показывает детальную статистику из БД"""
+        stats = self.db.get_statistics()
+        
+        print(Fore.CYAN + f"\n{'='*70}")
+        print(Fore.CYAN + "📊 ДЕТАЛЬНАЯ СТАТИСТИКА")
+        print(Fore.CYAN + f"{'='*70}\n")
+        
+        # Общая информация
+        print(Fore.WHITE + "📈 Общая статистика:")
+        print(Fore.WHITE + f"  • Всего операций: {stats.get('total', 0)}")
+        print(Fore.GREEN + f"  • Успешно: {stats.get('successful', 0)}")
+        print(Fore.RED + f"  • Ошибок: {stats.get('failed', 0)}")
+        print(Fore.YELLOW + f"  • В ожидании: {stats.get('pending', 0)}")
+        
+        # Процент выполнения
+        total = stats.get('total', 0)
+        if total > 0:
+            completed = stats.get('successful', 0) + stats.get('failed', 0)
+            progress_pct = (completed / total) * 100
+            print(Fore.CYAN + f"  • Прогресс: {progress_pct:.1f}%")
+        
+        # Статистика по типам
+        if stats.get('by_task_type'):
+            print(Fore.CYAN + f"\n📋 По типам задач:")
+            for task_type, task_stats in stats['by_task_type'].items():
+                total_type = task_stats.get('total', 0)
+                successful = task_stats.get('successful', 0)
+                failed = task_stats.get('failed', 0)
+                pending = task_stats.get('pending', 0)
+                
+                success_rate = (successful / total_type * 100) if total_type > 0 else 0
+                
+                print(Fore.WHITE + f"\n  {task_type.upper()}:")
+                print(Fore.WHITE + f"    • Всего: {total_type}")
+                print(Fore.GREEN + f"    • Успешно: {successful} ({success_rate:.1f}%)")
+                if failed > 0:
+                    print(Fore.RED + f"    • Ошибок: {failed}")
+                if pending > 0:
+                    print(Fore.YELLOW + f"    • В ожидании: {pending}")
+        
+        # Информация о сессиях
+        session = self.db.get_active_session()
+        if session:
+            print(Fore.CYAN + f"\n🔄 Активная сессия:")
+            print(Fore.WHITE + f"  • ID: {session['session_id']}")
+            print(Fore.WHITE + f"  • Начата: {session['started_at']}")
+            print(Fore.WHITE + f"  • Прогресс: {session['completed_operations']}/{session['total_operations']}")
+        
+        print(Fore.CYAN + f"\n  🗄️  База данных: {self.db.db_path}")
+        print(Fore.CYAN + f"{'='*70}\n")
 
 
 def run_twitter_tasks():
-    """Главная функция для запуска Twitter задач"""
+    """Главная функция для запуска Twitter задач с поддержкой БД"""
     print(Fore.CYAN + "\n🐦 Twitter Task Runner")
     print("=" * 50)
     
     runner = TwitterTaskRunner()
     
+    # Проверяем наличие незавершенных задач в БД
+    if runner.db.has_pending_operations():
+        stats = runner.db.get_statistics()
+        pending = stats.get('pending', 0)
+        completed = stats.get('successful', 0) + stats.get('failed', 0)
+        total = stats.get('total', 0)
+        
+        print(Fore.YELLOW + f"\n⚠️  Найдены незавершенные задачи в базе данных!")
+        print(Fore.WHITE + f"  📊 Прогресс: {completed}/{total} операций выполнено")
+        print(Fore.WHITE + f"  ⏳ Осталось: {pending} операций")
+        
+        # Показываем статистику по типам задач
+        if stats.get('by_task_type'):
+            print(Fore.CYAN + f"\n  📋 По типам задач:")
+            for task_type, task_stats in stats['by_task_type'].items():
+                successful = task_stats.get('successful', 0)
+                failed = task_stats.get('failed', 0)
+                pending_type = task_stats.get('pending', 0)
+                total_type = task_stats.get('total', 0)
+                
+                status = []
+                if successful > 0:
+                    status.append(f"{Fore.GREEN}✅ {successful}")
+                if failed > 0:
+                    status.append(f"{Fore.RED}❌ {failed}")
+                if pending_type > 0:
+                    status.append(f"{Fore.YELLOW}⏳ {pending_type}")
+                
+                print(Fore.WHITE + f"    • {task_type.upper():10} [{' '.join(status)}{Fore.WHITE}] из {total_type}")
+        
+        print()
+        
+        # Предлагаем выбор действия
+        action = questionary.select(
+            "Что вы хотите сделать?",
+            choices=[
+                Choice("🔄 Продолжить выполнение с места остановки", value="continue"),
+                Choice("🆕 Начать заново (очистить БД и создать новые задачи)", value="restart"),
+                Choice("📊 Только посмотреть статистику", value="stats"),
+                Choice("❌ Отмена", value="cancel")
+            ]
+        ).ask()
+        
+        if action == "cancel":
+            print(Fore.YELLOW + "Операция отменена")
+            return
+        
+        if action == "stats":
+            # Показываем детальную статистику
+            runner.show_detailed_statistics()
+            return
+        
+        if action == "restart":
+            confirm = questionary.confirm(
+                "⚠️  Вы уверены? Все данные о прогрессе будут удалены!",
+                default=False
+            ).ask()
+            
+            if not confirm:
+                print(Fore.YELLOW + "Операция отменена")
+                return
+            
+            runner.db.clear_all_data()
+            logger.warning("База данных очищена")
+            print(Fore.GREEN + "✅ База данных очищена, загрузка новых задач...\n")
+            
+            # Загружаем новые задачи
+            if not load_and_prepare_tasks(runner):
+                return
+        
+        elif action == "continue":
+            # Загружаем только аккаунты для продолжения
+            print(Fore.YELLOW + "\n📥 Загрузка аккаунтов...")
+            if not runner.load_accounts():
+                print(Fore.RED + "❌ Не удалось загрузить аккаунты")
+                return
+            
+            print(Fore.GREEN + f"✅ Загружено аккаунтов: {len(runner.accounts)}")
+            
+            # Подтверждение продолжения
+            confirm = questionary.confirm(
+                f"Продолжить выполнение {pending} незавершенных операций?",
+                default=True
+            ).ask()
+            
+            if not confirm:
+                print(Fore.YELLOW + "Операция отменена")
+                return
+    else:
+        # Нет незавершенных задач - загружаем новые
+        print(Fore.GREEN + "\n✅ Нет незавершенных задач в БД")
+        if not load_and_prepare_tasks(runner):
+            return
+    
+    # Запускаем выполнение
+    print(Fore.CYAN + f"\n{'='*70}")
+    print(Fore.CYAN + "🚀 НАЧАЛО ВЫПОЛНЕНИЯ")
+    print(Fore.CYAN + f"{'='*70}\n")
+    
+    try:
+        results = asyncio.run(runner.run_all_tasks())
+        
+        if results:
+            # Сохраняем результаты
+            runner.save_results()
+        
+    except KeyboardInterrupt:
+        print(Fore.YELLOW + "\n⚠️  Выполнение прервано пользователем")
+        print(Fore.CYAN + "💾 Прогресс сохранен в базе данных")
+        print(Fore.WHITE + "Запустите модуль снова для продолжения\n")
+    except Exception as e:
+        print(Fore.RED + f"\n❌ Ошибка выполнения: {e}")
+        logger.error(f"Ошибка выполнения: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def load_and_prepare_tasks(runner):
+    """Загружает аккаунты и задачи, показывает информацию"""
     # Загружаем аккаунты
     print(Fore.YELLOW + "📥 Загрузка аккаунтов...")
     if not runner.load_accounts():
         print(Fore.RED + "❌ Не удалось загрузить аккаунты")
-        return
+        return False
     
     if not runner.accounts:
         print(Fore.RED + "❌ Нет аккаунтов для работы")
         print(Fore.YELLOW + "Добавьте аккаунты в data/twitter/twitters.csv")
-        return
+        return False
     
     print(Fore.GREEN + f"✅ Загружено аккаунтов: {len(runner.accounts)}")
     
@@ -528,48 +798,48 @@ def run_twitter_tasks():
     print(Fore.YELLOW + "📥 Загрузка задач...")
     if not runner.load_tasks():
         print(Fore.RED + "❌ Не удалось загрузить задачи")
-        return
+        return False
     
     if not runner.tasks:
         print(Fore.RED + "❌ Нет задач для выполнения")
         print(Fore.YELLOW + "Добавьте задачи в data/twitter/twitter_task.csv")
-        return
+        return False
     
     print(Fore.GREEN + f"✅ Загружено задач: {len(runner.tasks)}")
     
     # Показываем информацию о задачах
     print(Fore.CYAN + f"\n📋 Задачи для выполнения:")
-    for i, task in enumerate(runner.tasks, 1):
-        print(Fore.WHITE + f"  {i}. {task['type'].upper()} - {task['link']}")
-        if task['value']:
-            print(Fore.WHITE + f"     Значение: {task['value']}")
+    task_summary = {}
+    for task in runner.tasks:
+        task_type = task['type']
+        if task_type not in task_summary:
+            task_summary[task_type] = 0
+        
+        # Считаем операции
+        if task_type in ['tweet', 'comment']:
+            task_summary[task_type] += 1
+        else:
+            try:
+                reps = int(task['value']) if task['value'] else 1
+                task_summary[task_type] += max(1, reps)
+            except:
+                task_summary[task_type] += 1
+    
+    for task_type, count in task_summary.items():
+        print(Fore.WHITE + f"  • {task_type.upper()}: {count} операций")
     
     # Подтверждение запуска
+    total_ops = sum(task_summary.values())
     confirm = questionary.confirm(
-        f"Выполнить {len(runner.tasks)} задач для {len(runner.accounts)} аккаунтов?",
-        default=False
+        f"\nВыполнить {len(runner.tasks)} задач ({total_ops} операций) для {len(runner.accounts)} аккаунтов?",
+        default=True
     ).ask()
     
     if not confirm:
         print(Fore.YELLOW + "Операция отменена")
-        return
+        return False
     
-    # Запускаем задачи
-    print(Fore.GREEN + "\n🚀 Запуск выполнения задач...")
-    try:
-        asyncio.run(runner.run_all_tasks())
-        
-        # Сохраняем результаты
-        runner.save_results()
-        
-    except KeyboardInterrupt:
-        print(Fore.YELLOW + "\n⚠️ Выполнение прервано пользователем")
-        if runner.results:
-            runner.save_results()
-    except Exception as e:
-        print(Fore.RED + f"\n❌ Критическая ошибка: {e}")
-        if runner.results:
-            runner.save_results()
+    return True
 
 
 if __name__ == "__main__":
