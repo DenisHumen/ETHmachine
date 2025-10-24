@@ -4,7 +4,7 @@ import json
 import csv
 import platform
 
-from colorama import Fore, init
+from colorama import Fore, Style, init
 from questionary import Choice, select
 
 from config.rpc import (
@@ -37,6 +37,7 @@ def check_and_create_files():
         'data/one_time_intermediary.csv',
         'data/private_keys.txt',
         'data/twitter/twitters.csv',
+        'data/twitter/twitter_task.csv',
         'result/twitter/result.csv',
         'data/discord_token.txt',
         'data/email.csv',
@@ -119,9 +120,9 @@ def check_and_create_files():
                 elif 'one_time_intermediary.csv' in file:
                     f.write('mnemonic,wallet_address,private_key,status\n')
                 elif 'data/twitter/twitters.csv' in file:
-                    f.write('nickname,auth_token,ct0\n')
+                    f.write('nickname,auth_token,ct0,proxy\n')
                 elif 'data/twitter/twitter_task.csv' in file:
-                    f.write('еще в разработке\n')
+                    f.write('link,type,value\n')
                 elif 'data/email.csv' in file:
                     f.write('email,password,imap_domain\n')
             print(Fore.GREEN + f"File created: {file}")
@@ -138,6 +139,7 @@ from modules.password_generator import password_generator_menu
 from modules.get_gas_price import check_all_gas_prices
 
 from modules.twitter.twitter_check import run_twitter_check
+from modules.twitter.twitter_task_runner import run_twitter_tasks
 from modules.discord.discord_age import check_discord_accounts
 from modules.email.email_imap_checker import run_email_checker
 
@@ -170,7 +172,7 @@ from modules.eth.transfer_wallets_to_wallets import (
     process_wallets_transfer, get_proxy_list
 )
 
-
+# Инициализация colorama
 init(autoreset=True)
 
 mainnet_rpc_urls = {
@@ -279,7 +281,7 @@ def main_menu():
                         case 'twitter_info':
                             run_twitter_check(get_os_type())
                         case 'twitter_task':
-                            run_twitter_check(get_os_type())
+                            run_twitter_tasks()
                         case 'back':
                             continue
 
@@ -887,11 +889,14 @@ def main_menu():
 if __name__ == "__main__":
     check_version("ETHmachine")
     create_backup()
+    
+    # Сбрасываем цвета после бэкапа
+    print(Style.RESET_ALL, end='')
 
-    print(Fore.CYAN + "\n🔍 Проверка конфигурации...")
+    print(Fore.CYAN + "\n🔍 Проверка конфигурации..." + Style.RESET_ALL)
     if not validate_configuration():
-        print(Fore.RED + "\n❌ Обнаружены проблемы в конфигурации!")
-        print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт.")
+        print(Fore.RED + "\n❌ Обнаружены проблемы в конфигурации!" + Style.RESET_ALL)
+        print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт." + Style.RESET_ALL)
         input("\nНажмите Enter для выхода...")
         exit(1)
     #print(Fore.GREEN + "✅ Конфигурация проверена успешно!\n")

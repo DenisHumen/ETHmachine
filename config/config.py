@@ -23,7 +23,7 @@ DIRECTORIES_TO_BACKUP = [
 
 # SFTP Backup Configuration
 SFTP_SERVER_INTO_BACKUP_ENABLE = True  # Включить/выключить SFTP сервер для бекапов
-SFTP_LIVE_SYNC_ENABLE = True  # Включить/выключить живую синхронизацию (автоматический мониторинг изменений)
+SFTP_LIVE_SYNC_ENABLE = False  # Включить/выключить живую синхронизацию (автоматический мониторинг изменений)
 SFTP_SERVER_INTO_BACKUP = {
     'host': '192.168.0.40',  # Хост SFTP сервера (например: 'sftp.example.com')
     'port': 22,  # Порт SFTP сервера
@@ -45,6 +45,14 @@ MAIN_AUTH_TOKEN = ['']  # Основной auth_token для проверки Tw
 COUNT_REPLACE_TWITTER_AUTH_TOKEN = 50  # Сколько максимум раз можно использовать один auth_token перед заменой на следующий из MAIN_AUTH_TOKEN
 MAIN_PROXY_TWITTER = ''  # Основной прокси для Twitter (если используется) log:password@ip:port
 RANDOM_PROXIES_TWITTER = True  # Рандомный выбор прокси из файла data/proxy.csv (если false то будет использоваться MAIN_PROXY_TWITTER)
+
+
+# ========================================================================================
+# TWITTER TASK RUNNER - Автоматизация задач Twitter
+# ========================================================================================
+TWITTER_TASK_SSL_VERIFICATION = True  # Проверка SSL сертификатов при подключении
+TWITTER_TASK_DELAY_BETWEEN_TASKS = 5  # Секунд между задачами (лайк, ретвит и т.д.)
+TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS = 3  # Секунд между переключением аккаунтов
 
 
 
