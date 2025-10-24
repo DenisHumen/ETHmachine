@@ -23,17 +23,24 @@ sys.path.append(project_root)
 from config.config import (
     TWITTER_TASK_SSL_VERIFICATION,
     TWITTER_TASK_DELAY_BETWEEN_TASKS,
-    TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS
+    TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS,
+    NUM_THREADS,
+    TWITTER_TASK_RANDOM_ACCOUNT_SELECTION,
+    TWITTER_TASK_MAX_ACCOUNT_SWITCHES
 )
 
 # Импортируем Twitter класс из существующего модуля
 from .tiwtter_task import Twitter
+import random
 
 class Config:
     """Конфигурация для Twitter модуля"""
     SSL_VERIFICATION = TWITTER_TASK_SSL_VERIFICATION
     DELAY_BETWEEN_TASKS = TWITTER_TASK_DELAY_BETWEEN_TASKS
     DELAY_BETWEEN_ACCOUNTS = TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS
+    NUM_THREADS = NUM_THREADS
+    RANDOM_ACCOUNT_SELECTION = TWITTER_TASK_RANDOM_ACCOUNT_SELECTION
+    MAX_ACCOUNT_SWITCHES = TWITTER_TASK_MAX_ACCOUNT_SWITCHES
 
 
 class TwitterTaskRunner:
@@ -254,7 +261,7 @@ class TwitterTaskRunner:
     
     async def run_all_tasks(self):
         """
-        Выполняет задачи распределяя их по аккаунтам.
+        Выполняет задачи распределяя их по аккаунтам с поддержкой многопоточности.
         Каждая задача выполняется уникальным аккаунтом (с учетом повторений).
         """
         if not self.accounts:
@@ -281,14 +288,19 @@ class TwitterTaskRunner:
         print(Fore.WHITE + f"  • Всего задач: {len(self.tasks)}")
         print(Fore.WHITE + f"  • Всего операций: {total_operations}")
         print(Fore.WHITE + f"  • Доступно аккаунтов: {len(self.accounts)}")
+        print(Fore.WHITE + f"  • Количество потоков: {self.config.NUM_THREADS}")
         
         if total_operations > len(self.accounts):
             print(Fore.YELLOW + f"  ⚠️  Операций больше чем аккаунтов - некоторые аккаунты будут использованы повторно")
         
-        logger.info(f"Начало выполнения {len(self.tasks)} задач ({total_operations} операций)")
+        logger.info(f"Начало выполнения {len(self.tasks)} задач ({total_operations} операций) в {self.config.NUM_THREADS} потоков")
         
-        all_results = []
-        account_index = 0  # Индекс текущего аккаунта
+        # Создаем семафор для ограничения количества одновременных задач
+        semaphore = asyncio.Semaphore(self.config.NUM_THREADS)
+        
+        # Подготовка списка всех операций для выполнения
+        operations = []
+        account_index = 0
         
         # Проходим по каждой задаче
         for task_num, task in enumerate(self.tasks, 1):
@@ -306,51 +318,86 @@ class TwitterTaskRunner:
                 except (ValueError, TypeError):
                     repetitions = 1
             
-            print(Fore.CYAN + f"\n{'='*70}")
-            print(Fore.CYAN + f"📋 ЗАДАЧА {task_num}/{len(self.tasks)}: {task_type.upper()}")
-            print(Fore.WHITE + f"   Ссылка: {task_link or 'Н/Д'}")
-            if task_value:
-                print(Fore.WHITE + f"   Значение: {task_value}")
-            print(Fore.WHITE + f"   Повторений: {repetitions}")
-            print(Fore.CYAN + f"{'='*70}\n")
-            
-            # Выполняем задачу нужное количество раз
+            # Создаем операции для каждого повторения
             for rep in range(repetitions):
-                # Проверяем что есть аккаунты
-                if account_index >= len(self.accounts):
-                    account_index = 0  # Начинаем сначала если аккаунты закончились
+                # Выбираем аккаунт в зависимости от настроек
+                if self.config.RANDOM_ACCOUNT_SELECTION:
+                    # Случайный выбор аккаунта
+                    account = random.choice(self.accounts)
+                    account_display_index = self.accounts.index(account) + 1
+                else:
+                    # Последовательный выбор
+                    if account_index >= len(self.accounts):
+                        account_index = 0
+                    
+                    account = self.accounts[account_index]
+                    account_display_index = account_index + 1
+                    account_index += 1
                 
-                account = self.accounts[account_index]
-                account_display_index = account_index + 1
-                
-                print(Fore.GREEN + f"┌─ Повтор {rep + 1}/{repetitions}")
-                print(Fore.GREEN + f"└─ Аккаунт: {account['nickname']} (#{account_display_index})")
-                
-                # Выполняем задачу для этого аккаунта
-                result = await self.execute_task_for_account(
-                    account, 
-                    task, 
-                    account_display_index,
-                    rep + 1,
-                    repetitions
-                )
-                
-                all_results.append(result)
-                
-                # Переходим к следующему аккаунту
-                account_index += 1
-                
-                # Задержка между операциями (кроме последней)
-                if not (task_num == len(self.tasks) and rep == repetitions - 1):
-                    await asyncio.sleep(self.config.DELAY_BETWEEN_TASKS)
+                # Добавляем операцию в список
+                operations.append({
+                    'task_num': task_num,
+                    'total_tasks': len(self.tasks),
+                    'task': task,
+                    'account': account,
+                    'account_index': account_display_index,
+                    'repetition': rep + 1,
+                    'total_repetitions': repetitions,
+                    'semaphore': semaphore
+                })
         
-        self.results = all_results
+        print(Fore.CYAN + f"\n🚀 Запуск {len(operations)} операций...\n")
+        
+        # Выполняем все операции параллельно с ограничением через семафор
+        tasks_list = [
+            self._execute_operation_with_semaphore(op) 
+            for op in operations
+        ]
+        
+        all_results = await asyncio.gather(*tasks_list, return_exceptions=True)
+        
+        # Фильтруем результаты от исключений
+        self.results = [r for r in all_results if not isinstance(r, Exception)]
         
         print(Fore.CYAN + f"\n{'='*70}")
-        logger.success(f"✅ Все задачи завершены! Выполнено {len(all_results)} операций")
+        logger.success(f"✅ Все задачи завершены! Выполнено {len(self.results)} операций")
         print(Fore.CYAN + f"{'='*70}\n")
         
-        return all_results
+        return self.results
+    
+    async def _execute_operation_with_semaphore(self, operation):
+        """Выполняет операцию с учетом семафора для контроля многопоточности"""
+        async with operation['semaphore']:
+            task_num = operation['task_num']
+            total_tasks = operation['total_tasks']
+            task = operation['task']
+            account = operation['account']
+            account_index = operation['account_index']
+            repetition = operation['repetition']
+            total_repetitions = operation['total_repetitions']
+            
+            print(Fore.GREEN + f"[Поток] Задача {task_num}/{total_tasks} | " +
+                  f"{task['type'].upper()} | " +
+                  f"Повтор {repetition}/{total_repetitions} | " +
+                  f"Аккаунт: {account['nickname']} (#{account_index})")
+            
+            # Выполняем задачу
+            result = await self.execute_task_for_account(
+                account, 
+                task, 
+                account_index,
+                repetition,
+                total_repetitions
+            )
+            
+            # Задержка между операциями
+            delay = random.uniform(
+                self.config.DELAY_BETWEEN_TASKS[0],
+                self.config.DELAY_BETWEEN_TASKS[1]
+            )
+            await asyncio.sleep(delay)
+            
+            return result
     
     async def execute_task_for_account(self, account, task, account_index, repetition, total_repetitions):
         """Выполняет одну задачу для одного аккаунта"""

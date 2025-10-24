@@ -51,8 +51,14 @@ RANDOM_PROXIES_TWITTER = True  # Рандомный выбор прокси из
 # TWITTER TASK RUNNER - Автоматизация задач Twitter
 # ========================================================================================
 TWITTER_TASK_SSL_VERIFICATION = True  # Проверка SSL сертификатов при подключении
-TWITTER_TASK_DELAY_BETWEEN_TASKS = 5  # Секунд между задачами (лайк, ретвит и т.д.)
-TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS = 3  # Секунд между переключением аккаунтов
+
+# Задержки между операциями
+TWITTER_TASK_DELAY_BETWEEN_TASKS = [1, 5]  # Диапазон задержек между задачами в секундах [min, max]
+TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS = [1, 5]  # Диапазон задержек между аккаунтами в секундах [min, max]
+
+# Настройки рандомного выбора аккаунтов
+TWITTER_TASK_RANDOM_ACCOUNT_SELECTION = True  # Включить рандомный выбор аккаунтов
+TWITTER_TASK_MAX_ACCOUNT_SWITCHES = 5  # Максимальное количество смен аккаунтов для одной задачи
 
 
 
