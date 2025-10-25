@@ -12,111 +12,186 @@
 
 ---
 
-## ETHmachine
+## 📋 О проекте
 
-Мультифункциональный Python-инструмент для работы с Ethereum, EVM-совместимыми сетями и faucet-кранами.
+**ETHmachine** — мощный комплексный инструмент для автоматизации работы с криптовалютными кошельками, биржами, социальными сетями и утилитами для крипто-проектов. Поддерживает 50+ блокчейн-сетей, интеграцию с CEX, Twitter-автоматизацию, генерацию кошельков, управление балансами и многое другое.
 
-## Основной функционал
+## ⚡ Ключевые возможности
 
-### 🚰 Faucet-модули
-- Автоматизация работы с кранами тестовых сетей (Somnia, Sahara, MegaETH, Pharos)
-- Поддержка прокси, логирования, проверки балансов
-- Telegram-уведомления о статусе работы
-- Гибкая настройка таймингов и потоков
+- 🔐 Генерация кошельков ETH/SOL с поддержкой "красивых" адресов
+- 💰 Проверка балансов (нативные токены и ERC20/SPL)
+- 🔄 Транзакции между кошельками и bridging через Relay
+- 🏦 Интеграция с CEX: OKX, Binance, Bitget, MEXC (вывод, субаккаунты, торговля)
+- 🐦 Twitter-автоматизация: проверка, сбор данных, выполнение заданий с базой данных
+- 💾 Автоматическое резервное копирование (локальное + SFTP)
+- 🛠️ Утилиты: проверка прокси, генераторы паролей/никнеймов/имён, проверка email через IMAP
+- 📊 Детальное логирование всех операций
 
-### 💰 Работа с балансами
-- Быстрая/медленная проверка балансов кошельков
-- Суммирование балансов по всем кошелькам
-- Поддержка множественных сетей
+## 🚀 Установка
 
-### 🔧 Утилиты
-- Проверка цены газа в выбранной сети
-- Генерация кошельков с мнемониками
-- Конвертация мнемоник в приватные ключи и приватные ключи в адреса
+### Требования
+- Python 3.10 или выше
+- Git
 
-### 💸 Переводы и CEX (еще в работе)
-- Массовые переводы между кошельками
-- Вывод средств с биржи OKX
-- Учет комиссий и минимального остатка
+### Шаги установки
 
-### 🌐 Прокси и уведомления
-- Поддержка прокси для обхода ограничений
-- Telegram-уведомления о работе скрипта
+1. **Клонируйте репозиторий:**
+   ```bash
+   git clone https://github.com/DenisHumen/ETHmachine
+   cd ETHmachine
+   ```
 
+2. **Установите зависимости:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### И еще другие функции. Скрипт обновляется почти каждый день, новый функционал выходит все время. Если модуля что вас интересует нет в readme, это не значит что его нет в скрипте. Но если его нет, я могу написать его отдельно для тебя. Спрашивай в telegram.
+3. **Запустите программу:**
+   ```bash
+   python main.py
+   ```
 
-## Установка
+## 📚 Доступные модули
 
-```bash
-git clone https://github.com/DenisHumen/ETHmachine.git
-cd ETHmachine
-pip install -r requirements.txt
-```
+### 🐦 Twitter Automation
+- **Twitter Check** — Проверка валидности аккаунтов Twitter
+- **Twitter Info** — Получение детальной информации о Twitter-аккаунтах
+- **Twitter Tasks** — Автоматическое выполнение заданий (лайки, репосты, комментарии) с сохранением прогресса в БД
 
-## Настройка
+### 💼 Wallet Management
+- **ETH Wallet Generator** — Генерация Ethereum кошельков с мнемоникой и приватными ключами
+- **SOL Wallet Generator** — Генерация Solana кошельков
+- **Nice Wallet Generator** — Генерация "красивых" адресов (с заданным префиксом/суффиксом)
+- **ETH/SOL Convert Tool** — Конвертация мнемоника ↔ приватный ключ ↔ адрес кошелька
 
-Заполните файлы в папке `data/`:
-- `walletss.txt` — адреса или приватные ключи
-- `proxy.csv` — список прокси (опционально)
-- `cex_settings.py` — настройки для OKX
+### 💰 Balance Checker
+- **Check ETH Balances** — Проверка балансов нативных токенов и ERC20 в EVM-сетях
+- **Check SOL Balances** — Проверка балансов SOL и SPL токенов
+- **Check Eclipse Balances** — Проверка балансов в сети Eclipse
 
-## Запуск
+### 🔄 Transactions
+- **Drainers** — Сборщик всех балансов с кошельков на главный кошелек (ETH/SOL)
+- **Transfer Wallets to Wallets** — Перевод нативных токенов между кошельками
+- **Transfer ERC20 Tokens** — Перевод ERC20 токенов между кошельками
+- **Relay Bridge** — Мост между сетями через Relay Link с сохранением прогресса
 
-```bash
-python main.py
-```
+### 🏦 CEX Integration
 
-## Поддерживаемые сети
+#### OKX
+- **OKX Withdraw** — Вывод средств с OKX на кошельки с поддержкой возобновления
+- **OKX Get Balances** — Получение балансов на OKX аккаунтах
+- **OKX Subaccount Collector** — Сборщик средств с субаккаунтов на главный аккаунт
+- **OKX Spot Trade** — Автоматическая спотовая торговля на бирже
 
-**Mainnet:** Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, Fantom, Gravity, Zora, Abstract
+#### Binance
+- **Binance Withdraw** — Вывод средств с Binance с возможностью возобновления
+- **Binance Get Balances** — Проверка балансов на Binance аккаунтах
+- **Binance Subaccount Collector** — Сборщик средств с субаккаунтов Binance
 
-**Testnet:** Sepolia, Sahara, Somnia, Mega ETH, Pharos
+#### Bitget
+- **Bitget Withdraw** — Вывод средств с Bitget на кошельки
 
-## Важные замечания
+#### MEXC
+- **MEXC Withdraw** — Вывод средств с MEXC на кошельки
 
-- Используйте прокси для массовых операций
-- Настройте Telegram-уведомления в `config/config.py`
-- Для OKX получите API-ключи и настройте их в `data/cex_settings.py`
+### 💾 Backup & Sync
+- **Auto Backup** — Автоматическое создание локальных резервных копий с ротацией старых бэкапов
+- **Live Backup Sync** — Синхронизация бэкапов через SFTP на удаленный сервер
+
+### 🛠️ Utilities
+- **Check Gas Price** — Проверка текущей цены газа в выбранной сети
+- **Check Proxy** — Массовая проверка работоспособности прокси-серверов
+- **Password Generator** — Генерация криптостойких паролей по заданным параметрам
+- **Nickname Generator** — Генерация реалистичных никнеймов для профилей
+- **Fullname Generator** — Генерация имен и фамилий (RU/UA/ENG)
+- **Last Transactions** — Проверка последних транзакций кошельков
+- **Check Age Discord** — Проверка возраста Discord аккаунтов
+- **Email IMAP Checker** — Валидация почтовых аккаунтов через IMAP подключение
+- **Notifications** — Отправка уведомлений в Discord при завершении операций
+- **Config Validator** — Проверка корректности конфигурационных файлов
+- **Git Update** — Автоматическое обновление проекта через Git
+
+## 🌐 Поддерживаемые блокчейны
+
+**EVM-совместимые сети:**
+- Ethereum (Mainnet, Sepolia, Holesky, Goerli)
+- Arbitrum (Mainnet, Sepolia, Nova)
+- Optimism (Mainnet, Sepolia)
+- Base (Mainnet, Sepolia)
+- Polygon (Mainnet, Amoy)
+- Avalanche, Fantom, BSC
+- Polygon zkEVM, zkSync Era
+- Linea, Scroll, Mantle
+- Blast, Taiko, Mode
+- Zircuit, Ink, Morph
+- Alienx, Lumia, Lisk
+- Metal L2, Sei, XLayer
+- Unichain, Swellchain, Treasure
+- И многие другие...
+
+**Solana и совместимые:**
+- Solana (Mainnet, Devnet)
+- Eclipse
+
+## 📖 Документация
+
+Детальная документация по каждому модулю доступна в папке `docs/`:
+- [Модуль Twitter Tasks](docs/MODULE_TWITTER_TASKS.md) — работа с Twitter, база данных прогресса
+- [Модуль OKX Withdraw](docs/MODULE_OKX_WITHDRAW.md) — настройка вывода с OKX
+- [Модуль Binance Withdraw](docs/MODULE_BINANCE_WITHDRAW.md) — настройка вывода с Binance
+- [Модуль Auto Backup](docs/MODULE_AUTO_BACKUP.md) — автоматическое резервное копирование
+- [Полный список документации](docs/README.md)
+
+## ⚙️ Конфигурация
+
+Основные настройки находятся в папке `config/`:
+- `config.py` — основные параметры (задержки, потоки, режимы работы)
+- `cex_settings.py` — настройки бирж (API ключи, параметры вывода)
+- `rpc.py` — RPC endpoints для блокчейн-сетей
+- `token_address_erc20.py` — адреса токенов для работы
+
+## 📝 Использование
+
+После запуска `python main.py` вы увидите интерактивное меню с основными разделами:
+- 💲 **BALANCES** — Проверка балансов
+- 🚀 **TRANSACTIONS** — Транзакции между кошельками
+- 🐦 **Twitter** — Работа с Twitter
+- 🏦 **CEX** — Функционал централизованных бирж
+- 🧰 **Tools** — Утилиты и генераторы
+- 💾 **Backup** — Резервное копирование
+- 📖 **INFO** — Справочная информация
+
+Навигация осуществляется стрелками ↑↓ и клавишей Enter.
+
+## 🔒 Безопасность
+
+⚠️ **Важно:**
+- Никогда не публикуйте файлы с приватными ключами (`private_keys.txt`, `mnemonic.txt`)
+- Храните API ключи бирж в безопасности
+- Используйте `.gitignore` для исключения конфиденциальных данных
+- Регулярно создавайте резервные копии через модуль Backup
+
+## 📊 Логирование
+
+Все операции записываются в папку `log/`:
+- Детальные логи операций (full logs)
+- Логи ошибок (error logs)
+- История выполнения задач
+
+## 🤝 Вклад в проект
+
+Если вы хотите внести свой вклад:
+1. Fork репозитория
+2. Создайте feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit изменений (`git commit -m 'Add some AmazingFeature'`)
+4. Push в branch (`git push origin feature/AmazingFeature`)
+5. Создайте Pull Request
+
+## 📄 Лицензия
+
+Проект распространяется под лицензией, указанной в файле [LICENSE.txt](LICENSE.txt).
 
 ---
-python main.py
-```
 
-Следуйте интерактивному меню.
-
-## Структура проекта
-
-- `main.py` — основной скрипт с меню
-- `modules/` — все вспомогательные модули:
-  - `faucets/` — автоматизация работы с кранами (Somnia, Sahara, MegaETH, Pharos и др.)
-  - `get_wallet_balance.py` — медленная проверка баланса
-  - `get_wallet_balance_fast.py` — быстрая проверка баланса через прокси
-  - `sum_balances.py` — суммирование балансов
-  - `get_gas_price.py` — получение цены газа
-  - `get_transaction_count.py` — проверка количества транзакций
-  - `wallet_generator.py` — генерация кошельков
-  - `transefer_wallets_to_wallets.py` — массовые переводы между кошельками
-  - `cex/okx_withdraw.py` — вывод с OKX
-  - `mnemonic_to_privkey.py` — конвертация мнемоник
-  - `proxy/` — вспомогательные скрипты для работы с прокси
-  - `notifications.py` — Telegram-уведомления
-- `config/` — настройки потоков, RPC, параметры переводов, параметры faucet-крана, Telegram и др.
-- `data/` — входные данные (кошельки, прокси, настройки CEX)
-- `result/` — результаты работы (балансы, транзакции, логи faucet и т.д.)
-- `db/` — файлы прогресса для возобновления переводов
-
-## Поддерживаемые сети и краны
-
-- Ethereum Mainnet, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, Fantom, Gravity, Zora, Abstract и др.
-- Тестовые сети: Sepolia, Sahara, Somnia, Mega ETH, Pharos и др.
-- Краны: автоматизация получения токенов из популярных faucet для тестовых сетей
-
-## Важно
-
-- Для массовых операций и работы с faucet обязательно использовать прокси
-- Перед использованием убедитесь, что все настройки заполнены корректно
-- Для работы с OKX получите API-ключи и пропишите их в `data/cex_settings.py`
-- Для Telegram-уведомлений настройте токен и chat_id в `config/config.py`
-
----
+**Разработчик:** [@DenisHumen](https://t.me/DenisHumen)  
+**GitHub:** [DenisHumen/ETHmachine](https://github.com/DenisHumen/ETHmachine)
