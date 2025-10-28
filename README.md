@@ -1,5 +1,7 @@
 # ETHmachine
 
+![logo](assets/logo.jpeg)
+
 Если проект оказался полезен, поддержите разработчика:
 
 **Telegram:** [@DenisHumen](https://t.me/DenisHumen)
@@ -8,7 +10,7 @@
 
 ```ETH - 0xa24fbbd57720ec580395aedba3ad37f6a6067727```
 
-![Пожертвование](data/project/usdt.jpg)
+![Пожертвование](assets/usdt.jpg)
 
 ---
 
