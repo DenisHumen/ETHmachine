@@ -156,7 +156,8 @@ from modules.GitHub.check_version import check_version
 from modules.check_proxy import check_proxy_menu
 
 from modules.eth.eth_wallet_generator import eth_generate_wallets
-from modules.eth.eth_nice_address import eth_generate_nice_wallets
+from modules.eth.eth_nice_address.python.eth_nice_address import eth_generate_nice_wallets
+from modules.eth.eth_nice_address.eth_nice_address_rust_wrapper import run_rust_generator, check_cargo_installed
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.eth_private_key_to_wallet_address import process_private_keys
 from modules.eth.eth_drainers import eth_drainers
@@ -369,8 +370,66 @@ def main_menu():
                                             eth_generate_wallets(num_wallets)
                                             print(Fore.GREEN + f"\nСгенерировано {num_wallets} кошельков и сохранено в result/result.csv\n")
                                         case 'nice_generate':
-                                            eth_generate_nice_wallets(num_wallets)
-                                            print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
+                                            # Выбор реализации: Python или Rust
+                                            print(f"\n{Fore.CYAN}Выберите реализацию генератора:{Style.RESET_ALL}")
+                                            print(f"{Fore.YELLOW}Python - медленно, но без зависимостей{Style.RESET_ALL}")
+                                            print(f"{Fore.GREEN}Rust - быстро (10-100x), требует Cargo{Style.RESET_ALL}\n")
+                                            
+                                            impl_choice = select(
+                                                "Реализация:",
+                                                choices=[
+                                                    Choice("🐍 Python (медленно, стабильно)", value='python'),
+                                                    Choice("🦀 Rust (быстро, требует Cargo)", value='rust'),
+                                                    Choice("← Назад", value='back')
+                                                ],
+                                                qmark='⚙️',
+                                                pointer='👉'
+                                            ).ask()
+                                            
+                                            if impl_choice == 'python':
+                                                eth_generate_nice_wallets(num_wallets)
+                                                print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
+                                            elif impl_choice == 'rust':
+                                                # Проверяем Cargo и запускаем Rust версию
+                                                if check_cargo_installed():
+                                                    print(f"\n{Fore.GREEN}✓ Cargo установлен, используем Rust версию{Style.RESET_ALL}")
+                                                    
+                                                    # Спрашиваем про количество потоков
+                                                    use_auto_threads_choice = select(
+                                                        "Использовать все доступные потоки?",
+                                                        choices=[
+                                                            Choice("✅ Да (рекомендуется)", value='yes'),
+                                                            Choice("⚙️ Указать вручную", value='no')
+                                                        ],
+                                                        qmark='🔧',
+                                                        pointer='👉'
+                                                    ).ask()
+                                                    
+                                                    if use_auto_threads_choice == 'yes':
+                                                        threads = 0
+                                                    else:
+                                                        threads_input = select(
+                                                            "Количество потоков:",
+                                                            choices=['2', '4', '6', '8', '12', '16'],
+                                                            qmark='🔢',
+                                                            pointer='👉'
+                                                        ).ask()
+                                                        threads = int(threads_input)
+                                                    
+                                                    run_rust_generator(
+                                                        num_wallets=num_wallets,
+                                                        config_path="config/config.py",
+                                                        output_path="result/result.csv",
+                                                        threads=threads,
+                                                        display_process=True
+                                                    )
+                                                else:
+                                                    print(f"\n{Fore.RED}❌ Cargo не установлен!{Style.RESET_ALL}")
+                                                    print(f"{Fore.YELLOW}Используем Python версию...{Style.RESET_ALL}\n")
+                                                    eth_generate_nice_wallets(num_wallets)
+                                                    print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
+                                            elif impl_choice == 'back':
+                                                continue
                                         case 'back':
                                             continue
                                 case 'sol_wallets':

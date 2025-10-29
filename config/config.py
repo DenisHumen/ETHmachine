@@ -154,10 +154,10 @@ NICE_ADDRESS_WORDS_SOL = [
 ]
 
 '------------------ Параметры поиска "красивых" адресов -------------------'
-REPEATED_CHAR_COUNT = 10  # Например, 4 означает поиск "aaaa", "bbbb" и т.д.
+REPEATED_CHAR_COUNT = 9  # Например, 4 означает поиск "aaaa", "bbbb" и т.д.
 # Если включить и NICE_ADDRESS_WORDS_enable и REPEATED_CHAR_COUNT_enable, будет соблюдаться два правила
-REPEATED_CHAR_COUNT_enable = False  # Включить/выключить поиск по повторяющимся символам
-NICE_ADDRESS_WORDS_enable = True  # Включить/выключить поиск по словам
+REPEATED_CHAR_COUNT_enable = True  # Включить/выключить поиск по повторяющимся символам
+NICE_ADDRESS_WORDS_enable = False  # Включить/выключить поиск по словам
 
 display_the_address_search_process = True  # Включить/выключить отображение процесса поиска адресов
 
