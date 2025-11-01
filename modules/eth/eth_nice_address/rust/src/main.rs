@@ -18,12 +18,18 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use num_traits::identities::Zero;
 use rand::RngCore;
+use crossbeam::queue::SegQueue;
 
 const BIP39_PBKDF2_ROUNDS: u32 = 2048;
 const BIP39_SALT_MODIFIER: &str = "mnemonic";
 const BIP32_SEED_MODIFIER: &[u8] = b"Bitcoin seed";
 const BIP32_PRIVDEV: u32 = 0x80000000;
 const ETH_DERIVATION_PATH: &str = "m/44'/60'/0'/0";
+
+// Thread-local Secp256k1 context for performance
+thread_local! {
+    static SECP: Secp256k1<secp256k1::All> = Secp256k1::new();
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "eth_nice_address")]
@@ -135,6 +141,7 @@ impl Config {
 }
 
 /// Derive BIP39 seed from mnemonic
+#[inline]
 fn mnemonic_to_seed(mnemonic: &str, passphrase: &str) -> [u8; 64] {
     let salt = format!("{}{}", BIP39_SALT_MODIFIER, passphrase);
     let mut seed = [0u8; 64];
@@ -167,7 +174,7 @@ fn seed_to_master_key(seed: &[u8; 64]) -> ([u8; 32], [u8; 32]) {
 fn derive_child_key(parent_key: &[u8; 32], parent_chain: &[u8; 32], index: u32) -> ([u8; 32], [u8; 32]) {
     type HmacSha512 = Hmac<Sha512>;
     
-    let mut data = Vec::new();
+    let mut data = Vec::with_capacity(37); // Reserve space: 1 + 32 + 4 or 33 + 4
     
     if (index & BIP32_PRIVDEV) != 0 {
         // Hardened key
@@ -252,27 +259,30 @@ fn mnemonic_to_private_key(mnemonic: &str, derivation_path: &str, index: u32) ->
 }
 
 /// Get Ethereum address from private key
+#[inline]
 fn private_key_to_address(private_key: &[u8; 32]) -> String {
-    let secp = Secp256k1::new();
-    let secret_key = SecretKey::from_slice(private_key).unwrap();
-    let public_key = PublicKey::from_secret_key(&secp, &secret_key);
-    
-    // Get uncompressed public key (remove 0x04 prefix)
-    let public_key_bytes = public_key.serialize_uncompressed();
-    let public_key_bytes = &public_key_bytes[1..]; // Remove prefix
-    
-    // Keccak256 hash
-    let mut hasher = Keccak::v256();
-    hasher.update(public_key_bytes);
-    let mut hash = [0u8; 32];
-    hasher.finalize(&mut hash);
-    
-    // Take last 20 bytes and convert to checksum address
-    let address_bytes = &hash[12..];
-    to_checksum_address(address_bytes)
+    SECP.with(|secp| {
+        let secret_key = SecretKey::from_slice(private_key).unwrap();
+        let public_key = PublicKey::from_secret_key(secp, &secret_key);
+        
+        // Get uncompressed public key (remove 0x04 prefix)
+        let public_key_bytes = public_key.serialize_uncompressed();
+        let public_key_bytes = &public_key_bytes[1..]; // Remove prefix
+        
+        // Keccak256 hash
+        let mut hasher = Keccak::v256();
+        hasher.update(public_key_bytes);
+        let mut hash = [0u8; 32];
+        hasher.finalize(&mut hash);
+        
+        // Take last 20 bytes and convert to checksum address
+        let address_bytes = &hash[12..];
+        to_checksum_address(address_bytes)
+    })
 }
 
 /// Convert address to EIP-55 checksum format
+#[inline]
 fn to_checksum_address(address: &[u8]) -> String {
     let address_hex = hex::encode(address);
     
@@ -299,7 +309,8 @@ fn to_checksum_address(address: &[u8]) -> String {
     checksum
 }
 
-/// Check if address is "nice" based on config
+/// Check if address is "nice" based on various patterns
+#[inline]
 fn is_nice_address(address: &str, config: &Config) -> bool {
     let address_lower = address.to_lowercase().replace("0x", "");
     
@@ -323,34 +334,31 @@ fn is_nice_address(address: &str, config: &Config) -> bool {
     matches
 }
 
-/// Check if string has N repeated consecutive characters
-fn has_repeated_chars(s: &str, count: usize) -> bool {
-    if count == 0 {
+/// Check if string has N or more repeated consecutive characters
+#[inline(always)]
+fn has_repeated_chars(s: &str, min_count: usize) -> bool {
+    if min_count == 0 {
         return false;
     }
     
     let chars: Vec<char> = s.chars().collect();
-    if chars.len() < count {
+    if chars.len() < min_count {
         return false;
     }
     
-    for i in 0..=(chars.len() - count) {
-        let first_char = chars[i];
-        let mut all_same = true;
-        
-        for j in 1..count {
-            if chars[i + j] != first_char {
-                all_same = false;
-                break;
-            }
-        }
-        
-        if all_same {
-            return true;
+    let mut max_repeat = 1;
+    let mut current_repeat = 1;
+    
+    for i in 1..chars.len() {
+        if chars[i] == chars[i - 1] {
+            current_repeat += 1;
+            max_repeat = max_repeat.max(current_repeat);
+        } else {
+            current_repeat = 1;
         }
     }
     
-    false
+    max_repeat >= min_count
 }
 
 #[derive(Clone)]
@@ -422,7 +430,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Atomic counters
     let found = Arc::new(AtomicU64::new(0));
     let attempts = Arc::new(AtomicU64::new(0));
-    let results: Arc<std::sync::Mutex<Vec<WalletResult>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let results: Arc<SegQueue<WalletResult>> = Arc::new(SegQueue::new());
     let running = Arc::new(AtomicBool::new(true));
     
     // Spawn statistics monitoring thread
@@ -468,7 +476,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Generate wallets in parallel
     while found.load(Ordering::Relaxed) < args.num_wallets as u64 {
-        let batch_size = (args.num_wallets - found.load(Ordering::Relaxed) as usize).min(num_threads * 100);
+        let batch_size = (args.num_wallets - found.load(Ordering::Relaxed) as usize).min(num_threads * 10000);
         
         let batch_results: Vec<Option<WalletResult>> = (0..batch_size)
             .into_par_iter()
@@ -505,17 +513,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             
-            results.lock().unwrap().push(result.clone());
-            found.fetch_add(1, Ordering::Relaxed);
-            pb.inc(1);
+            results.push(result.clone());
+            let current_found = found.fetch_add(1, Ordering::Relaxed) + 1;
             
-            if config.display_process {
-                pb.set_message(format!(
-                    "Found: {} | Attempts: {} | Address: {}",
-                    found.load(Ordering::Relaxed),
-                    attempts.load(Ordering::Relaxed),
-                    &result.address[..10]
-                ));
+            // Only update progress bar every 10 finds to reduce overhead
+            if current_found % 10 == 0 || current_found == args.num_wallets as u64 {
+                pb.set_position(current_found);
+                
+                if config.display_process {
+                    pb.set_message(format!(
+                        "Found: {} | Attempts: {} | Address: {}",
+                        current_found,
+                        attempts.load(Ordering::Relaxed),
+                        &result.address[..10]
+                    ));
+                }
             }
         }
     }
@@ -533,7 +545,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .open(&args.output)?
     );
     
-    for result in results.lock().unwrap().iter() {
+    // Drain all results from SegQueue
+    while let Some(result) = results.pop() {
         writer.write_record(&[&result.mnemonic, &result.address, &result.private_key])?;
     }
     writer.flush()?;
