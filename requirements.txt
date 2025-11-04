@@ -17,3 +17,4 @@ ccxt==4.5.1
 curl-cffi
 paramiko==3.4.0
 cryptography==41.0.7
+psutil==5.9.8
