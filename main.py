@@ -20,6 +20,9 @@ from config.config import (
 from modules.backup import create_backup, list_backups, backup_menu
 from modules.backup.backup_manager import BackupManager
 
+# Импорт модулей статистики
+from modules.statistics.neura_stats import neura_statistics
+
 # Импорт новых модулей для работы с биржами
 from modules.config_validator import validate_configuration
 from modules.cex.exchange_selector import select_exchange_account
@@ -238,12 +241,12 @@ def main_menu():
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('🚀 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
+                    Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
                     #Choice('🔍 Selenium Profile              🌟 Профиль Selenium', 'selenium_profile'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
-                    #Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
+                    #Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
                     Choice('🏦 CEX                          🌟 Функционал CEX', 'CEX_menu'),
                     Choice('🧰 Tools                        🌟 Разные удобные инструменты', 'miscellaneous'),
-                    #Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
                     Choice('💾 Backup                       🌟 Локальные и SFTP бэкапы', 'backup_menu'),
                     Choice('📖 INFO                         🌟 Информация о всех пунктах', 'info'),
                     Choice('❌ Exit', 'exit')
@@ -783,6 +786,7 @@ def main_menu():
                         action = select(
                             "Выберите действие (статистика по проектам):",
                             choices=[
+                                Choice('📊 Neura         🌟 Статистика по ETHmachine', 'neura_stat'),
                                 Choice('🔙 Back', 'back')
                             ],
                             qmark='🛠️',
@@ -790,6 +794,8 @@ def main_menu():
                         ).ask()
 
                         match action:
+                            case 'neura_stat':
+                                neura_statistics()
                             case 'back':
                                 break
 

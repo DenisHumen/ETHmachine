@@ -23,3 +23,7 @@ log/*
 data/discord_token.txt
 db/*
 data/email.csv
+
+# PyArmor backup files (original unencrypted versions)
+*.backup
+modules/statistics/astrum_captcha_solver.py.original
