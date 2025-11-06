@@ -7,10 +7,14 @@ import platform
 from colorama import Fore, Style, init
 from questionary import Choice, select
 
-from config.rpc import (
+# Импортируем из нового централизованного модуля networks
+from config.networks import (
+    get_mainnet_networks, get_testnet_networks,
+    # Для обратной совместимости оставляем старые импорты
     L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
     Avalanche, Fantom, Gravity_Alpha_Mainnet, zora,
-    somnia, mega_eth_testnet, Abstract, pharos_testnet,  kite_testnet
+    somnia, mega_eth_testnet, Abstract, pharos_testnet, kite_testnet,
+    neura_testnet, nexus_testnet
 )
 from config.config import (
     expected_completion_time, DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
@@ -179,28 +183,9 @@ from modules.eth.transfer_wallets_to_wallets import (
 # Инициализация colorama
 init(autoreset=True)
 
-mainnet_rpc_urls = {
-    '🚀 Ethereum Mainnet': L1,
-    '🚀 Base': base,
-    '🚀 Arbitrum One': arbitrum,
-    '🚀 Optimism': optimism,
-    '🚀 Soneium': soneium,
-    '🚀 Polygon': Polygon,
-    '🚀 Binance Smart Chain': Binance_Smart_Chain,
-    '🚀 Avalanche': Avalanche,
-    '🚀 Fantom': Fantom,
-    '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
-    '🚀 Zora': zora,
-    '🚀 Abstract': Abstract,
-    '🚀 Somnia': somnia,
-}
-
-testnet_rpc_urls = {
-    '🚀 Sepolia': sepolia,
-    '🚀 Mega ETH Testnet': mega_eth_testnet,
-    '🚀 Pharos Testnet': pharos_testnet,
-    '🚀 Kite Testnet': kite_testnet,
-}
+# Автоматически получаем словари сетей из централизованной конфигурации
+mainnet_rpc_urls = get_mainnet_networks()
+testnet_rpc_urls = get_testnet_networks()
 
 
 def get_os_type():

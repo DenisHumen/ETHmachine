@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
-from config.explorer_url import get_network_symbol
+from config.networks import get_network_symbol
 
 def setup_error_logging():
     """Настраивает логирование ошибок в директорию log/"""

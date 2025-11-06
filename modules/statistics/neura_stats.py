@@ -14,16 +14,18 @@ import sys
 import time
 import random
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from loguru import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
+from threading import Lock, Event
 from questionary import Choice, select
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from config.config import NUM_THREADS, RETRY_COUNT, astrum_CAPTCHA_API_KEY
+from modules.notifications import send_telegram_notification
 
 import requests
 from eth_account import Account
@@ -34,6 +36,18 @@ from modules.statistics.astrum_captcha_solver import AstrumSolver
 
 csv_lock = Lock()
 db_lock = Lock()
+progress_lock = Lock()  # Для безопасного обновления прогресса
+
+# Глобальная переменная для отслеживания прогресса
+current_progress = {
+    'processed': 0,
+    'success': 0,
+    'errors': 0,
+    'start_time': None
+}
+
+# Event для остановки потока мониторинга
+stop_monitoring = Event()
 
 try:
     from colorama import Fore, Style, init as colorama_init
@@ -69,6 +83,70 @@ def log_error(message: str):
 def log_info(message: str):
     """Обычный информационный лог"""
     logger.opt(colors=False).info(message)
+
+
+def update_progress(success: bool = None):
+    """Обновляет глобальный прогресс выполнения"""
+    global current_progress
+    with progress_lock:
+        current_progress['processed'] += 1
+        if success is True:
+            current_progress['success'] += 1
+        elif success is False:
+            current_progress['errors'] += 1
+
+
+def show_progress_status(total_tasks: int):
+    """Показывает текущий статус прогресса для длительных операций"""
+    global current_progress
+    with progress_lock:
+        processed = current_progress['processed']
+        success = current_progress['success']
+        errors = current_progress['errors']
+        
+        if current_progress['start_time']:
+            elapsed = time.time() - current_progress['start_time']
+            if processed > 0:
+                avg_time = elapsed / processed
+                remaining = (total_tasks - processed) * avg_time
+                eta_minutes = int(remaining / 60)
+                eta_seconds = int(remaining % 60)
+                eta_str = f"{eta_minutes}м {eta_seconds}с" if eta_minutes > 0 else f"{eta_seconds}с"
+            else:
+                eta_str = "расчёт..."
+        else:
+            eta_str = "расчёт..."
+        
+        progress_percent = (processed / total_tasks * 100) if total_tasks > 0 else 0
+        
+        # Прогресс-бар
+        bar_length = 30
+        filled = int(bar_length * processed / total_tasks) if total_tasks > 0 else 0
+        bar = '█' * filled + '░' * (bar_length - filled)
+        
+        log_info(
+            f"📊 Прогресс: [{bar}] {processed}/{total_tasks} ({progress_percent:.1f}%) | "
+            f"✅ {success} | ❌ {errors} | ⏱️ Осталось: ~{eta_str}"
+        )
+
+
+def progress_monitor_thread(total_tasks: int, interval: int = 60):
+    """
+    Отдельный поток для мониторинга прогресса.
+    Показывает прогресс каждые `interval` секунд пока не получит сигнал остановки.
+    """
+    log_info(f"🔄 Запущен мониторинг прогресса (обновление каждые {interval} секунд)")
+    
+    while not stop_monitoring.is_set():
+        # Ждем interval секунд или пока не придет сигнал остановки
+        if stop_monitoring.wait(timeout=interval):
+            break  # Получен сигнал остановки
+        
+        # Показываем прогресс
+        show_progress_status(total_tasks)
+    
+    log_info("🛑 Мониторинг прогресса остановлен")
+
 
 RESULT_DIR = Path("result/statistics")
 DB_DIR = Path("db")
@@ -383,6 +461,8 @@ class NeuraProtocolClient:
             return None
         
         try:
+            log_info(f"🔐 [{self.address}] Отправка капчи на решение...")
+            
             token = self.captcha_solver.solve_turnstile(
                 sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
                 pageurl='https://neuraverse.neuraprotocol.io/',
@@ -391,21 +471,24 @@ class NeuraProtocolClient:
             )
             
             if token:
+                log_success(f"✅ [{self.address}] Капча решена успешно")
                 return token
             else:
-                log_error("❌ Не удалось решить Turnstile")
+                log_error(f"❌ [{self.address}] Не удалось решить Turnstile")
                 return None
                 
         except Exception as e:
-            log_error(f"❌ Ошибка решения капчи: {e}")
+            log_error(f"❌ [{self.address}] Ошибка решения капчи: {e}")
             return None
     
     def _get_nonce(self) -> Optional[str]:
         """Получение nonce для SIWE аутентификации с Turnstile captcha"""
         try:
+            log_info(f"🔑 [{self.address}] Получение nonce...")
+            
             turnstile_token = self._solve_turnstile()
             if not turnstile_token:
-                log_error("❌ Не удалось получить Turnstile токен")
+                log_error(f"❌ [{self.address}] Не удалось получить Turnstile токен")
                 return None
             
             json_data = {
@@ -413,26 +496,29 @@ class NeuraProtocolClient:
                 'token': turnstile_token
             }
             
+            log_info(f"📡 [{self.address}] Отправка запроса на получение nonce...")
+            
             response = self.session.post(
                 f'{self.privy_url}/siwe/init',
                 json=json_data,
                 headers=self.auth_headers,
-                timeout=30
+                timeout=15  # Уменьшено с 30 до 15 секунд для быстрого фейла
             )
             
             if response.status_code == 200:
                 data = response.json()
                 nonce = data.get('nonce')
                 if nonce:
+                    log_success(f"✅ [{self.address}] Nonce получен")
                     return nonce
             else:
                 if response.status_code == 429:
-                    log_warning(f"⚠️  Rate limit при получении nonce, смена прокси...")
+                    log_warning(f"⚠️ [{self.address}] Rate limit при получении nonce, смена прокси...")
                 else:
-                    log_error(f"❌ Ошибка получения nonce: HTTP {response.status_code}")
+                    log_error(f"❌ [{self.address}] Ошибка получения nonce: HTTP {response.status_code}")
                 
         except Exception as e:
-            log_error(f"❌ Ошибка при получении nonce: {e}")
+            log_error(f"❌ [{self.address}] Ошибка при получении nonce: {e}")
         
         return None
     
@@ -447,10 +533,14 @@ class NeuraProtocolClient:
             True если авторизация успешна
         """
         try:
+            log_info(f"🔐 [{self.address}] Начало авторизации...")
+            
             nonce = self._get_nonce()
             if not nonce:
                 return False
 
+            log_info(f"✍️ [{self.address}] Подписание сообщения...")
+            
             iso_time = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
             message = (
@@ -481,11 +571,13 @@ class NeuraProtocolClient:
                 'mode': 'login-or-sign-up',
             }
 
+            log_info(f"📡 [{self.address}] Отправка данных авторизации...")
+            
             response = self.session.post(
                 f'{self.privy_url}/siwe/authenticate',
                 json=json_data,
                 headers=self.auth_headers,
-                timeout=30
+                timeout=15  # Уменьшено с 30 до 15 секунд
             )
 
             if response.status_code == 200:
@@ -494,20 +586,20 @@ class NeuraProtocolClient:
                 if token:
                     self.jwt_token = token
                     self.api_headers['authorization'] = f'Bearer {token}'
-                    log_success(f"✅ {self.address[:12]}... авторизован")
+                    log_success(f"✅ [{self.address}] Авторизация успешна")
                     return True
-                log_error("❌ JWT токен отсутствует в ответе")
+                log_error(f"❌ [{self.address}] JWT токен отсутствует в ответе")
                 return False
 
             if response.status_code == 429:
-                log_warning("⚠️  Rate limit (429), требуется смена прокси")
+                log_warning(f"⚠️ [{self.address}] Rate limit (429), требуется смена прокси")
                 return False
 
-            log_error(f"❌ Ошибка авторизации: HTTP {response.status_code}")
+            log_error(f"❌ [{self.address}] Ошибка авторизации: HTTP {response.status_code}")
             return False
 
         except Exception as e:
-            log_error(f"❌ Ошибка авторизации: {e}")
+            log_error(f"❌ [{self.address}] Ошибка авторизации: {e}")
             return False
     
     def _api_get(self, endpoint: str, params: dict = None) -> Optional[dict]:
@@ -519,7 +611,7 @@ class NeuraProtocolClient:
                 url,
                 headers=self.api_headers,
                 params=params,
-                timeout=30
+                timeout=15  # Уменьшено с 30 до 15 секунд
             )
             
             if response.status_code == 200:
@@ -541,12 +633,19 @@ class NeuraProtocolClient:
     def get_balance(self) -> Optional[float]:
         """Получение баланса кошелька"""
         try:
-            web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+            # Создаем HTTPProvider с прокси
+            request_kwargs = {'timeout': 15}
+            if self.proxies:
+                request_kwargs['proxies'] = self.proxies
+            
+            web3 = Web3(Web3.HTTPProvider(self.rpc_url, request_kwargs=request_kwargs))
             balance_wei = web3.eth.get_balance(self.address)
             balance_eth = web3.from_wei(balance_wei, 'ether')
+            
+            log_success(f"✅ [{self.address}] Баланс: {float(balance_eth):.6f} ETH")
             return float(balance_eth)
         except Exception as e:
-            log_error(f"❌ Ошибка получения баланса: {e}")
+            log_error(f"❌ [{self.address}] Ошибка получения баланса: {e}")
             return None
     
     def get_account_info(self) -> Optional[dict]:
@@ -591,7 +690,7 @@ class NeuraProtocolClient:
                 self.graphql_url,
                 json=query,
                 headers={"Content-Type": "application/json"},
-                timeout=30
+                timeout=15  # Уменьшено с 30 до 15 секунд
             )
             
             if response.status_code == 200:
@@ -611,17 +710,28 @@ class NeuraProtocolClient:
     def get_full_statistics(self) -> dict:
         """Сбор полной статистики"""
         
+        log_info(f"📋 [{self.address}] Получение информации аккаунта...")
         account_info = self.get_account_info()
+        
+        log_info(f"💰 [{self.address}] Получение баланса...")
+        balance = self.get_balance()
+        
+        log_info(f"📝 [{self.address}] Получение задач...")
+        tasks = self.get_tasks()
+        
+        log_info(f"🔗 [{self.address}] Получение транзакций...")
+        transactions = self.get_transactions()
         
         stats = {
             'timestamp': datetime.now().isoformat(),
             'address': self.address,
-            'balance': self.get_balance(),
+            'balance': balance,
             'account_info': account_info,
-            'tasks': self.get_tasks(),
-            'transactions': self.get_transactions()
+            'tasks': tasks,
+            'transactions': transactions
         }
         
+        log_success(f"✅ [{self.address}] Статистика собрана успешно")
         return stats
     
     def save_to_json(self, stats: dict) -> str:
@@ -799,6 +909,17 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
     proxies = wallet_data['proxies']
     total = wallet_data['total']
     
+    # Плавный старт потоков: первая волна (NUM_THREADS) стартует сразу,
+    # остальные подтягиваются с минимальной задержкой
+    if wallet_index <= NUM_THREADS:
+        # Первая волна: стартуют практически сразу (0-0.5 сек для распределения)
+        delay = random.uniform(0, 0.5)
+    else:
+        # Следующие волны: минимальная задержка (0-1 сек)
+        delay = random.uniform(0, 1)
+    
+    time.sleep(delay)
+    
     import hashlib
     private_key_hash = hashlib.sha256(private_key.encode()).hexdigest()[:16]
     
@@ -806,29 +927,47 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         account = Account.from_key(private_key)
         wallet_address = account.address
         
+        # Прогресс-бар для текущего кошелька
+        progress_percent = (wallet_index / total) * 100
+        bar_length = 30
+        filled_length = int(bar_length * wallet_index // total)
+        progress_bar = '█' * filled_length + '░' * (bar_length - filled_length)
+        
+        log_info(f"🚀 [{wallet_address}] [{wallet_index}/{total}] Начало обработки...")
+        
         mark_wallet_processing(wallet_address, private_key_hash)
         
+        log_info(f"🔧 [{wallet_address}] Инициализация клиента...")
         client = NeuraProtocolClient(private_key, proxy)
         
         auth_success = False
-        for attempt in range(1, RETRY_COUNT + 1):
+        max_auth_attempts = 3  # Уменьшено с RETRY_COUNT (10) до 3 попыток
+        
+        for attempt in range(1, max_auth_attempts + 1):
+            log_info(f"🔑 [{wallet_address}] Попытка авторизации {attempt}/{max_auth_attempts}")
+            
             if client.authenticate():
                 auth_success = True
                 break
             
-            if attempt < RETRY_COUNT:
+            if attempt < max_auth_attempts:
+                log_warning(f"⚠️ [{wallet_address}] Попытка {attempt} не удалась, смена прокси...")
                 new_proxy = get_random_proxy(proxies)
                 if new_proxy:
                     client.change_proxy(new_proxy)
-                time.sleep(2)
+                time.sleep(1)  # Уменьшено с 2 до 1 секунды
         
         if not auth_success:
             error_msg = "Авторизация не удалась после всех попыток"
             mark_wallet_error(wallet_address, error_msg)
-            log_error(f"❌ [{wallet_index}/{total}] {wallet_address[:12]}... - {error_msg}")
+            update_progress(success=False)
+            log_error(f"❌ [{wallet_address}] [{wallet_index}/{total}] [{progress_bar}] {progress_percent:.1f}% - {error_msg}")
             return False
         
+        log_info(f"📊 [{wallet_address}] Сбор статистики...")
         stats = client.get_full_statistics()
+        
+        log_info(f"💾 [{wallet_address}] Сохранение данных...")
         client.save_to_json(stats)
         client.save_to_csv(stats)
         
@@ -838,10 +977,10 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         points = account_info.get('neuraPoints', 0)
         pulses = len(account_info.get('pulses', {}).get('data', []))
         
+        update_progress(success=True)
         log_success(
-            f"✅ [{wallet_index}/{total}] {wallet_address[:12]}... | "
-            f"Points: {points} | "
-            f"Pulses: {pulses}"
+            f"✅ [{wallet_address}] [{wallet_index}/{total}] [{progress_bar}] {progress_percent:.1f}% | "
+            f"Points: {points} | Pulses: {pulses}"
         )
         return True
         
@@ -852,7 +991,9 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
                 mark_wallet_error(wallet_address, error_msg)
         except:
             pass
+        update_progress(success=False)
         log_error(f"❌ [{wallet_index}/{total}] Критическая ошибка: {error_msg}")
+        return False
         return False
 
 
@@ -872,9 +1013,8 @@ def neura_statistics():
     
     if len(astrum_CAPTCHA_API_KEY) != 36 or astrum_CAPTCHA_API_KEY.count('-') != 4:
         log_error("❌ КРИТИЧЕСКАЯ ОШИБКА: Неверный формат API ключа капчи!")
-        log_warning(f"⚠️  Текущий ключ: {astrum_CAPTCHA_API_KEY[:10]}... (длина: {len(astrum_CAPTCHA_API_KEY)})")
+        log_warning(f"⚠️  Текущий ключ: {astrum_CAPTCHA_API_KEY[:10]} (длина: {len(astrum_CAPTCHA_API_KEY)})")
         log_info("ℹ️  Ожидается UUID формат: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 символов)")
-        return
         return
     
     init_database()
@@ -890,6 +1030,9 @@ def neura_statistics():
     
     stats = get_progress_stats()
     total_in_db = sum(stats.values())
+    
+    # Флаг для отслеживания необходимости продолжения обработки
+    should_process = False
     
     if total_in_db > 0:
         has_pending = stats['pending'] + stats['processing'] + stats['error'] > 0
@@ -917,6 +1060,7 @@ def neura_statistics():
                 initialize_all_wallets(wallets)
                 CURRENT_CSV_FILE = create_new_csv_file()
                 log_success("✅ БД очищена, созданы новые задачи")
+                should_process = True  # Продолжаем обработку
         
         elif has_pending:
             print(f"\n📊 Найдены незавершенные задачи:")
@@ -944,39 +1088,54 @@ def neura_statistics():
                 initialize_all_wallets(wallets)
                 CURRENT_CSV_FILE = create_new_csv_file()
                 log_success("✅ БД очищена, созданы новые задачи")
+                should_process = True  # Продолжаем обработку
+            elif action == 'continue':
+                should_process = True  # Продолжаем обработку
     else:
         log_info("📝 Создание задач для всех кошельков...")
         initialize_all_wallets(wallets)
         CURRENT_CSV_FILE = create_new_csv_file()
         log_success(f"✅ Создано {len(wallets)} задач")
+        should_process = True  # Продолжаем обработку
     
+    # Проверяем, нужно ли продолжать обработку
+    if not should_process:
+        log_info("⏸️  Обработка не запущена")
+        return
+    
+    log_info("📋 Получение списка необработанных кошельков...")
     unprocessed = get_unprocessed_wallets()
     
     if not unprocessed:
         log_success("✅ Все кошельки обработаны!")
         return
     
+    log_info(f"🔍 Создание индекса приватных ключей для {len(wallets)} кошельков...")
+    
+    # Создаем словарь адрес -> (приватный ключ, индекс) для O(1) поиска
+    wallet_map = {}
+    for i, pk in enumerate(wallets):
+        normalized_pk = pk if pk.startswith('0x') else '0x' + pk
+        try:
+            acc = Account.from_key(normalized_pk)
+            wallet_map[acc.address] = (normalized_pk, i)
+        except Exception as e:
+            log_warning(f"⚠️ Неверный приватный ключ #{i+1}: {str(e)[:50]}")
+            continue
+    
+    log_success(f"✅ Индекс создан: {len(wallet_map)} валидных кошельков")
+    log_info(f"🔨 Формирование задач для {len(unprocessed)} необработанных кошельков...")
+    
     tasks = []
     for wallet_info in unprocessed:
         wallet_address = wallet_info['address']
         
-        private_key = None
-        idx = -1
-        for i, pk in enumerate(wallets):
-            normalized_pk = pk if pk.startswith('0x') else '0x' + pk
-            try:
-                acc = Account.from_key(normalized_pk)
-                if acc.address == wallet_address:
-                    private_key = normalized_pk
-                    idx = i
-                    break
-            except:
-                continue
-        
-        if not private_key or idx == -1:
-            log_warning(f"⚠️ Не найден приватный ключ для {wallet_address[:10]}...")
+        # Быстрый поиск через словарь O(1) вместо цикла O(n)
+        if wallet_address not in wallet_map:
+            log_warning(f"⚠️ Не найден приватный ключ для {wallet_address[:10]}")
             continue
         
+        private_key, idx = wallet_map[wallet_address]
         proxy = get_proxy_for_wallet(idx, proxies)
         
         tasks.append({
@@ -991,10 +1150,47 @@ def neura_statistics():
         log_success("✅ Все кошельки обработаны!")
         return
     
-    log_info(f"\n🚀 Запуск {len(tasks)} задач...\n")
+    log_info(f"\n{'='*70}")
+    log_info(f"🚀 Запуск обработки {len(tasks)} кошельков")
+    log_info(f"🧵 Количество потоков: {NUM_THREADS}")
+    log_info(f"⚡ Первая волна ({min(NUM_THREADS, len(tasks))} кошельков) стартует сразу")
+    log_info(f"⏱️  Остальные подтягиваются с минимальной задержкой")
+    log_info(f"{'='*70}\n")
+    
+    # Инициализация прогресса
+    global current_progress, stop_monitoring
+    current_progress = {
+        'processed': 0,
+        'success': 0,
+        'errors': 0,
+        'start_time': time.time()
+    }
+    stop_monitoring.clear()  # Сбрасываем флаг остановки
+    
+    # Отправляем уведомление о старте
+    try:
+        send_telegram_notification(
+            notif_type="info",
+            title="Сбор статистики Neura Protocol",
+            message=f"🚀 Начата обработка {len(tasks)} кошельков\n🧵 Потоков: {NUM_THREADS}",
+            main_title="Neura Statistics"
+        )
+        log_info("📱 Telegram уведомление о старте отправлено")
+    except Exception as e:
+        log_warning(f"⚠️ Не удалось отправить Telegram уведомление: {e}")
     
     success_count = 0
     error_count = 0
+    progress_interval = 60  # Показывать прогресс каждые 60 секунд
+    
+    # Запускаем отдельный поток для мониторинга прогресса
+    monitor_thread = threading.Thread(
+        target=progress_monitor_thread,
+        args=(len(tasks), progress_interval),
+        daemon=True
+    )
+    monitor_thread.start()
+    log_info("✅ Поток мониторинга прогресса запущен")
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         futures = {executor.submit(process_wallet_thread, task): task for task in tasks}
@@ -1009,16 +1205,55 @@ def neura_statistics():
                 error_count += 1
                 log_error(f"❌ Критическая ошибка потока: {e}")
     
+    # Останавливаем мониторинг
+    stop_monitoring.set()
+    monitor_thread.join(timeout=5)  # Ждем завершения потока мониторинга
+    
+    # Финальный прогресс
+    show_progress_status(len(tasks))
+    
+    # Расчет времени выполнения
+    total_time = time.time() - current_progress['start_time']
+    hours = int(total_time // 3600)
+    minutes = int((total_time % 3600) // 60)
+    seconds = int(total_time % 60)
+    time_str = f"{hours}ч {minutes}м {seconds}с" if hours > 0 else f"{minutes}м {seconds}с" if minutes > 0 else f"{seconds}с"
+    
     print(f"\n{Fore.CYAN}{'='*70}{Style.RESET_ALL}")
     print(f"{Fore.GREEN}{'📊 ИТОГОВАЯ СТАТИСТИКА':^70}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}")
     print(f"{Fore.GREEN}  ✅ Успешно:  {success_count:>3} кошельков{Style.RESET_ALL}")
     print(f"{Fore.RED}  ❌ Ошибок:   {error_count:>3} кошельков{Style.RESET_ALL}")
     print(f"  📝 Всего:    {len(tasks):>3} кошельков")
+    print(f"  ⏱️  Время:    {time_str}")
     print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}\n")
     
     stats = get_progress_stats()
     total_processed = stats['success'] + stats['error']
+    
+    # Отправляем финальное уведомление
+    try:
+        csv_file = RESULT_DIR / f"neura_stats_{datetime.now().strftime('%Y%m%d')}.csv"
+        if csv_file.exists():
+            send_telegram_notification(
+                notif_type="success",
+                title="Статистика Neura собрана",
+                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
+                main_title="Neura Statistics",
+                file_path=str(csv_file)
+            )
+            log_info("📱 Telegram уведомление с CSV файлом отправлено")
+        else:
+            send_telegram_notification(
+                notif_type="success",
+                title="Статистика Neura собрана",
+                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
+                main_title="Neura Statistics"
+            )
+            log_info("📱 Telegram уведомление отправлено")
+    except Exception as e:
+        log_warning(f"⚠️ Не удалось отправить финальное Telegram уведомление: {e}")
+    
     if total_processed >= len(wallets):
         log_success("✅ Все кошельки обработаны!")
         log_info("✅ Итоговая статистика сохранена в result/statistics/")

@@ -31,7 +31,7 @@ def _get_okx_settings():
         return 0, []
 
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
-from config import rpc
+from config import networks as rpc
 
 # Импорт селектора аккаунтов
 from modules.cex.exchange_selector import select_okx_account

@@ -32,7 +32,7 @@ def _get_mexc_settings():
         return []
 
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
-from config import rpc
+from config import networks as rpc
 from modules.cex.exchange_selector import select_mexc_account
 
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')

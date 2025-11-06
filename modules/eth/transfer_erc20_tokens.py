@@ -44,7 +44,7 @@ from config.config import (
     USE_INTERMEDIARY_TOKEN, TYPE_VALUE_TO_WALLET_TOKEN, TELEGRAM_LOG_LEVEL_transfer_token,
     MULTI_THREADING_TOKEN, NUM_THREADS_TOKEN, GAS_PRICE_MULTIPLIER_TOKEN, GAS_LIMIT_MULTIPLIER_TOKEN
 )
-from config.explorer_url import get_explorer_url
+from config.networks import get_explorer_url
 from config.token_address_erc20 import *
 from modules.notifications import send_telegram_notification, send_telegram_file
 
@@ -205,39 +205,13 @@ def finalize_token_stats():
 
 def get_network_rpc(network):
     """Получение RPC URL для сети"""
-    from config.rpc import (
-        L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
-        Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet
-    )
+    from config.networks import get_network_rpc_urls
+    import random
     
-    mainnet_rpc_urls = {
-        '🚀 Ethereum Mainnet': L1,
-        '🚀 Base': base,
-        '🚀 Arbitrum One': arbitrum,
-        '🚀 Optimism': optimism,
-        '🚀 Soneium': soneium,
-        '🚀 Polygon': Polygon,
-        '🚀 Binance Smart Chain': Binance_Smart_Chain,
-        '🚀 Avalanche': Avalanche,
-        '🚀 Fantom': Fantom,
-        '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
-        '🚀 Zora': zora,
-        '🚀 Abstract': Abstract,
-        '🚀 Somnia': somnia,
-    }
-    
-    testnet_rpc_urls = {
-        '🚀 Sepolia': sepolia,
-        '🚀 Mega ETH': mega_eth_testnet,
-        '🚀 Pharos Testnet': pharos_testnet,
-    }
-    
-    if network in mainnet_rpc_urls:
-        return random.choice(mainnet_rpc_urls[network])
-    elif network in testnet_rpc_urls:
-        return random.choice(testnet_rpc_urls[network])
-    else:
+    rpc_urls = get_network_rpc_urls(network)
+    if not rpc_urls:
         raise Exception(f"Неизвестная сеть: {network}")
+    return random.choice(rpc_urls)
 
 def get_token_address(network, token_symbol):
     """Получение адреса токена для конкретной сети"""

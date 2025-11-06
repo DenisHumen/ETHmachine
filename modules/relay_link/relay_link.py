@@ -19,8 +19,8 @@ sys.path.append(project_root)
 
 # Импорты из проекта
 from config.config import SUM_TO_RELAY, GAS, MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
-from config.rpc import *
-from config.explorer_url import get_explorer_url
+from config.networks import *
+from config.networks import get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
 
 # Настройка логирования

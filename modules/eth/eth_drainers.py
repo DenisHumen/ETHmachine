@@ -6,7 +6,7 @@ from web3 import Web3
 from eth_account import Account
 from modules.eth.rpc_return_module import get_network_rpc_selection
 from config.config import EVM_MAIN_WALLET, MAIN_PROXY, NUM_THREADS
-from config.explorer_url import get_explorer_url
+from config.networks import get_explorer_url
 from colorama import Fore, Style, init
 from itertools import cycle
 from datetime import datetime

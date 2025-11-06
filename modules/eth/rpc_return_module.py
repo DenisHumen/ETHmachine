@@ -13,38 +13,11 @@ def get_network_rpc_selection():
     Returns:
         tuple: (rpc_urls_list, network_type, clean_network) или (None, None, None) если отменено
     """
-    try:
-        from main import mainnet_rpc_urls, testnet_rpc_urls
-    except ImportError:
-        # Если импорт из main не работает, импортируем напрямую из config
-        from config.rpc import (
-            L1, base, sepolia, arbitrum, optimism, soneium, Polygon, 
-            Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, zora, somnia, mega_eth_testnet, 
-            Abstract, pharos_testnet, kite_testnet
-        )
-        
-        mainnet_rpc_urls = {
-            '🚀 Ethereum Mainnet': L1,
-            '🚀 Base': base,
-            '🚀 Arbitrum One': arbitrum,
-            '🚀 Optimism': optimism,
-            '🚀 Soneium': soneium,
-            '🚀 Polygon': Polygon,
-            '🚀 Binance Smart Chain': Binance_Smart_Chain,
-            '🚀 Avalanche': Avalanche,
-            '🚀 Fantom': Fantom,
-            '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
-            '🚀 Zora': zora,
-            '🚀 Abstract': Abstract,
-            '🚀 Somnia': somnia,
-        }
-        
-        testnet_rpc_urls = {
-            '🚀 Sepolia': sepolia,
-            '🚀 Mega ETH': mega_eth_testnet,
-            '🚀 Pharos': pharos_testnet,
-            '🚀 Kite Testnet': kite_testnet,
-        }
+    # Импортируем из нового централизованного модуля
+    from config.networks import get_mainnet_networks, get_testnet_networks
+    
+    mainnet_rpc_urls = get_mainnet_networks()
+    testnet_rpc_urls = get_testnet_networks()
     
     network_type = select(
         "Select network type:",

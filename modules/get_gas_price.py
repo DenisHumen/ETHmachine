@@ -140,7 +140,7 @@ def get_gas_price_for_network(network_name, rpc_urls, proxy=None):
     current_proxy = proxy
     
     # Получаем символ нативного токена для сети
-    from config.explorer_url import get_network_symbol
+    from config.networks import get_network_symbol
     native_token_symbol = get_network_symbol(network_name)
     
     # Перебираем все RPC URLs
@@ -282,14 +282,14 @@ def get_short_error_message(error_str):
         return error_str[:50] + '...' if len(error_str) > 50 else error_str
 
 def get_all_networks():
-    """Получает все доступные сети автоматически из config/rpc.py"""
+    """Получает все доступные сети автоматически из config/networks.py"""
     try:
-        import config.rpc as rpc_module
+        import config.networks as rpc_module
         
         mainnet_rpc_urls = {}
         testnet_rpc_urls = {}
         
-        # Получаем все атрибуты из модуля rpc
+        # Получаем все атрибуты из модуля networks
         for attr_name in dir(rpc_module):
             if not attr_name.startswith('_'):  # Исключаем служебные атрибуты
                 attr_value = getattr(rpc_module, attr_name)
@@ -322,7 +322,7 @@ def get_all_networks():
         return mainnet_rpc_urls, testnet_rpc_urls
         
     except ImportError:
-        logger.error("❌ Не удалось импортировать config.rpc")
+        logger.error("❌ Не удалось импортировать config.networks")
         return {}, {}
 
 def format_gas_info(result, token_prices=None):
@@ -476,11 +476,11 @@ def check_all_gas_prices():
     logger.info("💰 Получаем актуальные цены токенов...")
     token_prices = {}
     
-    # Получаем уникальные символы токенов из mainnet сетей через config/explorer_url.py
-    from config.explorer_url import get_network_symbol, get_all_networks as get_explorer_networks
+    # Получаем уникальные символы токенов из mainnet сетей через config/networks.py
+    from config.networks import get_network_symbol, get_all_networks as get_explorer_networks
     unique_tokens = set()
     
-    # Получаем все сети из explorer_url для сопоставления
+    # Получаем все сети из networks для сопоставления
     explorer_networks = get_explorer_networks()
     
     for network_name in mainnet_networks.keys():

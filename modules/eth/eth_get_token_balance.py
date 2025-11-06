@@ -52,7 +52,7 @@ logger.add(
 
 from config.config import NUM_THREADS, RETRY_COUNT
 import config.token_address_erc20 as token_addresses
-import config.rpc as rpc_config
+import config.networks as rpc_config
 
 ERC20_ABI = [
     {

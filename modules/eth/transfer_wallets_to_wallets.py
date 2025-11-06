@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer, MULTI_THREADING, NUM_THREADS
-from config.explorer_url import get_explorer_url
+from config.networks import get_explorer_url
 from modules.notifications import send_telegram_notification, send_telegram_file
 
 # Глобальная статистика
@@ -199,34 +199,13 @@ def apply_trim_to_amount(amount_eth):
     return amount_eth
 
 def get_network_rpc(network):
-    from config.rpc import L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain, Avalanche, Fantom, Gravity_Alpha_Mainnet, zora, somnia, mega_eth_testnet, Abstract, pharos_testnet, kite_testnet
-    mainnet_rpc_urls = {
-        '🚀 Ethereum Mainnet': L1,
-        '🚀 Base': base,
-        '🚀 Arbitrum One': arbitrum,
-        '🚀 Optimism': optimism,
-        '🚀 Soneium': soneium,
-        '🚀 Polygon': Polygon,
-        '🚀 Binance Smart Chain': Binance_Smart_Chain,
-        '🚀 Avalanche': Avalanche,
-        '🚀 Fantom': Fantom,
-        '🚀 Gravity Alpha Mainnet (сеть Gravity )': Gravity_Alpha_Mainnet,
-        '🚀 Zora': zora,
-        '🚀 Abstract': Abstract,
-        '🚀 Somnia': somnia,
-    }
-    testnet_rpc_urls = {
-        '🚀 Sepolia': sepolia,
-        '🚀 Mega ETH': mega_eth_testnet,
-        '🚀 Pharos Testnet': pharos_testnet,
-        '🚀 Kite Testnet': kite_testnet,
-    }
-    if network in mainnet_rpc_urls:
-        return random.choice(mainnet_rpc_urls[network])
-    elif network in testnet_rpc_urls:
-        return random.choice(testnet_rpc_urls[network])
-    else:
+    from config.networks import get_network_rpc_urls
+    import random
+    
+    rpc_urls = get_network_rpc_urls(network)
+    if not rpc_urls:
         raise Exception(f"Неизвестная сеть: {network}")
+    return random.choice(rpc_urls)
 
 def get_eth_balance(w3, address):
     try:
