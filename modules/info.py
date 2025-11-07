@@ -30,7 +30,7 @@ GUIDES_DICT = {
     "⚡ ETH >> 👝 Wallet Generator": "",
     "⚡ ETH >> 🌐 RPC Return Module": "",
     "⚡ ETH >> 💸 Transfer ERC20 Tokens": "",
-    "⚡ ETH >> 💱 Transfer Wallets to Wallets": "",
+    "⚡ ETH >> 💱 Transfer Wallets to Wallets": "https://youtu.be/zZV_FoEUPiw",
     
     "☀️ SOL >> 🔐 Mnemonic to Private Key": "",
     "☀️ SOL >> ✨ Nice Address Generator": "",
@@ -52,11 +52,6 @@ GUIDES_DICT = {
 MODULES_IN_DEVELOPMENT = {
     "☀️ SOL >> 🪙 Get Balances": "Файл sol_get_balances.py пустой",
     "☀️ SOL >> 🪙 Get Token Balances": "Файл sol_get_token_balances.py пустой",
-
-    "🐦 Twitter >> ℹ️ Info": "Файл twitter_info.py пустой",
-    "🐦 Twitter >> 📋 Task": "Файл twitter_task.py пустой",
-    
-    "🚰 Faucets": "Модуль отключен в main.py, папка faucets пуста",
     
     "📊 Project Stats": "Модуль отключен в main.py, папка stats_modules пуста",
 }

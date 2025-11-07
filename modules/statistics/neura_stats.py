@@ -1231,28 +1231,30 @@ def neura_statistics():
     stats = get_progress_stats()
     total_processed = stats['success'] + stats['error']
     
-    # Отправляем финальное уведомление
+    # Отправляем финальное уведомление с CSV файлом
     try:
-        csv_file = RESULT_DIR / f"neura_stats_{datetime.now().strftime('%Y%m%d')}.csv"
-        if csv_file.exists():
+        # Используем глобальную переменную CURRENT_CSV_FILE вместо поиска по дате
+        if CURRENT_CSV_FILE and CURRENT_CSV_FILE.exists():
+            log_info(f"📎 Прикрепление CSV файла: {CURRENT_CSV_FILE.name}")
             send_telegram_notification(
                 notif_type="success",
                 title="Статистика Neura собрана",
                 message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
                 main_title="Neura Statistics",
-                file_path=str(csv_file)
+                file_path=str(CURRENT_CSV_FILE)
             )
-            log_info("📱 Telegram уведомление с CSV файлом отправлено")
+            log_success(f"📱 Telegram уведомление с CSV файлом отправлено ({CURRENT_CSV_FILE.name})")
         else:
+            log_warning(f"⚠️ CSV файл не найден: {CURRENT_CSV_FILE}")
             send_telegram_notification(
                 notif_type="success",
                 title="Статистика Neura собрана",
                 message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
                 main_title="Neura Statistics"
             )
-            log_info("📱 Telegram уведомление отправлено")
+            log_info("📱 Telegram уведомление отправлено (без файла)")
     except Exception as e:
-        log_warning(f"⚠️ Не удалось отправить финальное Telegram уведомление: {e}")
+        log_error(f"❌ Не удалось отправить финальное Telegram уведомление: {e}")
     
     if total_processed >= len(wallets):
         log_success("✅ Все кошельки обработаны!")

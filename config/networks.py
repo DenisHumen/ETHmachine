@@ -94,9 +94,9 @@ NETWORKS = {
         'type': 'testnet'
     },
     '🚀 Pharos Testnet': {
-        'rpc_urls': ['https://testnet.dplabs-internal.com'],
+        'rpc_urls': ['https://atlantic.dplabs-internal.com'],
         'symbol': 'ETH',
-        'tx_url': "https://testnet.pharosscan.xyz/tx/",
+        'tx_url': "https://atlantic.pharosscan.xyz/tx/",
         'type': 'testnet'
     },
     '🚀 Kite Testnet': {

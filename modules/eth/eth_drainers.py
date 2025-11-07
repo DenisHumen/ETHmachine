@@ -5,7 +5,7 @@ import random
 from web3 import Web3
 from eth_account import Account
 from modules.eth.rpc_return_module import get_network_rpc_selection
-from config.config import EVM_MAIN_WALLET, MAIN_PROXY, NUM_THREADS
+from config.config import EVM_MAIN_WALLET, MAIN_PROXY, NUM_THREADS, RETRY_COUNT
 from config.networks import get_explorer_url
 from colorama import Fore, Style, init
 from itertools import cycle
@@ -37,214 +37,273 @@ def setup_drainer_logging():
     
     logger.info(f"Логирование настроено. Файл: {log_file}")
 
-def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, total_wallets):
-    """Обрабатывает один кошелек в отдельном потоке"""
-    session = None
+def load_proxies():
+    """Загружает список прокси из data/proxy.csv"""
+    proxy_file = Path("data/proxy.csv")
+    proxies = []
+    
+    if not proxy_file.exists():
+        logger.warning("Файл data/proxy.csv не найден, работаем без прокси")
+        return []
+    
     try:
-        dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(proxy_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if row and row[0].strip():
+                    proxy = row[0].strip()
+                    if not proxy.startswith('http'):
+                        proxy = f"http://{proxy}"
+                    proxies.append(proxy)
         
-        # Получение аккаунта
-        account = Account.from_key(private_key)
-        wallet_address = account.address
-        
-        # Подключение к Web3 с прокси если есть
-        if MAIN_PROXY:
-            proxies = {'http': MAIN_PROXY, 'https': MAIN_PROXY}
-            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'proxies': proxies}))
-        else:
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
-        
-        if not w3.is_connected():
-            logger.error(f"Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Не удалось подключиться к RPC")
-            return {
-                'wallet': wallet_address,
-                'balance': '0',
-                'status': 'connection_error',
-                'tx_hash': '',
-                'explorer_link': '',
-                'error': 'Не удалось подключиться к RPC'
-            }
-        
-        # Получение баланса
-        balance_wei = w3.eth.get_balance(wallet_address)
-        balance_eth = w3.from_wei(balance_wei, 'ether')
-        
-        if balance_wei == 0:
-            logger.warning(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Пустой (0 ETH)")
-            return {
-                'wallet': wallet_address,
-                'balance': '0',
-                'status': 'empty',
-                'tx_hash': '',
-                'explorer_link': '',
-                'error': 'Нулевой баланс'
-            }
-        
-        logger.info(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Баланс: {balance_eth} ETH")
-        
-        # Получение газа для транзакции
-        gas_price = w3.eth.gas_price
-        
-        # Получение nonce
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        
-        # Проверяем поддержку EIP-1559
+        logger.info(f"Загружено {len(proxies)} прокси из data/proxy.csv")
+        return proxies
+    except Exception as e:
+        logger.error(f"Ошибка загрузки прокси: {e}")
+        return []
+
+def get_random_proxy(proxy_list):
+    """Возвращает случайный прокси из списка"""
+    if not proxy_list:
+        return None
+    return random.choice(proxy_list)
+
+def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, total_wallets, proxy_list=None):
+    """Обрабатывает один кошелек в отдельном потоке с retry механизмом"""
+    account = None
+    wallet_address = 'unknown'
+    balance_eth = 0
+    
+    # Попытки с разными прокси
+    for attempt in range(1, RETRY_COUNT + 1):
         try:
-            latest_block = w3.eth.get_block('latest')
-            supports_eip1559 = hasattr(latest_block, 'baseFeePerGas') and latest_block.baseFeePerGas is not None
-        except:
-            supports_eip1559 = False
-        
-        # Построение тестовой транзакции для оценки газа
-        if supports_eip1559:
-            # EIP-1559 транзакция
-            try:
-                max_priority_fee = w3.eth.max_priority_fee
-            except:
-                max_priority_fee = w3.to_wei(1, 'gwei')  # 1 gwei fallback
+            dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            max_fee_per_gas = int(gas_price * 1.5)  # Увеличиваем множитель
+            # Выбор прокси
+            current_proxy = None
+            if proxy_list:
+                current_proxy = get_random_proxy(proxy_list)
+                logger.info(f"[{wallet_index}/{total_wallets}] Попытка {attempt}/{RETRY_COUNT} с прокси: {current_proxy[:50] if current_proxy else 'None'}")
+            elif MAIN_PROXY:
+                current_proxy = MAIN_PROXY
+                logger.info(f"[{wallet_index}/{total_wallets}] Попытка {attempt}/{RETRY_COUNT} с MAIN_PROXY")
+            else:
+                logger.info(f"[{wallet_index}/{total_wallets}] Попытка {attempt}/{RETRY_COUNT} без прокси")
             
-            test_tx = {
-                'type': 0x2,
-                'from': Web3.to_checksum_address(wallet_address),
-                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-                'value': 1000000,  # Тестовое значение
-                'nonce': nonce,
-                'chainId': w3.eth.chain_id,
-                'maxFeePerGas': max_fee_per_gas,
-                'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
-            }
-        else:
-            # Legacy транзакция
-            test_tx = {
-                'from': Web3.to_checksum_address(wallet_address),
-                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-                'value': 1000000,  # Тестовое значение
-                'nonce': nonce,
-                'gasPrice': int(gas_price * 1.5)  # Увеличиваем множитель
-            }
-        
-        # Оценка газа
-        try:
-            estimated_gas = w3.eth.estimate_gas(test_tx)
-            gas_limit = int(estimated_gas * 1.5)  # Увеличиваем запас до 50%
-        except Exception as e:
-            logger.warning(f"Не удалось оценить газ, используем 21000: {e}")
-            gas_limit = 25000  # Увеличиваем базовый лимит
-        
-        # Расчет стоимости газа
-        if supports_eip1559:
-            gas_cost = gas_limit * max_fee_per_gas
-        else:
-            gas_cost = gas_limit * int(gas_price * 1.5)
-        
-        # Проверка достаточности средств для газа
-        if balance_wei <= gas_cost:
-            logger.warning(f"⚠️ Недостаточно средств для оплаты газа. Баланс: {w3.from_wei(balance_wei, 'ether')} ETH, Газ: {w3.from_wei(gas_cost, 'ether')} ETH")
-            return {
-                'wallet': wallet_address,
-                'balance': str(balance_eth),
-                'status': 'insufficient_gas',
-                'tx_hash': '',
-                'explorer_link': '',
-                'error': f'Недостаточно средств для газа. Нужно: {w3.from_wei(gas_cost, "ether"):.8f} ETH'
-            }
-        
-        # Сумма к отправке (баланс минус газ с дополнительным запасом)
-        amount_to_send = balance_wei - int(gas_cost * 1.1)  # Дополнительный запас 10%
-        
-        if amount_to_send <= 0:
-            logger.warning(f"⚠️ После вычета газа сумма к отправке <= 0")
-            return {
-                'wallet': wallet_address,
-                'balance': str(balance_eth),
-                'status': 'insufficient_amount',
-                'tx_hash': '',
-                'explorer_link': '',
-                'error': 'Сумма к отправке после вычета газа <= 0'
-            }
-        
-        # Построение финальной транзакции
-        if supports_eip1559:
-            transaction = {
-                'type': 0x2,
-                'from': Web3.to_checksum_address(wallet_address),
-                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-                'value': amount_to_send,
-                'gas': gas_limit,
-                'nonce': nonce,
-                'chainId': w3.eth.chain_id,
-                'maxFeePerGas': max_fee_per_gas,
-                'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
-            }
-        else:
-            transaction = {
-                'from': Web3.to_checksum_address(wallet_address),
-                'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
-                'value': amount_to_send,
-                'gas': gas_limit,
-                'nonce': nonce,
-                'gasPrice': int(gas_price * 1.5)
-            }
-        
-        # Подписание транзакции
-        signed_txn = w3.eth.account.sign_transaction(transaction, private_key)
-        
-        # Отправка транзакции
-        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
-        tx_hash_hex = w3.to_hex(tx_hash)
-        
-        logger.info(f"📤 Транзакция отправлена: {tx_hash_hex}")
-        logger.info(f"🔗 Explorer: {explorer_url}{tx_hash_hex}")
-        
-        # Ожидание подтверждения
-        try:
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-            if receipt.status == 1:
-                amount_sent_eth = w3.from_wei(amount_to_send, 'ether')
-                logger.success(f"✅ Успешно отправлено {amount_sent_eth:.8f} ETH")
+            # Получение аккаунта
+            account = Account.from_key(private_key)
+            wallet_address = account.address
+            
+            # Подключение к Web3 с прокси
+            if current_proxy:
+                proxies = {'http': current_proxy, 'https': current_proxy}
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'proxies': proxies, 'timeout': 30}))
+            else:
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 30}))
+            
+            if not w3.is_connected():
+                raise ConnectionError(f"Не удалось подключиться к RPC")
+            
+            logger.info(f"[{dt_str}] Кошелек {wallet_address} подключен к RPC")
+            
+            # Получение баланса
+            balance_wei = w3.eth.get_balance(wallet_address)
+            balance_eth = w3.from_wei(balance_wei, 'ether')
+            
+            if balance_wei == 0:
+                logger.warning(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Пустой (0 ETH)")
                 return {
                     'wallet': wallet_address,
-                    'balance': str(balance_eth),
-                    'status': 'success',
-                    'tx_hash': tx_hash_hex,
-                    'explorer_link': f"{explorer_url}{tx_hash_hex}",
-                    'error': '',
-                    'amount_sent': f"{amount_sent_eth:.8f}"
+                    'balance': '0',
+                    'status': 'empty',
+                    'tx_hash': '',
+                    'explorer_link': '',
+                    'error': 'Нулевой баланс'
+                }
+            
+            logger.info(f"[{dt_str}] Кошелек {wallet_index}/{total_wallets}: {wallet_address} - Баланс: {balance_eth} ETH")
+            
+            # Получение газа для транзакции
+            gas_price = w3.eth.gas_price
+            
+            # Получение nonce
+            nonce = w3.eth.get_transaction_count(wallet_address)
+            
+            # Проверяем поддержку EIP-1559
+            try:
+                latest_block = w3.eth.get_block('latest')
+                supports_eip1559 = hasattr(latest_block, 'baseFeePerGas') and latest_block.baseFeePerGas is not None
+            except:
+                supports_eip1559 = False
+            
+            # Построение тестовой транзакции для оценки газа
+            if supports_eip1559:
+                # EIP-1559 транзакция
+                try:
+                    max_priority_fee = w3.eth.max_priority_fee
+                except:
+                    max_priority_fee = w3.to_wei(1, 'gwei')  # 1 gwei fallback
+                
+                max_fee_per_gas = int(gas_price * 1.5)  # Увеличиваем множитель
+                
+                test_tx = {
+                    'type': 0x2,
+                    'from': Web3.to_checksum_address(wallet_address),
+                    'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                    'value': 1000000,  # Тестовое значение
+                    'nonce': nonce,
+                    'chainId': w3.eth.chain_id,
+                    'maxFeePerGas': max_fee_per_gas,
+                    'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
                 }
             else:
-                logger.error(f"❌ Транзакция провалена")
+                # Legacy транзакция
+                test_tx = {
+                    'from': Web3.to_checksum_address(wallet_address),
+                    'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                    'value': 1000000,  # Тестовое значение
+                    'nonce': nonce,
+                    'gasPrice': int(gas_price * 1.5)  # Увеличиваем множитель
+                }
+            
+            # Оценка газа
+            try:
+                estimated_gas = w3.eth.estimate_gas(test_tx)
+                gas_limit = int(estimated_gas * 1.5)  # Увеличиваем запас до 50%
+            except Exception as e:
+                logger.warning(f"Не удалось оценить газ, используем 21000: {e}")
+                gas_limit = 25000  # Увеличиваем базовый лимит
+            
+            # Расчет стоимости газа
+            if supports_eip1559:
+                gas_cost = gas_limit * max_fee_per_gas
+            else:
+                gas_cost = gas_limit * int(gas_price * 1.5)
+            
+            # Проверка достаточности средств для газа
+            if balance_wei <= gas_cost:
+                logger.warning(f"⚠️ Недостаточно средств для оплаты газа. Баланс: {w3.from_wei(balance_wei, 'ether')} ETH, Газ: {w3.from_wei(gas_cost, 'ether')} ETH")
                 return {
                     'wallet': wallet_address,
                     'balance': str(balance_eth),
-                    'status': 'failed',
+                    'status': 'insufficient_gas',
+                    'tx_hash': '',
+                    'explorer_link': '',
+                    'error': f'Недостаточно средств для газа. Нужно: {w3.from_wei(gas_cost, "ether"):.8f} ETH'
+                }
+            
+            # Сумма к отправке (баланс минус газ с дополнительным запасом)
+            amount_to_send = balance_wei - int(gas_cost * 1.1)  # Дополнительный запас 10%
+            
+            if amount_to_send <= 0:
+                logger.warning(f"⚠️ После вычета газа сумма к отправке <= 0")
+                return {
+                    'wallet': wallet_address,
+                    'balance': str(balance_eth),
+                    'status': 'insufficient_amount',
+                    'tx_hash': '',
+                    'explorer_link': '',
+                    'error': 'Сумма к отправке после вычета газа <= 0'
+                }
+            
+            # Построение финальной транзакции
+            if supports_eip1559:
+                transaction = {
+                    'type': 0x2,
+                    'from': Web3.to_checksum_address(wallet_address),
+                    'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                    'value': amount_to_send,
+                    'gas': gas_limit,
+                    'nonce': nonce,
+                    'chainId': w3.eth.chain_id,
+                    'maxFeePerGas': max_fee_per_gas,
+                    'maxPriorityFeePerGas': min(max_priority_fee, max_fee_per_gas)
+                }
+            else:
+                transaction = {
+                    'from': Web3.to_checksum_address(wallet_address),
+                    'to': Web3.to_checksum_address(EVM_MAIN_WALLET),
+                    'value': amount_to_send,
+                    'gas': gas_limit,
+                    'nonce': nonce,
+                    'gasPrice': int(gas_price * 1.5)
+                }
+            
+            # Подписание транзакции
+            signed_txn = w3.eth.account.sign_transaction(transaction, private_key)
+            
+            # Отправка транзакции
+            tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            tx_hash_hex = w3.to_hex(tx_hash)
+            
+            logger.info(f"📤 Транзакция отправлена: {tx_hash_hex}")
+            logger.info(f"🔗 Explorer: {explorer_url}{tx_hash_hex}")
+            
+            # Ожидание подтверждения
+            try:
+                receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+                if receipt.status == 1:
+                    amount_sent_eth = w3.from_wei(amount_to_send, 'ether')
+                    logger.success(f"✅ Успешно отправлено {amount_sent_eth:.8f} ETH")
+                    return {
+                        'wallet': wallet_address,
+                        'balance': str(balance_eth),
+                        'status': 'success',
+                        'tx_hash': tx_hash_hex,
+                        'explorer_link': f"{explorer_url}{tx_hash_hex}",
+                        'error': '',
+                        'amount_sent': f"{amount_sent_eth:.8f}"
+                    }
+                else:
+                    logger.error(f"❌ Транзакция провалена")
+                    return {
+                        'wallet': wallet_address,
+                        'balance': str(balance_eth),
+                        'status': 'failed',
+                        'tx_hash': tx_hash_hex,
+                        'explorer_link': f"{explorer_url}{tx_hash_hex}",
+                        'error': 'Транзакция провалена'
+                    }
+            except Exception as e:
+                logger.error(f"❌ Timeout при ожидании подтверждения: {str(e)[:50]}...")
+                return {
+                    'wallet': wallet_address,
+                    'balance': str(balance_eth),
+                    'status': 'timeout',
                     'tx_hash': tx_hash_hex,
                     'explorer_link': f"{explorer_url}{tx_hash_hex}",
-                    'error': 'Транзакция провалена'
+                    'error': f'Timeout: {str(e)[:100]}'
                 }
+                
         except Exception as e:
-            logger.error(f"❌ Timeout при ожидании подтверждения: {str(e)[:50]}...")
-            return {
-                'wallet': wallet_address,
-                'balance': str(balance_eth),
-                'status': 'timeout',
-                'tx_hash': tx_hash_hex,
-                'explorer_link': f"{explorer_url}{tx_hash_hex}",
-                'error': f'Timeout: {str(e)[:100]}'
-            }
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"❌ Ошибка при обработке кошелька {private_key[:10]}...: {error_msg[:100]}...")
-        return {
-            'wallet': account.address if 'account' in locals() else 'unknown',
-            'balance': str(balance_eth) if 'balance_eth' in locals() else '0',
-            'status': 'error',
-            'tx_hash': '',
-            'explorer_link': '',
-            'error': error_msg[:200]
-        }
+            error_msg = str(e)
+            logger.error(f"❌ Попытка {attempt}/{RETRY_COUNT} провалена для {wallet_address}: {error_msg[:100]}...")
+            
+            # Если это последняя попытка - возвращаем ошибку
+            if attempt == RETRY_COUNT:
+                logger.error(f"❌ Все {RETRY_COUNT} попыток провалены для кошелька {wallet_address}")
+                return {
+                    'wallet': wallet_address,
+                    'balance': str(balance_eth),
+                    'status': 'error',
+                    'tx_hash': '',
+                    'explorer_link': '',
+                    'error': f'Провалено после {RETRY_COUNT} попыток: {error_msg[:150]}'
+                }
+            
+            # Ждем перед следующей попыткой
+            time.sleep(1)
+            logger.info(f"🔄 Переход к попытке {attempt + 1}/{RETRY_COUNT}...")
+    
+    # Этот return не должен быть достигнут, но на всякий случай
+    return {
+        'wallet': wallet_address,
+        'balance': str(balance_eth),
+        'status': 'error',
+        'tx_hash': '',
+        'explorer_link': '',
+        'error': f'Неожиданное завершение после {RETRY_COUNT} попыток'
+    }
 
 def eth_drainers():
     """Дренирование всех кошельков из private_keys.txt на главный кошелек, поддержка ВСЕХ сетей"""
@@ -254,6 +313,13 @@ def eth_drainers():
     logger.info("="*80)
     logger.info("🚀 Запуск модуля дренирования кошельков")
     logger.info("="*80)
+
+    # Загрузка списка прокси
+    proxy_list = load_proxies()
+    if proxy_list:
+        logger.success(f"✅ Загружено {len(proxy_list)} прокси для ротации")
+    else:
+        logger.warning("⚠️ Прокси не загружены, будет использован MAIN_PROXY или работа без прокси")
 
     # Выбор сети и получение RPC
     rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
@@ -320,7 +386,8 @@ def eth_drainers():
                         random.choice(rpc_list),
                         explorer_url,
                         i + 1,
-                        len(private_keys)
+                        len(private_keys),
+                        proxy_list  # Передаем список прокси
                     ): (private_key, i + 1)
                     for i, private_key in enumerate(private_keys)
                 }
@@ -443,7 +510,8 @@ def eth_drainers():
                 random.choice(rpc_urls_list),  # Случайный RPC для каждого потока
                 explorer_url,
                 i + 1,
-                total_wallets
+                total_wallets,
+                proxy_list  # Передаем список прокси
             ): (private_key, i + 1)
             for i, private_key in enumerate(private_keys)
         }
