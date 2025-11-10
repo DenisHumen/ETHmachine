@@ -25,7 +25,14 @@ from modules.backup import create_backup, list_backups, backup_menu
 from modules.backup.backup_manager import BackupManager
 
 # Импорт модулей статистики
-from modules.statistics.neura_stats import neura_statistics
+# Neura statistics доступна только на Windows из-за зависимости от pyarmor_runtime.pyd
+neura_statistics = None
+if platform.system().lower() == 'windows':
+    try:
+        from modules.statistics.neura_stats import neura_statistics
+    except Exception as e:
+        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {e}")
+        neura_statistics = None
 
 # Импорт новых модулей для работы с биржами
 from modules.config_validator import validate_configuration
@@ -768,19 +775,36 @@ def main_menu():
 
                 case 'project_stats':
                     while True:
+                        stats_choices = []
+                        if neura_statistics is not None:
+                            stats_choices.append(Choice('📊 Neura         🌟 Статистика по ETHmachine', 'neura_stat'))
+                        else:
+                            current_os = get_os_type()
+                            stats_choices.append(Choice(f'📊 Neura         ⚠️  Доступно только на Windows (текущая ОС: {current_os})', 'neura_stat_unavailable'))
+                        
+                        stats_choices.append(Choice('🔙 Back', 'back'))
+                        
                         action = select(
                             "Выберите действие (статистика по проектам):",
-                            choices=[
-                                Choice('📊 Neura         🌟 Статистика по ETHmachine', 'neura_stat'),
-                                Choice('🔙 Back', 'back')
-                            ],
+                            choices=stats_choices,
                             qmark='🛠️',
                             pointer='👉'
                         ).ask()
 
                         match action:
                             case 'neura_stat':
-                                neura_statistics()
+                                if neura_statistics is not None:
+                                    neura_statistics()
+                                else:
+                                    print(Fore.RED + "\n⚠️  Модуль Neura Statistics недоступен!")
+                                    print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
+                                    print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}")
+                                    input("\nНажмите Enter для продолжения...")
+                            case 'neura_stat_unavailable':
+                                print(Fore.RED + "\n⚠️  Модуль Neura Statistics недоступен!")
+                                print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
+                                print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}")
+                                input("\nНажмите Enter для продолжения...")
                             case 'back':
                                 break
 
