@@ -47,6 +47,8 @@ GUIDES_DICT = {
     "🔗 Relay >> 🌉 Relay Link": "",
     
     "🐦 Twitter >> ✅ Check": "",
+
+    "📊 Project Stats >> Neura": "https://youtu.be/SsuiGb8Rz0Q",
 }
 
 MODULES_IN_DEVELOPMENT = {

@@ -208,13 +208,13 @@ def init_database():
 
 
 def get_unprocessed_wallets() -> List[Dict[str, Any]]:
-    """Получить список необработанных кошельков из БД"""
+    """Получить список необработанных кошельков из БД (включая зависшие processing)"""
     with sqlite3.connect(str(DB_FILE)) as conn:
         cursor = conn.cursor()
         cursor.execute('''
             SELECT wallet_address, attempts, error_message
             FROM processing_progress
-            WHERE status IN ('pending', 'error')
+            WHERE status IN ('pending', 'processing', 'error')
             AND attempts < ?
             ORDER BY attempts ASC, last_attempt ASC
         ''', (RETRY_COUNT,))
@@ -272,6 +272,110 @@ def save_json_to_db(wallet_address: str, json_data: dict):
                 VALUES (?, ?, ?)
             ''', (wallet_address, datetime.now(), json.dumps(json_data, ensure_ascii=False, default=str)))
             conn.commit()
+
+
+def export_all_results_to_csv() -> Optional[str]:
+    """Экспортировать ВСЕ результаты из БД в итоговый CSV файл"""
+    global CURRENT_CSV_FILE
+    
+    try:
+        log_info("📊 Экспорт всех результатов из БД в CSV...")
+        
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_csv = RESULT_DIR / f"neura_stats_FINAL_{timestamp_str}.csv"
+        
+        with sqlite3.connect(str(DB_FILE)) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT pp.wallet_address, pp.status, pp.attempts, pp.error_message,
+                       pp.created_at, pp.updated_at, wsj.json_data, wsj.timestamp as json_timestamp
+                FROM processing_progress pp
+                LEFT JOIN wallet_stats_json wsj ON pp.wallet_address = wsj.wallet_address
+                ORDER BY pp.created_at ASC
+            ''')
+            
+            results = cursor.fetchall()
+            
+            if not results:
+                log_warning("⚠️ Нет результатов для экспорта")
+                return None
+            
+            with open(final_csv, 'w', newline='', encoding='utf-8') as f:
+                fieldnames = [
+                    'wallet_address', 'status', 'attempts', 'error_message',
+                    'created_at', 'updated_at', 'stats_collected_at',
+                    'balance', 'neura_points', 'trading_volume_month', 'trading_volume_all_time',
+                    'pulses_count', 'first_pulse_collected', 'last_pulse_collected',
+                    'tasks_completed', 'transactions_count'
+                ]
+                
+                writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+                writer.writeheader()
+                
+                for row in results:
+                    wallet_address, status, attempts, error_message, created_at, updated_at, json_data, json_timestamp = row
+                    
+                    csv_row = {
+                        'wallet_address': wallet_address,
+                        'status': status,
+                        'attempts': attempts or 0,
+                        'error_message': error_message or '',
+                        'created_at': created_at,
+                        'updated_at': updated_at,
+                        'stats_collected_at': json_timestamp or '',
+                        'balance': '',
+                        'neura_points': '',
+                        'trading_volume_month': '',
+                        'trading_volume_all_time': '',
+                        'pulses_count': '',
+                        'first_pulse_collected': '',
+                        'last_pulse_collected': '',
+                        'tasks_completed': '',
+                        'transactions_count': ''
+                    }
+                    
+                    if json_data:
+                        try:
+                            stats = json.loads(json_data)
+                            
+                            csv_row['balance'] = stats.get('balance', '')
+                            
+                            account_info = stats.get('account_info', {})
+                            if account_info:
+                                csv_row['neura_points'] = account_info.get('neuraPoints', '')
+                                
+                                trading_volume = account_info.get('tradingVolume', {})
+                                if trading_volume:
+                                    csv_row['trading_volume_month'] = trading_volume.get('month', '')
+                                    csv_row['trading_volume_all_time'] = trading_volume.get('allTime', '')
+                                
+                                pulses = account_info.get('pulses', {})
+                                if pulses:
+                                    csv_row['first_pulse_collected'] = pulses.get('firstCollectedAt', '')
+                                    csv_row['last_pulse_collected'] = pulses.get('lastCollectedAt', '')
+                                    pulses_data = pulses.get('data', [])
+                                    csv_row['pulses_count'] = len(pulses_data) if pulses_data else 0
+                            
+                            tasks = stats.get('tasks')
+                            csv_row['tasks_completed'] = len(tasks) if tasks else 0
+                            
+                            transactions = stats.get('transactions', [])
+                            csv_row['transactions_count'] = len(transactions) if transactions else 0
+                            
+                        except (json.JSONDecodeError, TypeError) as e:
+                            log_warning(f"⚠️ Ошибка парсинга JSON для {wallet_address}: {e}")
+                    
+                    writer.writerow(csv_row)
+            
+            CURRENT_CSV_FILE = final_csv
+            
+            log_success(f"✅ Экспорт завершен: {len(results)} записей → {final_csv.name}")
+            return str(final_csv)
+            
+    except Exception as e:
+        log_error(f"❌ Ошибка экспорта результатов в CSV: {e}")
+        return None
 
 
 def clear_database():
@@ -1031,7 +1135,6 @@ def neura_statistics():
     stats = get_progress_stats()
     total_in_db = sum(stats.values())
     
-    # Флаг для отслеживания необходимости продолжения обработки
     should_process = False
     
     if total_in_db > 0:
@@ -1045,6 +1148,7 @@ def neura_statistics():
             action = select(
                 "Что делать дальше?",
                 choices=[
+                    Choice("📎 Экспортировать текущие результаты из БД в CSV", value='export'),
                     Choice("🔄 Начать заново (очистить БД и пересобрать статистику)", value='restart'),
                     Choice("❌ Выход", value='cancel')
                 ],
@@ -1055,12 +1159,45 @@ def neura_statistics():
             if action == 'cancel':
                 log_info("👋 Завершено")
                 return
+            elif action == 'export':
+                log_info("📊 Экспорт текущих результатов из БД...")
+                final_csv_path = export_all_results_to_csv()
+                if final_csv_path:
+                    log_success(f"✅ Экспорт завершен: {Path(final_csv_path).name}")
+                    
+                    send_tg = select(
+                        "Отправить CSV файл в Telegram?",
+                        choices=[
+                            Choice("✅ Да, отправить", value='yes'),
+                            Choice("❌ Нет, не надо", value='no')
+                        ],
+                        qmark='📱',
+                        pointer='👉'
+                    ).ask()
+                    
+                    if send_tg == 'yes':
+                        try:
+                            send_telegram_notification(
+                                notif_type="success",
+                                title="Экспорт статистики Neura",
+                                message=f"✅ Экспортировано: {stats['success']} записей из БД",
+                                main_title="Neura Statistics Export",
+                                file_path=final_csv_path
+                            )
+                            log_success("📱 CSV файл отправлен в Telegram")
+                        except Exception as e:
+                            log_error(f"❌ Ошибка отправки в Telegram: {e}")
+                    
+                    log_info(f"📂 Файл сохранен: {final_csv_path}")
+                else:
+                    log_error("❌ Не удалось экспортировать результаты")
+                return
             elif action == 'restart':
                 clear_database()
                 initialize_all_wallets(wallets)
                 CURRENT_CSV_FILE = create_new_csv_file()
                 log_success("✅ БД очищена, созданы новые задачи")
-                should_process = True  # Продолжаем обработку
+                should_process = True 
         
         elif has_pending:
             print(f"\n📊 Найдены незавершенные задачи:")
@@ -1073,6 +1210,7 @@ def neura_statistics():
                 "Что делать с незавершенными задачами?",
                 choices=[
                     Choice("▶️  Продолжить обработку", value='continue'),
+                    Choice("📎 Экспортировать текущие результаты из БД в CSV", value='export'),
                     Choice("🔄 Начать заново (очистить БД)", value='restart'),
                     Choice("❌ Отмена", value='cancel')
                 ],
@@ -1083,22 +1221,55 @@ def neura_statistics():
             if action == 'cancel':
                 log_info("❌ Отменено пользователем")
                 return
+            elif action == 'export':
+                log_info("📊 Экспорт текущих результатов из БД...")
+                final_csv_path = export_all_results_to_csv()
+                if final_csv_path:
+                    log_success(f"✅ Экспорт завершен: {Path(final_csv_path).name}")
+                    
+                    send_tg = select(
+                        "Отправить CSV файл в Telegram?",
+                        choices=[
+                            Choice("✅ Да, отправить", value='yes'),
+                            Choice("❌ Нет, не надо", value='no')
+                        ],
+                        qmark='📱',
+                        pointer='👉'
+                    ).ask()
+                    
+                    if send_tg == 'yes':
+                        try:
+                            completed = stats['success'] + stats['error']
+                            send_telegram_notification(
+                                notif_type="info",
+                                title="Экспорт статистики Neura (частичный)",
+                                message=f"✅ Успешно: {stats['success']}\n❌ Ошибок: {stats['error']}\n⏸️ Не обработано: {stats['pending'] + stats['processing']}",
+                                main_title="Neura Statistics Export",
+                                file_path=final_csv_path
+                            )
+                            log_success("📱 CSV файл отправлен в Telegram")
+                        except Exception as e:
+                            log_error(f"❌ Ошибка отправки в Telegram: {e}")
+                    
+                    log_info(f"📂 Файл сохранен: {final_csv_path}")
+                else:
+                    log_error("❌ Не удалось экспортировать результаты")
+                return
             elif action == 'restart':
                 clear_database()
                 initialize_all_wallets(wallets)
                 CURRENT_CSV_FILE = create_new_csv_file()
                 log_success("✅ БД очищена, созданы новые задачи")
-                should_process = True  # Продолжаем обработку
+                should_process = True 
             elif action == 'continue':
-                should_process = True  # Продолжаем обработку
+                should_process = True 
     else:
         log_info("📝 Создание задач для всех кошельков...")
         initialize_all_wallets(wallets)
         CURRENT_CSV_FILE = create_new_csv_file()
         log_success(f"✅ Создано {len(wallets)} задач")
-        should_process = True  # Продолжаем обработку
+        should_process = True 
     
-    # Проверяем, нужно ли продолжать обработку
     if not should_process:
         log_info("⏸️  Обработка не запущена")
         return
@@ -1112,7 +1283,6 @@ def neura_statistics():
     
     log_info(f"🔍 Создание индекса приватных ключей для {len(wallets)} кошельков...")
     
-    # Создаем словарь адрес -> (приватный ключ, индекс) для O(1) поиска
     wallet_map = {}
     for i, pk in enumerate(wallets):
         normalized_pk = pk if pk.startswith('0x') else '0x' + pk
@@ -1130,7 +1300,6 @@ def neura_statistics():
     for wallet_info in unprocessed:
         wallet_address = wallet_info['address']
         
-        # Быстрый поиск через словарь O(1) вместо цикла O(n)
         if wallet_address not in wallet_map:
             log_warning(f"⚠️ Не найден приватный ключ для {wallet_address[:10]}")
             continue
@@ -1157,7 +1326,6 @@ def neura_statistics():
     log_info(f"⏱️  Остальные подтягиваются с минимальной задержкой")
     log_info(f"{'='*70}\n")
     
-    # Инициализация прогресса
     global current_progress, stop_monitoring
     current_progress = {
         'processed': 0,
@@ -1165,9 +1333,8 @@ def neura_statistics():
         'errors': 0,
         'start_time': time.time()
     }
-    stop_monitoring.clear()  # Сбрасываем флаг остановки
+    stop_monitoring.clear()  
     
-    # Отправляем уведомление о старте
     try:
         send_telegram_notification(
             notif_type="info",
@@ -1181,9 +1348,8 @@ def neura_statistics():
     
     success_count = 0
     error_count = 0
-    progress_interval = 60  # Показывать прогресс каждые 60 секунд
+    progress_interval = 60 
     
-    # Запускаем отдельный поток для мониторинга прогресса
     monitor_thread = threading.Thread(
         target=progress_monitor_thread,
         args=(len(tasks), progress_interval),
@@ -1205,14 +1371,11 @@ def neura_statistics():
                 error_count += 1
                 log_error(f"❌ Критическая ошибка потока: {e}")
     
-    # Останавливаем мониторинг
     stop_monitoring.set()
-    monitor_thread.join(timeout=5)  # Ждем завершения потока мониторинга
+    monitor_thread.join(timeout=5)  
     
-    # Финальный прогресс
     show_progress_status(len(tasks))
     
-    # Расчет времени выполнения
     total_time = time.time() - current_progress['start_time']
     hours = int(total_time // 3600)
     minutes = int((total_time % 3600) // 60)
@@ -1231,11 +1394,23 @@ def neura_statistics():
     stats = get_progress_stats()
     total_processed = stats['success'] + stats['error']
     
-    # Отправляем финальное уведомление с CSV файлом
+    log_info("📊 Создание итогового CSV файла с всеми результатами из БД...")
+    final_csv_path = export_all_results_to_csv()
+    
     try:
-        # Используем глобальную переменную CURRENT_CSV_FILE вместо поиска по дате
-        if CURRENT_CSV_FILE and CURRENT_CSV_FILE.exists():
-            log_info(f"📎 Прикрепление CSV файла: {CURRENT_CSV_FILE.name}")
+        if final_csv_path and Path(final_csv_path).exists():
+            log_info(f"📎 Прикрепление итогового CSV файла: {Path(final_csv_path).name}")
+            send_telegram_notification(
+                notif_type="success",
+                title="Статистика Neura собрана",
+                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}\n📊 Экспорт: {total_processed} записей из БД",
+                main_title="Neura Statistics",
+                file_path=final_csv_path
+            )
+            log_success(f"📱 Telegram уведомление с итоговым CSV файлом отправлено ({Path(final_csv_path).name})")
+        elif CURRENT_CSV_FILE and CURRENT_CSV_FILE.exists():
+            log_warning("⚠️ Итоговый CSV не создан, отправляем рабочий файл")
+            log_info(f"📎 Прикрепление рабочего CSV файла: {CURRENT_CSV_FILE.name}")
             send_telegram_notification(
                 notif_type="success",
                 title="Статистика Neura собрана",
@@ -1243,9 +1418,9 @@ def neura_statistics():
                 main_title="Neura Statistics",
                 file_path=str(CURRENT_CSV_FILE)
             )
-            log_success(f"📱 Telegram уведомление с CSV файлом отправлено ({CURRENT_CSV_FILE.name})")
+            log_success(f"📱 Telegram уведомление с рабочим CSV файлом отправлено ({CURRENT_CSV_FILE.name})")
         else:
-            log_warning(f"⚠️ CSV файл не найден: {CURRENT_CSV_FILE}")
+            log_warning(f"⚠️ Ни итоговый, ни рабочий CSV файлы не найдены")
             send_telegram_notification(
                 notif_type="success",
                 title="Статистика Neura собрана",
