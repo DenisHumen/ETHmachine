@@ -7,7 +7,7 @@ TX_SEND_ATTEMPTS = 1  # Количество попыток отправки т�
 RETRY_COUNT = 10  # Количество попыток в случае ошибки | замен прокси, rpc и т.д.
 
 '------------------------- Captcha Settings -----------------------'
-astrum_CAPTCHA_API_KEY = '13c904aa-ec6d-4fac-a84c-e3b9cf5959b5'  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
+astrum_CAPTCHA_API_KEY = ''  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
 
 '------------------------- проверка статуса транзакций -----------------------'
 WHAITE_TRANSACTION_PENDING = 10  # Количество секунд ожидания ожидания подтверждения транзакции "Pending" (0 ставить не советую, минимум 5)
