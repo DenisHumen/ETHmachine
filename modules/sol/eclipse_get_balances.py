@@ -1,5 +1,5 @@
 """
-Модуль для проверки балансов кошельков в сети Solana Mainnet
+Модуль для проверки балансов кошельков в сети Eclipse (Solana fork)
 Поддерживает многопоточность, прокси и повторные попытки при ошибках
 """
 
@@ -41,7 +41,7 @@ logger.add(
 log_dir = project_root / 'log'
 log_dir.mkdir(exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_file = log_dir / f'solana_balance_check_{timestamp}.log'
+log_file = log_dir / f'eclipse_balance_check_{timestamp}.log'
 
 logger.add(
     log_file,
@@ -131,13 +131,13 @@ def get_random_proxy(proxies_list):
     return random.choice(proxies_list)
 
 
-def get_solana_rpc():
-    """Получает RPC URL для Solana Mainnet"""
-    solana_network = SOL_NETWORKS.get('🚀 Solana Mainnet', {})
-    rpc_urls = solana_network.get('rpc_urls', [])
+def get_eclipse_rpc():
+    """Получает RPC URL для Eclipse Mainnet"""
+    eclipse_network = SOL_NETWORKS.get('🚀 Eclipse Mainnet', {})
+    rpc_urls = eclipse_network.get('rpc_urls', [])
     
     if not rpc_urls:
-        logger.error("❌ RPC URL для Solana Mainnet не найден в config/networks.py")
+        logger.error("❌ RPC URL для Eclipse Mainnet не найден в config/networks.py")
         return None
     
     return random.choice(rpc_urls)
@@ -148,7 +148,7 @@ def check_balance_with_retry(wallet_address, wallet_index, total, proxies_list):
     Проверяет баланс кошелька с повторными попытками при ошибках
     
     Args:
-        wallet_address: Адрес кошелька Solana
+        wallet_address: Адрес кошелька Solana/Eclipse
         wallet_index: Индекс кошелька (для назначения прокси)
         total: Общее количество кошельков
         proxies_list: Список прокси
@@ -162,7 +162,7 @@ def check_balance_with_retry(wallet_address, wallet_index, total, proxies_list):
     
     for attempt in range(1, RETRY_COUNT + 1):
         try:
-            rpc_url = get_solana_rpc()
+            rpc_url = get_eclipse_rpc()
             if not rpc_url:
                 raise Exception("RPC URL не найден")
             
@@ -201,7 +201,7 @@ def check_balance_with_retry(wallet_address, wallet_index, total, proxies_list):
                 raise Exception(f"RPC Error: {error_msg}")
             
             balance_lamports = result.get('result', {}).get('value', 0)
-            balance_sol = balance_lamports / 10**9
+            balance_eth = balance_lamports / 10**18 
             
             processed_wallets += 1
             successful_checks += 1
@@ -209,14 +209,14 @@ def check_balance_with_retry(wallet_address, wallet_index, total, proxies_list):
             progress = f"[{processed_wallets}/{total}]"
             logger.success(
                 f"{progress} ✅ {wallet_address[:8]}...{wallet_address[-6:]} | "
-                f"Balance: {balance_sol:.6f} SOL | "
+                f"Balance: {balance_eth:.6f} ETH | "
                 f"Proxy: {proxy_display} | "
                 f"Attempt: {attempt}/{RETRY_COUNT}"
             )
             
             return {
                 'wallet': wallet_address,
-                'balance': balance_sol,
+                'balance': balance_eth,
                 'balance_lamports': balance_lamports,
                 'status': 'success',
                 'attempts': attempt,
@@ -301,7 +301,7 @@ def check_balance_with_retry(wallet_address, wallet_index, total, proxies_list):
     }
 
 
-def save_results_to_csv(results, filename='solana_balances.csv'):
+def save_results_to_csv(results, filename='eclipse_balances.csv'):
     """
     Сохраняет результаты проверки в CSV файл
     
@@ -314,20 +314,20 @@ def save_results_to_csv(results, filename='solana_balances.csv'):
         result_dir.mkdir(exist_ok=True)
         
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = result_dir / f"solana_balances_{timestamp_str}.csv"
+        filepath = result_dir / f"eclipse_balances_{timestamp_str}.csv"
         
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['wallet', 'balance_sol', 'balance_lamports', 'status', 'attempts', 'proxy_used', 'error', 'rpc_url']
+            fieldnames = ['wallet', 'balance_eth', 'balance_lamports', 'status', 'attempts', 'proxy_used', 'error', 'rpc_url']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             
             writer.writeheader()
             for result in results:
-                balance_sol = result.get('balance', 0)
-                balance_sol_formatted = f"{balance_sol:.9f}".rstrip('0').rstrip('.') if balance_sol > 0 else '0'
+                balance_eth = result.get('balance', 0)
+                balance_eth_formatted = f"{balance_eth:.18f}".rstrip('0').rstrip('.') if balance_eth > 0 else '0'
                 
                 writer.writerow({
                     'wallet': result.get('wallet', ''),
-                    'balance_sol': balance_sol_formatted,
+                    'balance_eth': balance_eth_formatted,
                     'balance_lamports': result.get('balance_lamports', 0),
                     'status': result.get('status', 'unknown'),
                     'attempts': result.get('attempts', 0),
@@ -343,15 +343,15 @@ def save_results_to_csv(results, filename='solana_balances.csv'):
         return None
 
 
-def solana_balance_checker():
+def eclipse_balance_checker():
     """
-    Главная функция для проверки балансов Solana
+    Главная функция для проверки балансов Eclipse
     Запускает многопоточную проверку балансов всех кошельков
     """
     global total_wallets, processed_wallets, successful_checks, failed_checks
     
     print("\n" + "="*70)
-    print("🌞 SOLANA MAINNET BALANCE CHECKER")
+    print("🌙 ECLIPSE MAINNET BALANCE CHECKER")
     print("="*70 + "\n")
     
     logger.info("📁 Загрузка кошельков и прокси...")
@@ -370,12 +370,12 @@ def solana_balance_checker():
     logger.info(f"📊 Кошельков: {total_wallets} | Прокси: {len(proxies)} | Потоков: {NUM_THREADS}")
     logger.info(f"🔄 Максимум повторов при ошибке: {RETRY_COUNT}")
     
-    rpc_url = get_solana_rpc()
+    rpc_url = get_eclipse_rpc()
     if not rpc_url:
-        logger.error("❌ Не удалось получить RPC URL для Solana")
+        logger.error("❌ Не удалось получить RPC URL для Eclipse")
         return
     
-    logger.info(f"🌐 Solana RPC: {rpc_url}\n")
+    logger.info(f"🌐 Eclipse RPC: {rpc_url}\n")
     
     start_time = time.time()
     results = []
@@ -383,9 +383,9 @@ def solana_balance_checker():
     try:
         send_telegram_notification(
             notif_type="info",
-            title="Solana Balance Check Started",
+            title="Eclipse Balance Check Started",
             message=f"🚀 Начата проверка {total_wallets} кошельков\n🧵 Потоков: {NUM_THREADS}",
-            main_title="Solana Balance Checker"
+            main_title="Eclipse Balance Checker"
         )
     except Exception as e:
         logger.debug(f"⚠️ Не удалось отправить Telegram уведомление: {e}")
@@ -432,7 +432,7 @@ def solana_balance_checker():
     print(f"✅ Успешно проверено:  {successful_checks} кошельков")
     print(f"❌ Ошибок:             {failed_checks} кошельков")
     print(f"📝 Всего:              {total_wallets} кошельков")
-    print(f"💰 Суммарный баланс:   {total_balance:.6f} SOL")
+    print(f"💰 Суммарный баланс:   {total_balance:.6f} ETH")
     print(f"⏱️  Время выполнения:   {time_str}")
     print("="*70 + "\n")
     
@@ -442,9 +442,9 @@ def solana_balance_checker():
     try:
         send_telegram_notification(
             notif_type="success",
-            title="Solana Balance Check Completed",
-            message=f"✅ Успешно: {successful_checks}\n❌ Ошибок: {failed_checks}\n💰 Баланс: {total_balance:.6f} SOL\n⏱️ Время: {time_str}",
-            main_title="Solana Balance Checker",
+            title="Eclipse Balance Check Completed",
+            message=f"✅ Успешно: {successful_checks}\n❌ Ошибок: {failed_checks}\n💰 Баланс: {total_balance:.6f} ETH\n⏱️ Время: {time_str}",
+            main_title="Eclipse Balance Checker",
             file_path=csv_file if csv_file else None
         )
     except Exception as e:
@@ -454,4 +454,4 @@ def solana_balance_checker():
 
 
 if __name__ == "__main__":
-    solana_balance_checker()
+    eclipse_balance_checker()

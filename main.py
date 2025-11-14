@@ -9,13 +9,8 @@ from questionary import Choice, select
 
 # Импортируем из нового централизованного модуля networks
 from config.networks import (
-    get_mainnet_networks, get_testnet_networks,
-    # Для обратной совместимости оставляем старые импорты
-    L1, base, sepolia, arbitrum, optimism, soneium, Polygon, Binance_Smart_Chain,
-    Avalanche, Fantom, Gravity_Alpha_Mainnet, zora,
-    somnia, mega_eth_testnet, Abstract, pharos_testnet, kite_testnet,
-    neura_testnet, nexus_testnet
-)
+    get_mainnet_networks, get_testnet_networks,)
+
 from config.config import (
     expected_completion_time, DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
 )
@@ -24,8 +19,6 @@ from config.config import (
 from modules.backup import create_backup, list_backups, backup_menu
 from modules.backup.backup_manager import BackupManager
 
-# Импорт модулей статистики
-# Neura statistics доступна только на Windows из-за зависимости от pyarmor_runtime.pyd
 neura_statistics = None
 if platform.system().lower() == 'windows':
     try:
@@ -36,7 +29,6 @@ if platform.system().lower() == 'windows':
 
 # Импорт новых модулей для работы с биржами
 from modules.config_validator import validate_configuration
-from modules.cex.exchange_selector import select_exchange_account
 
 def check_and_create_files():
     required_files = [
@@ -181,6 +173,8 @@ from modules.relay_link.relay_link import main as relay_bridge_main
 from modules.sol.sol_wallet_generator import sol_generate_wallets
 from modules.sol.sol_nice_address import sol_generate_nice_wallets
 from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
+from modules.sol.eclipse_get_balances import eclipse_balance_checker
+from modules.sol.sol_get_balances import solana_balance_checker
 
 
 from modules.eth.transfer_wallets_to_wallets import (
@@ -588,13 +582,15 @@ def main_menu():
                         ).ask()
                         match choices:
                             case 'check_wallet_balances_sol':
-                                #check_wallet_balances_sol()
-                                print(Fore.RED + "Функционал проверки балансов SOL в разработке, скоро будет доступен!\n")
+                                solana_balance_checker()
                             case 'check_token_balances_sol':
-                                #check_token_balances_sol()
                                 print(Fore.RED + "Функционал проверки токенов SOL в разработке, скоро будет доступен!\n")
                             case 'back':
                                 continue
+
+                    elif blockchain == 'Eclipse':
+                        eclipse_balance_checker()
+                        continue
 
                 case 'transactions':
                     choices = select(

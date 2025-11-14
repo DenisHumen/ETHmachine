@@ -4,7 +4,6 @@
 Проверяет корректность всех настроек и файлов данных
 """
 
-import os
 import sys
 import re
 import csv
@@ -28,8 +27,6 @@ class ConfigValidator:
         
     def validate_all(self):
         """Выполнить полную проверку конфигурации"""
-        #logger.info("🔍 Начинаем проверку конфигурации...")
-        
         self.check_config_files()
         self.check_cex_settings()
         self.check_data_files()
@@ -41,14 +38,12 @@ class ConfigValidator:
         """Проверка наличия и корректности конфигурационных файлов"""
         logger.debug("📋 Проверка конфигурационных файлов...")
         
-        # Проверка config/config.py
         config_file = self.config_dir / "config.py"
         if not config_file.exists():
             self.errors.append("❌ Отсутствует файл config/config.py")
         else:
             self._validate_config_py(config_file)
         
-        # Проверка config/cex_settings.py
         cex_settings_file = self.config_dir / "cex_settings.py"
         if not cex_settings_file.exists():
             self.errors.append("❌ Отсутствует файл config/cex_settings.py")
@@ -58,7 +53,6 @@ class ConfigValidator:
     def _validate_config_py(self, config_file):
         """Проверка содержимого config.py"""
         try:
-            # Импортируем и проверяем основные настройки
             sys.path.insert(0, str(self.config_dir.parent))
             from config.config import (
                 TYPE_WITHDRAW, VALUES_TO_WITHDRAW, 
@@ -66,7 +60,6 @@ class ConfigValidator:
                 NUM_THREADS
             )
             
-            # Пытаемся импортировать NICKNAME_GENERATOR (может отсутствовать в старых конфигах)
             try:
                 from config.config import NICKNAME_GENERATOR
                 nickname_generator_exists = True
@@ -74,7 +67,6 @@ class ConfigValidator:
                 nickname_generator_exists = False
                 self.warnings.append("⚠️ NICKNAME_GENERATOR не найден в конфиге (добавьте настройки для генератора никнеймов)")
             
-            # Пытаемся импортировать RANDOM_PROXIES_TWITTER (может отсутствовать в старых конфигах)
             try:
                 from config.config import RANDOM_PROXIES_TWITTER
                 if not isinstance(RANDOM_PROXIES_TWITTER, bool):
@@ -82,14 +74,12 @@ class ConfigValidator:
             except ImportError:
                 self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER не найден в конфиге (добавьте для использования рандомных прокси в Twitter)")
             
-            # Проверка SFTP конфигурации
             try:
                 from config.config import SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP
                 self._validate_sftp_config(SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP)
             except ImportError:
                 self.warnings.append("⚠️ Настройки SFTP бэкапа не найдены в конфиге (добавьте SFTP_SERVER_INTO_BACKUP_ENABLE и SFTP_SERVER_INTO_BACKUP)")
             
-            # Проверки значений
             if TYPE_WITHDRAW not in [0, 1]:
                 self.warnings.append("⚠️ TYPE_WITHDRAW должен быть 1 или 0")
             
@@ -99,7 +89,6 @@ class ConfigValidator:
             if not isinstance(NUM_THREADS, int) or NUM_THREADS < 1:
                 self.warnings.append("⚠️ NUM_THREADS должен быть положительным числом")
             
-            # Проверка настроек генератора никнеймов (если существует)
             if nickname_generator_exists:
                 self._validate_nickname_generator(NICKNAME_GENERATOR)
             
@@ -116,7 +105,6 @@ class ConfigValidator:
             self.errors.append("❌ NICKNAME_GENERATOR должен быть словарем")
             return
         
-        # Проверка MIN_LENGTH
         min_length = config.get('MIN_LENGTH')
         if min_length is None or min_length == '':
             self.errors.append("❌ NICKNAME_GENERATOR['MIN_LENGTH'] не может быть пустым")
@@ -127,7 +115,6 @@ class ConfigValidator:
         elif min_length > 20:
             self.warnings.append("⚠️ NICKNAME_GENERATOR['MIN_LENGTH'] слишком большой (рекомендуется <= 20)")
         
-        # Проверка MAX_LENGTH  
         max_length = config.get('MAX_LENGTH')
         if max_length is None or max_length == '':
             self.errors.append("❌ NICKNAME_GENERATOR['MAX_LENGTH'] не может быть пустым")
@@ -136,21 +123,18 @@ class ConfigValidator:
         elif max_length > 50:
             self.warnings.append("⚠️ NICKNAME_GENERATOR['MAX_LENGTH'] слишком большой (рекомендуется <= 50)")
         
-        # Проверка соотношения MIN_LENGTH и MAX_LENGTH
         if isinstance(min_length, int) and isinstance(max_length, int):
             if min_length > max_length:
                 self.errors.append("❌ NICKNAME_GENERATOR['MIN_LENGTH'] не может быть больше MAX_LENGTH")
             elif max_length - min_length > 30:
                 self.warnings.append("⚠️ Слишком большой диапазон длины никнеймов (рекомендуется <= 30)")
         
-        # Проверка USE_SPECIAL_CHARS
         use_special = config.get('USE_SPECIAL_CHARS')
         if use_special is None or use_special == '':
             self.errors.append("❌ NICKNAME_GENERATOR['USE_SPECIAL_CHARS'] не может быть пустым")
         elif not isinstance(use_special, bool):
             self.errors.append("❌ NICKNAME_GENERATOR['USE_SPECIAL_CHARS'] должен быть True или False")
         
-        # Проверка QUANTITY
         quantity = config.get('QUANTITY')
         if quantity is None or quantity == '':
             self.errors.append("❌ NICKNAME_GENERATOR['QUANTITY'] не может быть пустым")
@@ -161,12 +145,10 @@ class ConfigValidator:
         elif quantity < 1:
             self.warnings.append("⚠️ NICKNAME_GENERATOR['QUANTITY'] слишком мал (рекомендуется >= 1)")
         
-        # Проверка USE_NUMBERS
         use_numbers = config.get('USE_NUMBERS')
         if use_numbers is not None and not isinstance(use_numbers, bool):
             self.errors.append("❌ NICKNAME_GENERATOR['USE_NUMBERS'] должен быть True или False")
         
-        # Проверка MIN_NUMBERS и MAX_NUMBERS (только если USE_NUMBERS включен)
         if use_numbers:
             min_numbers = config.get('MIN_NUMBERS')
             if min_numbers is not None:
@@ -182,13 +164,11 @@ class ConfigValidator:
                 elif max_numbers > 10:
                     self.warnings.append("⚠️ NICKNAME_GENERATOR['MAX_NUMBERS'] слишком большой (рекомендуется <= 10)")
             
-            # Проверка что MIN_NUMBERS <= MAX_NUMBERS
             if (min_numbers is not None and max_numbers is not None and 
                 isinstance(min_numbers, int) and isinstance(max_numbers, int)):
                 if min_numbers > max_numbers:
                     self.errors.append("❌ NICKNAME_GENERATOR['MIN_NUMBERS'] не может быть больше MAX_NUMBERS")
         
-        # Проверка NICE_NUMBERS
         nice_numbers = config.get('NICE_NUMBERS')
         if nice_numbers is not None:
             if not isinstance(nice_numbers, list):
@@ -204,7 +184,6 @@ class ConfigValidator:
     
     def _validate_sftp_config(self, enabled, config):
         """Проверка настроек SFTP бэкапа"""
-        # Проверяем только если SFTP включен
         if not enabled:
             logger.debug("ℹ️ SFTP бэкап отключен, пропускаем проверку")
             return
@@ -213,7 +192,6 @@ class ConfigValidator:
             self.warnings.append("⚠️ SFTP_SERVER_INTO_BACKUP должен быть словарем")
             return
         
-        # Проверка обязательных параметров
         required_fields = {
             'host': 'Хост SFTP сервера',
             'port': 'Порт SFTP сервера', 
@@ -225,22 +203,18 @@ class ConfigValidator:
             value = config.get(field)
             
             if field == 'port':
-                # Порт - это число
                 if not isinstance(value, int) or value <= 0 or value > 65535:
                     self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['{field}'] ({description}) должен быть числом от 1 до 65535")
             else:
-                # Остальные поля - строки
                 if not value or (isinstance(value, str) and not value.strip()):
                     self.warnings.append(f"⚠️ SFTP_SERVER_INTO_BACKUP['{field}'] ({description}) не может быть пустым при включенном SFTP")
         
-        # Проверка что заполнен хотя бы один метод авторизации
         password = config.get('password', '')
         key_file = config.get('key_file', '')
         
         if (not password or not password.strip()) and (not key_file or not key_file.strip()):
             self.warnings.append("⚠️ SFTP_SERVER_INTO_BACKUP: должен быть заполнен либо 'password' либо 'key_file' для авторизации")
         
-        # Проверка существования файла ключа (если указан)
         if key_file and key_file.strip():
             key_path = Path(key_file)
             if not key_path.exists():
@@ -320,32 +294,6 @@ class ConfigValidator:
         """Проверка файлов данных"""
         logger.debug("📁 Проверка файлов данных...")
         
-        # Проверяем основные файлы на существование
-        data_files = {
-            'proxy.csv': 'файл прокси',
-            'walletss.txt': 'файл кошельков', 
-            'private_keys.txt': 'файл приватных ключей'
-        }
-        
-        for filename, description in data_files.items():
-            file_path = self.data_dir / filename
-            
-            if not file_path.exists():
-                self.warnings.append(f"⚠️ Отсутствует {description}: data/{filename}")
-            else:
-                # Проверяем, не пустой ли файл
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
-                        if not content:
-                            self.warnings.append(f"⚠️ Пустой {description}: data/{filename}")
-                        else:
-                            lines = len([line for line in content.split('\n') if line.strip()])
-                            logger.debug(f"✅ {description}: {lines} записей")
-                except Exception as e:
-                    self.warnings.append(f"⚠️ Ошибка чтения {description}: {e}")
-        
-        # Детальная проверка содержимого файлов
         self._validate_mnemonic_file()
         self._validate_email_file() 
         self._validate_private_keys_file()
@@ -357,7 +305,6 @@ class ConfigValidator:
         """Проверка корректности ETH адреса"""
         if not isinstance(address, str):
             return False
-        # Базовая проверка формата ETH адреса
         return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address.strip()))
     
     def _is_valid_private_key(self, private_key):
@@ -365,7 +312,6 @@ class ConfigValidator:
         if not isinstance(private_key, str):
             return False
         private_key = private_key.strip()
-        # Приватный ключ может быть с префиксом 0x или без него
         if private_key.startswith('0x'):
             private_key = private_key[2:]
         return bool(re.match(r'^[a-fA-F0-9]{64}$', private_key))
@@ -392,11 +338,10 @@ class ConfigValidator:
         if not amount:
             return False
         
-        # Форматы: 1-2, 1-2eth, 1-2%
         patterns = [
-            r'^\d+(\.\d+)?-\d+(\.\d+)?$',           # 1-2
-            r'^\d+(\.\d+)?-\d+(\.\d+)?eth$',        # 1-2eth  
-            r'^\d+(\.\d+)?-\d+(\.\d+)?%$',          # 1-2%
+            r'^\d+(\.\d+)?-\d+(\.\d+)?$',
+            r'^\d+(\.\d+)?-\d+(\.\d+)?eth$',
+            r'^\d+(\.\d+)?-\d+(\.\d+)?%$',
         ]
         
         return any(re.match(pattern, amount, re.IGNORECASE) for pattern in patterns)
@@ -405,13 +350,13 @@ class ConfigValidator:
         """Проверка файла мнемоник"""
         file_path = self.data_dir / 'mnemonic.txt'
         if not file_path.exists():
-            return  # Не показываем предупреждение если файл не существует
+            return
             
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read().strip()
                 if not content:
-                    return  # Не показываем предупреждение если файл пустой
+                    return
                 
                 lines = [line.strip() for line in content.split('\n') if line.strip()]
                 for i, line in enumerate(lines, 1):
@@ -440,12 +385,11 @@ class ConfigValidator:
                     self.warnings.append("⚠️ Пустой файл data/email.csv")
                     return
                 
-                # Пропускаем заголовок, если он есть
                 start_idx = 1 if lines and lines[0] == ['email', 'password', 'imap_domain'] else 0
                 
                 data_lines = 0
                 for i, row in enumerate(lines[start_idx:], start_idx + 1):
-                    if not row or not any(cell.strip() for cell in row):  # Пропускаем пустые строки
+                    if not row or not any(cell.strip() for cell in row):
                         continue
                         
                     data_lines += 1
@@ -534,12 +478,11 @@ class ConfigValidator:
                     self.warnings.append("⚠️ Пустой файл data/transfer_token.csv")
                     return
                 
-                # Пропускаем заголовок, если он есть
                 start_idx = 1 if lines and lines[0] == ['from_wallet', 'to_wallet', 'intermediary', 'amount'] else 0
                 
                 data_lines = 0
                 for i, row in enumerate(lines[start_idx:], start_idx + 1):
-                    if not row or not any(cell.strip() for cell in row):  # Пропускаем пустые строки
+                    if not row or not any(cell.strip() for cell in row):
                         continue
                         
                     data_lines += 1
@@ -549,19 +492,15 @@ class ConfigValidator:
                     
                     from_wallet, to_wallet, intermediary, amount = [cell.strip() for cell in row]
                     
-                    # from_wallet всегда приватный ключ
                     if not self._is_valid_private_key(from_wallet):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: from_wallet должен быть приватным ключом")
                     
-                    # to_wallet всегда публичный адрес
                     if not self._is_valid_eth_address(to_wallet):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: to_wallet должен быть публичным ETH адресом")
                     
-                    # intermediary может быть пустым или приватным ключом
                     if intermediary and not self._is_valid_private_key(intermediary):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: intermediary должен быть приватным ключом или пустым")
                     
-                    # amount должен быть в корректном формате
                     if not self._is_valid_amount_format(amount):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: некорректный формат amount (ожидается: 1-2, 1-2eth, или 1-2%)")
                 
@@ -635,7 +574,6 @@ def validate_configuration(project_root=None):
 
 
 if __name__ == "__main__":
-    # Тест валидатора
     print("🧪 Тестирование валидатора конфигурации")
     is_valid = validate_configuration()
     

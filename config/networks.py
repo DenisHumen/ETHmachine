@@ -117,8 +117,29 @@ NETWORKS = {
         'tx_url': "https://nexus.testnet.blockscout.com/tx/",
         'type': 'testnet'
     },
+    '🚀 ARC Testnet': {
+        'chain_id': 5042002,
+        'rpc_urls': ['https://rpc.testnet.arc.network'],
+        'symbol': 'USDC',
+        'tx_url': "https://testnet.arcscan.app/tx/",
+        'type': 'testnet'
+    },
 }
 
+SOL_NETWORKS = {
+    '🚀 Solana Mainnet': {
+        'rpc_urls': ['https://api.mainnet-beta.solana.com'],
+        'symbol': 'SOL',
+        'tx_url': "https://solscan.io/tx/",
+        'type': 'mainnet'
+    },
+        '🚀 Eclipse Mainnet': {
+        'rpc_urls': ['https://mainnetbeta-rpc.eclipse.xyz'],
+        'symbol': 'ETH',
+        'tx_url': "https://eclipsescan.xyz/tx/",
+        'type': 'mainnet'
+    },
+}
 
 # === ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ===
 
