@@ -227,7 +227,7 @@ def main_menu():
                     Choice('💲 BALANCES                     🌟 Проверить балансы нативка/токены', 'check_balances'),
                     Choice('🚀 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
-                    Choice('📊 Check project stats         🌟 Проверка статистики по проектам', 'project_stats'),
+                    Choice('📊 Check project stats          🌟 Проверка статистики по проектам', 'project_stats'),
                     #Choice('🔍 Selenium Profile              🌟 Профиль Selenium', 'selenium_profile'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     #Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
