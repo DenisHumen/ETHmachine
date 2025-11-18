@@ -20,7 +20,7 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Optimism': {
-        'rpc_urls': ['https://optimism-rpc.publicnode.com', 'https://optimism.drpc.org'],
+        'rpc_urls': ['https://optimism.drpc.org'],
         'symbol': 'ETH',
         'tx_url': "https://optimistic.etherscan.io/tx/",
         'type': 'mainnet'
