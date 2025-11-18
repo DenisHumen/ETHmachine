@@ -87,12 +87,6 @@ NETWORKS = {
         'tx_url': "https://sepolia.etherscan.io/tx/",
         'type': 'testnet'
     },
-    '🚀 Mega ETH Testnet': {
-        'rpc_urls': ['https://carrot.megaeth.com/rpc'],
-        'symbol': 'ETH',
-        'tx_url': "https://www.oklink.com/ru/megaeth-testnet/tx/",
-        'type': 'testnet'
-    },
     '🚀 Pharos Testnet': {
         'rpc_urls': ['https://atlantic.dplabs-internal.com'],
         'symbol': 'ETH',
@@ -276,7 +270,6 @@ Abstract = NETWORKS['🚀 Abstract']['rpc_urls']
 somnia = NETWORKS['🚀 Somnia']['rpc_urls']
 
 sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
-mega_eth_testnet = NETWORKS['🚀 Mega ETH Testnet']['rpc_urls']
 pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']
 kite_testnet = NETWORKS['🚀 Kite Testnet']['rpc_urls']
 neura_testnet = NETWORKS['🚀 Neura Testnet']['rpc_urls']

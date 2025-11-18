@@ -817,12 +817,24 @@ def check_wallet_balances_all_networks(all_networks):
                     end="",
                     flush=True,
                 )
-    # Сохраняем результаты после обработки всех кошельков
-    save_results_all_networks(results, all_networks, wallets)
-    logger.success("✅ Результаты сохранены в result/result.csv")
-    #logger.info("="*80 + "\n")
+    
+    logger.info("")
+    logger.info("="*80)
+    logger.info("📊 ИТОГОВАЯ СТАТИСТИКА:")
+    logger.success(f"✅ Успешно обработано: {successful_count}")
+    logger.error(f"❌ Ошибок: {failed_count}")
+    logger.info(f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
+    
+    total_time = time.time() - start_time
+    logger.info(f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
+    
+    logger.info("💾 Сохраняем результаты...")
+    saved_result = save_results_all_networks(results, all_networks, wallets)
+    if saved_result:
+        logger.success("✅ Результаты сохранены в result/result.csv")
+    logger.info("="*80)
+    
     logger.info("💬 Отправляем уведомление в Telegram...")
-    # Уведомление в Telegram с файлом
     from modules.notifications import send_telegram_notification
     result_file_path = project_root / 'result' / 'result.csv'
     send_telegram_notification(

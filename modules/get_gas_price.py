@@ -296,10 +296,7 @@ def get_all_networks():
                 if isinstance(attr_value, list) and attr_value:  # Проверяем что это список RPC URLs
                     # Определяем тип сети по названию
                     if any(testnet_keyword in attr_name.lower() for testnet_keyword in ['testnet', 'test']):
-                        # Форматируем название для testnet сетей
-                        if attr_name == 'mega_eth_testnet':
-                            formatted_name = "🚀 Mega ETH"
-                        elif attr_name == 'pharos_testnet':
+                        if attr_name == 'pharos_testnet':
                             formatted_name = "🚀 Pharos"
                         elif attr_name == 'kite_testnet':
                             formatted_name = "🚀 Kite Testnet"

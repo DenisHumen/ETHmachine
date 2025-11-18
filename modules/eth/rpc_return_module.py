@@ -24,7 +24,9 @@ def get_network_rpc_selection():
         choices=[
             Choice('🌐 Mainnet', 'mainnet'),
             Choice('🔧 Testnet', 'testnet'),
-            Choice('🌍 Проверить ВСЕ сети', 'all_networks'),
+            Choice('🌍 Проверить ВСЕ Mainnet сети', 'all_mainnet'),
+            Choice('🔧 Проверить ВСЕ Testnet сети', 'all_testnet'),
+            Choice('🌎 Проверить АБСОЛЮТНО ВСЕ сети', 'all_networks'),
             Choice('🔙 Back', 'back')
         ],
         qmark='🛠️',
@@ -33,6 +35,12 @@ def get_network_rpc_selection():
 
     if network_type == 'back':
         return None, None, None
+    
+    if network_type == 'all_mainnet':
+        return 'ALL_NETWORKS', mainnet_rpc_urls, 'All Mainnet Networks'
+    
+    if network_type == 'all_testnet':
+        return 'ALL_NETWORKS', testnet_rpc_urls, 'All Testnet Networks'
     
     if network_type == 'all_networks':
         all_networks = {}

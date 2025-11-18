@@ -891,9 +891,6 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
 
         else:
             # Новая логика: прямой перевод from -> to
-            if not MULTI_THREADING:
-                logger.info(f"[{dt_str}] Прямой перевод from -> to...")
-            
             nonce_from = get_nonce_safe(w3, from_acc.address)
             if nonce_from is None:
                 logger.error(f"Не удалось получить nonce для {from_acc.address}, пропуск")
@@ -960,12 +957,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
             for attempt in range(TX_SEND_ATTEMPTS):
                 try:
                     signed_tx = w3.eth.account.sign_transaction(tx, from_priv)
-                    if not MULTI_THREADING:
-                        logger.info(f"[{dt_str}] Отправка from -> to...")
                     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                    if not MULTI_THREADING:
-                        logger.success(f"✅ Успешно отправлено from -> to. Tx hash: {w3.to_hex(tx_hash)}")
-
                     break
                 except Exception as e:
                     logger.error(f"❌ Ошибка отправки from -> to (попытка {attempt+1}): {e}")
@@ -987,14 +979,13 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
                 return
 
             # Ждем подтверждения
-            if not MULTI_THREADING:
-                logger.info("Ожидание подтверждения транзакции from -> to...")
             time.sleep(WHAITE_TRANSACTION_PENDING)
             for attempt in range(WHAITE_TRANSACTION_PENDING_COUNT):
                 try:
                     receipt = w3.eth.get_transaction_receipt(tx_hash)
                     if receipt and receipt.status == 1:
-                        logger.success(f"✅ Транзакция подтверждена. Tx hash: {explorer_url}{w3.to_hex(tx_hash)}")
+                        if not MULTI_THREADING:
+                            logger.success(f"✅ Транзакция подтверждена. Tx: {explorer_url}{w3.to_hex(tx_hash)}")
                         break
                     elif receipt and receipt.status == 0:
                         logger.error(f"❌ Транзакция неуспешна. Tx hash: {explorer_url}{w3.to_hex(tx_hash)}")
