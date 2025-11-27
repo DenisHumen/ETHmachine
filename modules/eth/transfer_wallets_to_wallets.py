@@ -525,6 +525,7 @@ def transefer_wallets_to_wallets(from_priv, intermediary_priv, to_wallet_value, 
 
         # В многопоточном режиме не выводим детальную информацию о запуске
         if not MULTI_THREADING:
+            print()
             logger.info("="*61)
             logger.info(f"[{dt_str}] Запуск {'цепочки' if use_intermediary else 'прямого'} перевода:")
             logger.info(f"  FROM:         priv - {from_priv[:10]}... | wallet - {from_acc.address[:10]}...")

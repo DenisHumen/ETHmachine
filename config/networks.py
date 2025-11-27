@@ -38,7 +38,7 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Binance Smart Chain': {
-        'rpc_urls': ['https://bsc.meowrpc.com'],
+        'rpc_urls': ['https://binance.llamarpc.com'],
         'symbol': 'BNB',
         'tx_url': "https://bscscan.com/tx/",
         'type': 'mainnet'
@@ -77,6 +77,12 @@ NETWORKS = {
         'rpc_urls': ['https://api.infra.mainnet.somnia.network/'],
         'symbol': 'SOMI',
         'tx_url': "https://explorer.somnia.network/tx/",
+        'type': 'mainnet'
+    },    
+    '🚀 Linea': {
+        'rpc_urls': ['https://linea.drpc.org', 'https://1rpc.io/linea'],
+        'symbol': 'ETH',
+        'tx_url': "https://lineascan.build/tx/",
         'type': 'mainnet'
     },
     

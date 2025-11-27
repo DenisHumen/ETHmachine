@@ -20,17 +20,20 @@ def get_network_rpc_selection():
     testnet_rpc_urls = get_testnet_networks()
     
     network_type = select(
-        "Select network type:",
+        "\n╔════════════════════════════════════════════════╗\n"
+        "║      Выбор типа сети / Network Type            ║\n"
+        "╚════════════════════════════════════════════════╝",
         choices=[
-            Choice('🌐 Mainnet', 'mainnet'),
-            Choice('🔧 Testnet', 'testnet'),
-            Choice('🌍 Проверить ВСЕ Mainnet сети', 'all_mainnet'),
-            Choice('🔧 Проверить ВСЕ Testnet сети', 'all_testnet'),
-            Choice('🌎 Проверить АБСОЛЮТНО ВСЕ сети', 'all_networks'),
-            Choice('🔙 Back', 'back')
+            Choice('   🌐 Mainnet Networks', 'mainnet'),
+            Choice('   🔧 Testnet Networks', 'testnet'),
+            Choice('   🌐 Все Mainnet сети', 'all_mainnet'),
+            Choice('   🔧 Все Testnet сети', 'all_testnet'),
+            Choice('   ⭕ АБСОЛЮТНО ВСЕ сети', 'all_networks'),
+            Choice('   🔙 Назад / Back', 'back')
         ],
-        qmark='🛠️',
-        pointer='👉'
+        qmark='🛠️ ',
+        pointer='👉',
+        instruction='\n💡 Используйте ↑↓ для навигации, Enter для выбора'
     ).ask()
 
     if network_type == 'back':
