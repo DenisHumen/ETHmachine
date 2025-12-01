@@ -16,19 +16,15 @@ from questionary import Choice, select
 from loguru import logger
 from web3 import Web3
 
-# Добавляем корневую директорию в путь для импорта конфигов
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
 from config import networks as rpc
 
-# Импорт селектора аккаунтов
 from modules.cex.exchange_selector import select_bitget_account
 
-# Настройка логирования
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
 os.makedirs(log_path, exist_ok=True)
 
-# Добавляем файловый хендлер для ошибок
 logger.add(
     os.path.join(log_path, 'bitget_withdraw_errors.log'),
     level="ERROR",
@@ -37,7 +33,6 @@ logger.add(
     retention="7 days"
 )
 
-# Добавляем файловый хендлер для всех логов
 logger.add(
     os.path.join(log_path, 'bitget_withdraw_full.log'),
     level="DEBUG",
@@ -46,7 +41,6 @@ logger.add(
     retention="3 days"
 )
 
-# Блокировка для thread-safe операций
 db_lock = threading.Lock()
 csv_lock = threading.Lock()
 
@@ -60,18 +54,16 @@ def load_proxies():
             for line in f:
                 line = line.strip()
                 if line and ':' in line:
-                    # Формат: login:password@ip:port
                     parts = line.split('@')
                     if len(parts) == 2:
-                        auth_part = parts[0]  # login:password
-                        ip_port = parts[1]    # ip:port
+                        auth_part = parts[0]  
+                        ip_port = parts[1]   
                         proxies.append({
                             'auth': auth_part,
                             'ip_port': ip_port,
                             'full': line
                         })
         
-        # Перемешиваем прокси в случайном порядке
         random.shuffle(proxies)
         return proxies
     except FileNotFoundError:
@@ -91,7 +83,7 @@ def get_random_proxy(proxies):
     
     if len(auth_parts) >= 2:
         login = auth_parts[0]
-        password = ':'.join(auth_parts[1:])  # На случай если в пароле есть двоеточие
+        password = ':'.join(auth_parts[1:])  
         ip_port = proxy_info['ip_port']
         
         proxy_url = f"http://{login}:{password}@{ip_port}"
@@ -136,11 +128,10 @@ class BeautifulProgressBar:
         
         elapsed_str = self._format_time(elapsed_time)
         
-        # Очищаем строку и выводим прогресс
         print(f'\r\033[K🚀 {self.desc}: |{bar}| {self.current}/{self.total} [{percentage:6.2f}%] ⏱️ {elapsed_str} ⏳ ETA: {eta_str}', end='', flush=True)
         
         if self.current >= self.total:
-            print()  # Переход на новую строку при завершении
+            print()  
     
     def _format_time(self, seconds):
         """Форматировать время в MM:SS"""
@@ -280,18 +271,17 @@ def pick_token_to_withdraw(balances):
 def pick_chain(token, bitget_api_key, bitget_api_secret, bitget_passphrase):
     """Выбор сети для вывода"""
     try:
-        # Используем новый публичный endpoint для получения информации о монетах и сетях
         response = requests.get(f"https://api.bitget.com/api/v2/spot/public/coins?coin={token}", timeout=10)
         
         chains = []
-        chain_info_list = []  # Для хранения подробной информации о сетях
+        chain_info_list = [] 
         
         if response.status_code == 200 and response.json()['code'] == '00000':
             data = response.json()['data']
             if data and len(data) > 0:
                 logger.info(f"Found coin data for {token}")
                 for chain_info in data[0]['chains']:
-                    if chain_info['withdrawable'] == 'true':  # Проверяем, доступен ли вывод
+                    if chain_info['withdrawable'] == 'true': 
                         chain_name = chain_info['chain']
                         withdraw_fee = chain_info['withdrawFee']
                         min_withdraw = chain_info['minWithdrawAmount']
@@ -345,21 +335,19 @@ def pick_chain(token, bitget_api_key, bitget_api_secret, bitget_passphrase):
 
 def calculate_withdraw_amount(token, available_balance):
     """Рассчитать сумму для вывода"""
-    if TYPE_WITHDRAW == 1:  # Выводить в USDT эквиваленте
+    if TYPE_WITHDRAW == 1:  
         price_in_usdt = get_token_price_in_usdt(token)
         if price_in_usdt is None:
             logger.warning(f"Cannot get price for {token}, using native amount")
             amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
         else:
-            # Конвертируем USDT суммы в нативный токен
             amount_from = VALUES_TO_WITHDRAW[0] / price_in_usdt
             amount_to = VALUES_TO_WITHDRAW[1] / price_in_usdt
             logger.info(f"Price {token}/USDT: {price_in_usdt}")
             logger.info(f"Withdraw range in {token}: {amount_from:.6f} - {amount_to:.6f}")
-    else:  # Выводить в нативном токене
+    else:  
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
     
-    # Проверяем достаточность баланса
     if amount_from > available_balance:
         logger.error(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}")
         
@@ -388,19 +376,17 @@ def calculate_withdraw_amount(token, available_balance):
 
 def calculate_individual_withdraw_amount(token, available_balance):
     """Рассчитать индивидуальную сумму для вывода для одного кошелька"""
-    if TYPE_WITHDRAW == 1:  # Выводить в USDT эквиваленте
+    if TYPE_WITHDRAW == 1:  
         price_in_usdt = get_token_price_in_usdt(token)
         if price_in_usdt is None:
             logger.warning(f"Cannot get price for {token}, using native amount")
             amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
         else:
-            # Конвертируем USDT суммы в нативный токен
             amount_from = VALUES_TO_WITHDRAW[0] / price_in_usdt
             amount_to = VALUES_TO_WITHDRAW[1] / price_in_usdt
-    else:  # Выводить в нативном токене
+    else:  
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
     
-    # Проверяем достаточность баланса
     if amount_from > available_balance:
         logger.warning(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}. Using all available balance.")
         return available_balance
@@ -414,7 +400,6 @@ def calculate_individual_withdraw_amount(token, available_balance):
 def get_withdraw_fee(token, chain):
     """Получить комиссию за вывод"""
     try:
-        # Используем новый публичный endpoint
         response = requests.get(f"https://api.bitget.com/api/v2/spot/public/coins?coin={token}", timeout=10)
         
         if response.status_code == 200 and response.json()['code'] == '00000':
@@ -439,10 +424,8 @@ def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float,
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
     
     try:
-        # Получаем комиссию
         fee = get_withdraw_fee(token, chain)
         
-        # Подготавливаем данные для вывода согласно документации API
         body = {
             "coin": token,
             "address": wallet,
@@ -524,14 +507,9 @@ def get_chain_rpc_list(chain):
         'Abstract': rpc.Abstract,
         'Soneium': rpc.soneium,
         'Somnia': rpc.somnia,
-        # Testnets
-        'Sepolia': rpc.sepolia,
-        'Kite Testnet': rpc.kite_testnet,
-        'MegaETH Testnet': rpc.mega_eth_testnet,
-        'Pharos Testnet': rpc.pharos_testnet,
     }
     
-    return chain_mapping.get(chain, rpc.L1)  # По умолчанию используем Ethereum
+    return chain_mapping.get(chain, rpc.L1)  
 
 
 def get_working_web3_connection(chain):
@@ -539,13 +517,11 @@ def get_working_web3_connection(chain):
     rpc_list = get_chain_rpc_list(chain)
     proxies_list = load_proxies()
     
-    # Сначала пробуем с прокси
     if proxies_list:
         proxy = get_random_proxy(proxies_list)
         if proxy:
             for rpc_url in rpc_list:
                 try:
-                    # Создаем HTTPProvider с прокси
                     session = requests.Session()
                     session.proxies.update(proxy)
                     
@@ -557,7 +533,6 @@ def get_working_web3_connection(chain):
                     logger.debug(f"Не удалось подключиться к {rpc_url} с прокси: {ex}")
                     continue
     
-    # Если прокси не сработал, пробуем без прокси
     logger.info(f"Подключение к {chain} без прокси (fallback)")
     for rpc_url in rpc_list:
         try:
@@ -575,7 +550,6 @@ def get_working_web3_connection(chain):
 
 def get_token_contract_address(token, chain):
     """Получить адрес контракта токена для конкретной сети"""
-    # Словарь с адресами популярных токенов для разных сетей
     token_addresses = {
         'USDT': {
             'ERC20': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
@@ -607,7 +581,6 @@ def get_token_contract_address(token, chain):
             'Gravity Alpha Mainnet': '0x0000000000000000000000000000000000000000',  # Нативный токен
             'Gravity': '0x0000000000000000000000000000000000000000'
         },
-        # Нативные токены для разных сетей
         'ETH': {
             'Ethereum': '0x0000000000000000000000000000000000000000',
             'ERC20': '0x0000000000000000000000000000000000000000',
@@ -659,7 +632,6 @@ def check_native_balance(w3, wallet_address):
 def check_token_balance(w3, wallet_address, token_address):
     """Проверить баланс ERC20 токена"""
     try:
-        # ABI для функции balanceOf
         erc20_abi = [
             {
                 "constant": True,
@@ -679,13 +651,10 @@ def check_token_balance(w3, wallet_address, token_address):
         
         contract = w3.eth.contract(address=token_address, abi=erc20_abi)
         
-        # Получаем баланс в wei
         balance_wei = contract.functions.balanceOf(wallet_address).call()
         
-        # Получаем количество десятичных знаков
         decimals = contract.functions.decimals().call()
         
-        # Конвертируем в человекочитаемый формат
         balance = balance_wei / (10 ** decimals)
         
         return float(balance)
@@ -703,23 +672,19 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f"{wallet_prefix}Ожидание поступления {expected_amount} {token} на кошелек {wallet_address}")
     
-    # Получаем подключение к Web3
     w3 = get_working_web3_connection(chain)
     if not w3:
         logger.warning(f"{wallet_prefix}Cannot connect to {chain} network, skipping balance check")
         return True
     
-    # Получаем начальный баланс
     token_contract_address = get_token_contract_address(token, chain)
     logger.debug(f"{wallet_prefix}Token: {token}, Chain: {chain}, Contract: {token_contract_address}")
     
     if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
-        # Нативный токен
         initial_balance = check_native_balance(w3, wallet_address)
         logger.info(f"{wallet_prefix}Initial native balance: {initial_balance} {token}")
         logger.debug(f"{wallet_prefix}Checking native token balance for {token} on {chain}")
     else:
-        # ERC20 токен
         initial_balance = check_token_balance(w3, wallet_address, token_contract_address)
         logger.info(f"{wallet_prefix}Initial {token} balance: {initial_balance}")
         logger.debug(f"{wallet_prefix}Checking ERC20 token balance for {token} on {chain}")
@@ -728,15 +693,14 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
         logger.error(f"{wallet_prefix}Failed to get initial balance, skipping balance check")
         return True
     
-    timeout_seconds = timeout_hours * 3600  # 1 час в секундах
+    timeout_seconds = timeout_hours * 3600 
     start_time = time.time()
-    check_interval = 30  # Проверяем каждые 30 секунд
+    check_interval = 30 
     
     while time.time() - start_time < timeout_seconds:
         try:
             time.sleep(check_interval)
             
-            # Проверяем текущий баланс
             if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
                 current_balance = check_native_balance(w3, wallet_address)
             else:
@@ -746,13 +710,11 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
                 logger.warning(f"{wallet_prefix}Failed to get current balance, retrying...")
                 continue
             
-            # Проверяем, увеличился ли баланс
             balance_increase = current_balance - initial_balance
             
             logger.info(f"{wallet_prefix}Current balance: {current_balance} {token}, increase: {balance_increase:.8f} {token}")
             
-            # Если баланс увеличился на ожидаемую сумму (с небольшой погрешностью)
-            if balance_increase >= expected_amount * 0.95:  # 95% от ожидаемой суммы
+            if balance_increase >= expected_amount * 0.95:  
                 logger.success(f"{wallet_prefix}Баланс поступил на кошелек {wallet_address}: +{balance_increase} {token}")
                 return True
             elif balance_increase > 0:
@@ -762,7 +724,6 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
             logger.error(f"{wallet_prefix}Ошибка при проверке баланса {wallet_address}: {ex}")
             time.sleep(30)
     
-    # Если время истекло - показываем красный баннер
     show_balance_timeout_error(wallet_address, expected_amount, token, wallet_number, total_wallets)
     return False
 
@@ -897,7 +858,6 @@ def process_single_wallet(wallet_data):
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
         
-        # Получаем текущий баланс для расчета суммы
         current_balances = get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not current_balances or token not in current_balances:
             logger.error(f"{wallet_prefix}No balance found for {token}")
@@ -906,10 +866,8 @@ def process_single_wallet(wallet_data):
             progress_bar.update()
             return False
         
-        # Рассчитываем индивидуальную сумму для этого кошелька
         individual_amount = calculate_individual_withdraw_amount(token, current_balances[token])
         
-        # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
         
         result = execute_bitget_withdraw(wallet, token, chain, individual_amount, 
@@ -920,7 +878,6 @@ def process_single_wallet(wallet_data):
             status = 'success'
             error_message = None
             
-            # Проверяем поступление баланса если включено ожидание
             if WAIT_FOR_BALANCE:
                 balance_received = check_wallet_balance(wallet, token, chain, individual_amount, wallet_number, total_wallets)
                 if not balance_received:
@@ -930,13 +887,10 @@ def process_single_wallet(wallet_data):
             status = 'failed'
             error_message = 'Withdrawal failed'
         
-        # Сохраняем прогресс
         save_progress(db_file, wallet, token, chain, individual_amount, status, error_message)
         
-        # Сохраняем результат в CSV
         save_result_to_csv(wallet, token, chain, individual_amount, status, error_message)
         
-        # Обновляем прогресс-бар после завершения обработки кошелька
         progress_bar.update()
         
         return status == 'success'
@@ -999,32 +953,27 @@ def bitget_withdraw():
     """Основная функция"""
     logger.info("=== Bitget Withdrawal Module ===")
     
-    # Выбираем аккаунт Bitget
     exchange_name, account = select_bitget_account()
     if not account:
         logger.error("❌ Не выбран аккаунт Bitget")
         return
     
-    # Используем выбранный аккаунт
     bitget_api_key = account['api_key']
     bitget_api_secret = account['api_secret']
     bitget_passphrase = account['passphrase']
     
     logger.info(f"🏢 Используется аккаунт: {account['name']}")
     
-    # Проверяем существующий прогресс
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
         logger.info("Операция отменена")
         return
     
-    # Загружаем кошельки
     all_wallets = load_wallets()
     if not all_wallets:
         logger.error("No wallets found")
         return
     
-    # Если продолжаем, фильтруем уже обработанные кошельки
     if progress_action == 'continue':
         pending_wallets = get_pending_wallets(db_file)
         wallets = [w for w in all_wallets if w in pending_wallets]
@@ -1038,23 +987,19 @@ def bitget_withdraw():
         return
     
     while True:
-        # Получаем балансы
         balances = get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not balances:
             logger.error("No tokens with positive balance")
             return
         
-        # Выбираем токен
         token = pick_token_to_withdraw(balances)
         if not token:
             return
         
-        # Выбираем сеть
         chain = pick_chain(token, bitget_api_key, bitget_api_secret, bitget_passphrase)
         if not chain:
             continue
         
-        # Рассчитываем примерную сумму для отображения (будет пересчитана для каждого кошелька)
         available_balance = balances[token]
         sample_withdraw_amount = calculate_withdraw_amount(token, available_balance)
         if sample_withdraw_amount is None:
@@ -1062,7 +1007,6 @@ def bitget_withdraw():
         elif sample_withdraw_amount == "back":
             continue
         
-        # Подтверждение (показываем примерный диапазон)
         if TYPE_WITHDRAW == 1:
             price_in_usdt = get_token_price_in_usdt(token)
             if price_in_usdt:
@@ -1101,26 +1045,21 @@ def bitget_withdraw():
             logger.warning("Withdrawal cancelled")
             return
         
-        # Создаем записи в БД для новых кошельков (с временной суммой 0)
         if progress_action == 'new':
             for wallet in wallets:
                 save_progress(db_file, wallet, token, chain, 0, 'pending')
         
-        # Создаем прогресс-бар для отслеживания обработки кошельков
         progress_bar = BeautifulProgressBar(len(wallets), "Processing wallets", width=60)
         
-        # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
             wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets), bitget_api_key, bitget_api_secret, bitget_passphrase))
         
-        # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")
         successful = 0
         failed = 0
         
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            # Создаем задержки между запусками потоков
             futures = []
             for i, wallet_data in enumerate(wallet_data_list):
                 if i > 0:
@@ -1129,7 +1068,6 @@ def bitget_withdraw():
                 future = executor.submit(process_single_wallet, wallet_data)
                 futures.append(future)
             
-            # Ждем завершения всех потоков
             for future in futures:
                 try:
                     result = future.result()
@@ -1146,7 +1084,6 @@ def bitget_withdraw():
         logger.info(f"Failed withdrawals: {failed}")
         logger.info(f"Total processed: {successful + failed}")
         
-        # Проверяем, все ли кошельки обработаны успешно
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "pending"')

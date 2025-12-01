@@ -26,20 +26,17 @@ import sys
 from pathlib import Path
 import math
 
-# Импорт селектора аккаунтов
 from modules.cex.exchange_selector import select_bitget_account
 
 init()
 
-# --- Project paths ---
-project_root = Path(__file__).resolve().parent.parent.parent  # Поднимаемся до корня проекта
-log_dir = project_root.parent / 'log'  # На одну директорию выше, чем project_root
+project_root = Path(__file__).resolve().parent.parent.parent  
+log_dir = project_root.parent / 'log'  
 log_dir.mkdir(parents=True, exist_ok=True)
 
 result_dir = project_root / 'result'
 result_dir.mkdir(parents=True, exist_ok=True)
 
-# --- Logger setup ---
 logger.remove()
 logger.add(
     sys.stdout,
@@ -54,10 +51,9 @@ logger.add(
     retention="30 days"
 )
 
-# --- Configurable flags ---
-AUTO_TRANSFER = False   # Если True — будет автоматически пытаться переводить найденные ненулевые балансы на 'main'
-TRANSFER_MIN_AMOUNT = 1e-8  # Минимум для попытки перевода (в единицах монеты)
-REQUEST_TIMEOUT = 30  # seconds
+AUTO_TRANSFER = False   
+TRANSFER_MIN_AMOUNT = 1e-8  
+REQUEST_TIMEOUT = 30 
 PAUSE_BETWEEN_REQUESTS = 0.5
 
 class BitgetClient:
@@ -75,12 +71,9 @@ class BitgetClient:
         self.secret_key = secret_key
         self.passphrase = passphrase
 
-        # Production base
         self.base_url = "https://api.bitget.com"
-        # If sandbox had different URL - можно добавить, но по умолчанию Bitget использует тот же хост.
 
         self.session = requests.Session()
-        # Устанавливаем общие заголовки (Content-Type задаём в _get_headers)
         self.session.headers.update({
             "Accept": "application/json",
             "User-Agent": "BitgetBalanceCollector/1.0"
@@ -96,7 +89,7 @@ class BitgetClient:
         return base64.b64encode(mac.digest()).decode()
 
     def _get_headers(self, method, request_path, body=''):
-        timestamp = str(time.time())  # секунды, а не миллисекунды
+        timestamp = str(time.time())  
         signature = self._generate_signature(timestamp, method, request_path, body)
         return {
             'ACCESS-KEY': self.api_key,
@@ -117,9 +110,7 @@ class BitgetClient:
         """
         url = self.base_url + endpoint
 
-        # формируем request_path для подписи: endpoint + ?query (если есть)
         if params:
-            # Важно: порядок параметров должен быть стабильным для подписи; сортируем по ключу.
             from urllib.parse import urlencode
             qs = urlencode(params, doseq=True)
             request_path = endpoint + '?' + qs
@@ -146,16 +137,13 @@ class BitgetClient:
             logger.debug(f"Response status: {resp.status_code}")
             logger.debug(f"Response text: {resp.text}")
 
-            # Raise for HTTP status codes >= 400
             resp.raise_for_status()
-            # Try parse json
             try:
                 return resp.json()
             except json.JSONDecodeError:
                 raise RuntimeError("Response is not valid JSON")
 
         except requests.exceptions.HTTPError as e:
-            # логируем текст ответа если он есть
             text = e.response.text if e.response is not None else 'No response body'
             logger.error(f"HTTPError: {e} | status={getattr(e.response, 'status_code', None)} | text={text}")
             raise
@@ -166,19 +154,15 @@ class BitgetClient:
             logger.error(f"Unexpected exception during request: {e}")
             raise
 
-    # --- Subaccounts list and balance (robust multi-endpoint attempts) ---
     def get_subaccounts_list(self):
         """
         Получение списка стандартных субаккаунтов через правильный API.
         Возвращает список нормализованных dict: {'subUid': str, 'subName': str, 'raw': <original>}
         """
-        # Правильные эндпоинты для стандартных субаккаунтов
         endpoints = [
-            # Основной эндпоинт для получения списка субаккаунтов
             ("/api/spot/v1/account/sub-account-spot-assets", {}),
-            # Альтернативный эндпоинт
             ("/api/v2/spot/account/subaccount-assets", {}),
-            # Список субаккаунтов (если доступен)
+            ("/api/spot/v1/account/subAccount-list", {}),
             ("/api/spot/v1/account/subAccount-list", {}),
         ]
 
@@ -191,7 +175,6 @@ class BitgetClient:
                     logger.debug(f"Endpoint {endpoint} вернул пустой ответ")
                     continue
                     
-                # Проверяем успешность запроса
                 if resp.get('code') == '00000' or resp.get('status') == 'ok':
                     data = resp.get('data') or []
                     
@@ -201,12 +184,10 @@ class BitgetClient:
                         
                     normalized = []
 
-                    # Парсим разные форматы ответов
                     for item in data:
                         if not isinstance(item, dict):
                             continue
                             
-                        # Различные поля для идентификации субаккаунта
                         uid = str(item.get('userId') or item.get('subUid') or item.get('subaccountId') or item.get('id') or '')
                         name = (item.get('subaccountName') or 
                                item.get('subName') or 
@@ -241,13 +222,9 @@ class BitgetClient:
         Получение баланса стандартного субаккаунта.
         Возвращает список балансов в формате [{coin, available, frozen, ...}, ...] или [].
         """
-        # Правильные эндпоинты для получения баланса стандартных субаккаунтов
         balance_endpoints = [
-            # V1 API для spot активов субаккаунта
             ("/api/spot/v1/account/sub-account-spot-assets", {'subUid': subacct_id}),
-            # V2 API альтернатива
             ("/api/v2/spot/account/subaccount-assets", {'subUid': subacct_id}),
-            # Прямой запрос активов с параметром субаккаунта
             ("/api/spot/v1/account/assets", {'subUid': subacct_id}),
         ]
         
@@ -259,9 +236,7 @@ class BitgetClient:
                 if resp and (resp.get('code') == '00000' or resp.get('status') == 'ok'):
                     data = resp.get('data') or []
                     
-                    # Если data это список активов
                     if isinstance(data, list):
-                        # Фильтруем для конкретного субаккаунта
                         for item in data:
                             if not isinstance(item, dict):
                                 continue
@@ -273,12 +248,10 @@ class BitgetClient:
                                     logger.debug(f"Найден баланс для {subacct_id}: {len(assets)} активов")
                                     return assets
                         
-                        # Если не нашли по ID, возможно data уже содержит активы напрямую
                         if data and all(isinstance(item, dict) and ('coin' in item or 'currency' in item) for item in data):
                             logger.debug(f"Возвращаем data как список активов для {subacct_id}")
                             return data
                             
-                    # Если data это объект с активами
                     elif isinstance(data, dict):
                         assets = data.get('assetsList') or data.get('assets') or []
                         if assets:
@@ -291,7 +264,6 @@ class BitgetClient:
             except Exception as e:
                 logger.debug(f"Ошибка при запросе баланса {endpoint}: {e}")
 
-        # Fallback: поиск через общий список всех субаккаунтов
         try:
             logger.debug(f"Fallback: поиск баланса {subacct_id} через общий список")
             resp = self._make_request('GET', '/api/spot/v1/account/sub-account-spot-assets', {})
@@ -323,9 +295,7 @@ class BitgetClient:
             logger.warning(f"Сумма для перевода ({amount}) ниже минимальной отметки.")
             return False
 
-        # Правильные эндпоинты для переводов со стандартных субаккаунтов
         transfer_endpoints = [
-            # V1 API для переводов между субаккаунтами
             ("/api/spot/v1/account/sub-account-transfer", {
                 "fromType": "spot",
                 "toType": "spot",
@@ -334,7 +304,6 @@ class BitgetClient:
                 "fromUserId": str(subacct_id),
                 "clientOid": str(int(time.time() * 1000))
             }),
-            # V2 API альтернатива
             ("/api/v2/spot/wallet/subaccount-transfer", {
                 "coin": currency,
                 "amount": str(amount),
@@ -343,7 +312,6 @@ class BitgetClient:
                 "subUid": str(subacct_id),
                 "clientOid": str(int(time.time() * 1000))
             }),
-            # Прямой transfer API
             ("/api/spot/v1/wallet/transfer", {
                 "fromType": "spot",
                 "toType": "spot",
@@ -370,12 +338,11 @@ class BitgetClient:
             except Exception as e:
                 logger.warning(f"Перевод через {endpoint} не удался: {e}")
             
-            time.sleep(1)  # пауза между попытками
+            time.sleep(1) 
 
         logger.error(f"❌ Не удалось выполнить перевод {amount} {currency} с {subacct_id}")
         return False
 
-    # --- Transfer with fallback attempts ---
     def transfer_from_subaccount_to_main_old(self, subacct_id, currency, amount):
         """
         Пытается выполнить перевод с субаккаунта на основной аккаунт.
@@ -387,7 +354,6 @@ class BitgetClient:
             return False
 
         attempts = [
-            # Standard subaccount transfer
             ("/api/v2/spot/wallet/transfer", {
                 "fromType": "spot",
                 "toType": "spot", 
@@ -397,7 +363,6 @@ class BitgetClient:
                 "toAccount": "spot",
                 "subUid": str(subacct_id)
             }),
-            # Alternative standard transfer
             ("/api/v2/spot/account/subaccount-transfer", {
                 "fromType": "spot",
                 "toType": "spot",
@@ -439,7 +404,6 @@ class BitgetClient:
             logger.error(f"Исключение при получении баланса основного аккаунта: {e}")
             return []
 
-    # --- Helper: mask sensitive strings for logging ---
     @staticmethod
     def mask_secret(value, left=4, right=4):
         if not value:
@@ -448,7 +412,6 @@ class BitgetClient:
             return '*' * len(value)
         return value[:left] + ('*' * (len(value) - left - right)) + value[-right:]
 
-# --- Utility functions ---
 def save_results_to_csv(all_balances):
     try:
         import csv
@@ -476,7 +439,6 @@ def pretty_float_str(x):
     try:
         fx = float(x)
         if math.isfinite(fx):
-            # форматируем с 8 десятичными если <1, иначе до 6
             if abs(fx) < 1:
                 return f"{fx:.8f}"
             return f"{fx:.6f}"
@@ -484,13 +446,11 @@ def pretty_float_str(x):
     except Exception:
         return str(x)
 
-# --- Main process ---
-def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включаем автоперевод по умолчанию
+def check_bitget_subaccounts_and_balances(auto_transfer=True): 
     logger.info(Fore.MAGENTA + "\n" + "="*80)
     logger.info(Fore.YELLOW + "🚀 Запуск проверки стандартных субаккаунтов Bitget")
     logger.info(Fore.MAGENTA + "="*80)
 
-    # Выбираем аккаунт Bitget
     exchange_name, account = select_bitget_account()
     if not account:
         logger.error("❌ Не выбран аккаунт Bitget")
@@ -498,12 +458,10 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
     
     logger.info(f"🏢 Используется аккаунт: {account['name']}")
     
-    # Используем выбранный аккаунт
     bitget_api_key = account['api_key']
     bitget_api_secret = account['api_secret']
     bitget_passphrase = account['passphrase']
     
-    # Проверяем настройки API
     if not all([bitget_api_key, bitget_api_secret, bitget_passphrase]):
         logger.error("❌ Не настроены API ключи Bitget в выбранном аккаунте")
         return
@@ -519,9 +477,7 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
     total_accounts = 0
     accounts_with_balance = 0
 
-    # --- Основной аккаунт (пропускаем, фокус только на субаккаунтах) ---
     
-    # --- Субаккаунты ---
     logger.info(Fore.CYAN + "📋 Получение списка стандартных субаккаунтов...")
     subaccounts = client.get_subaccounts_list()
     time.sleep(PAUSE_BETWEEN_REQUESTS)
@@ -542,7 +498,6 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
         time.sleep(PAUSE_BETWEEN_REQUESTS)
 
         if bal:
-            # Фильтруем активы с ненулевым балансом
             non_zero = []
             for b in bal:
                 available = float(b.get('available', 0) or 0)
@@ -565,7 +520,6 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
                 })
                 accounts_with_balance += 1
 
-                # Автоматический перевод средств
                 if auto_transfer:
                     logger.info(Fore.YELLOW + f"🔄 Запускаем автоматический перевод с {sub_name}")
                     for b in non_zero:
@@ -579,7 +533,7 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
                                 logger.info(Fore.GREEN + f"✅ Перевод {coin} {pretty_float_str(available)} - УСПЕШНО")
                             else:
                                 logger.error(Fore.RED + f"❌ Перевод {coin} {pretty_float_str(available)} - ОШИБКА")
-                            time.sleep(2)  # пауза между переводами
+                            time.sleep(2) 
                         else:
                             logger.info(f"Сумма {available} {coin} слишком мала для перевода")
             else:
@@ -587,11 +541,9 @@ def check_bitget_subaccounts_and_balances(auto_transfer=True):  # Включае
         else:
             logger.error(Fore.RED + f"❌ {sub_name} - ошибка получения баланса")
 
-    # Сохранение результатов
     logger.info(Fore.CYAN + "\n💾 Сохранение результатов...")
     save_results_to_csv(all_balances)
 
-    # Итоговая статистика
     logger.info(Fore.MAGENTA + "\n" + "="*80)
     logger.info(Fore.YELLOW + "📊 ИТОГОВАЯ СТАТИСТИКА BITGET СУБАККАУНТОВ:")
     logger.info(Fore.CYAN + f"📈 Всего субаккаунтов проверено: {total_accounts}")
