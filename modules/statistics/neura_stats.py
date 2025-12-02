@@ -450,13 +450,14 @@ def get_progress_stats() -> Dict[str, int]:
 class NeuraProtocolClient:
     """Клиент для работы с Neura Protocol API"""
     
-    def __init__(self, private_key: str, proxy_url: Optional[str] = None):
+    def __init__(self, private_key: str, proxy_url: Optional[str] = None, proxies_list: List[str] = None):
         """
         Инициализация клиента
         
         Args:
             private_key: Приватный ключ кошелька
             proxy_url: URL прокси (опционально)
+            proxies_list: Список всех доступных прокси для смены (опционально)
         """
         if not private_key.startswith('0x'):
             private_key = '0x' + private_key
@@ -464,6 +465,7 @@ class NeuraProtocolClient:
         self.private_key = private_key
         self.account = Account.from_key(private_key)
         self.address = self.account.address
+        self.proxies_list = proxies_list or []
         
         self.proxies = None
         if proxy_url:
@@ -558,32 +560,70 @@ class NeuraProtocolClient:
         
         return None
     
-    def _solve_turnstile(self) -> Optional[str]:
-        """Решение Turnstile captcha через AstrumSolver"""
+    def _solve_turnstile(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
+        """
+        Решение Turnstile captcha через AstrumSolver с автоматической сменой прокси при ошибках
+        
+        Args:
+            attempt: Текущая попытка (начинается с 1)
+            proxies_list: Список доступных прокси для смены
+            wallet_index: Индекс кошелька для логирования
+            total: Общее количество кошельков для логирования
+            
+        Returns:
+            Токен капчи или None
+        """
         if not self.captcha_solver:
             return None
         
-        try:
-            token = self.captcha_solver.solve_turnstile(
-                sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
-                pageurl='https://neuraverse.neuraprotocol.io/',
-                action='cmbpempz2011ll10l7iucga14',
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-            )
-            
-            if token:
-                return token
-            else:
-                return None
+        max_retries = RETRY_COUNT
+        
+        for retry in range(attempt, max_retries + 1):
+            try:
+                token = self.captcha_solver.solve_turnstile(
+                    sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
+                    pageurl='https://neuraverse.neuraprotocol.io/',
+                    action='cmbpempz2011ll10l7iucga14',
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                )
                 
-        except Exception as e:
-            log_error(f"❌ [{self.address}] Ошибка решения капчи: {e}")
-            return None
+                if token:
+                    return token
+                    
+            except Exception as e:
+                error_str = str(e)
+                
+                # Проверка на ошибку CAPTCHA_UNSOLVABLE или другие ошибки
+                if "CAPTCHA_UNSOLVABLE" in error_str or not token:
+                    # Если есть доступные прокси и не последняя попытка - меняем прокси
+                    if proxies_list and retry < max_retries:
+                        new_proxy = get_random_proxy(proxies_list)
+                        if new_proxy:
+                            self.change_proxy(new_proxy)
+                            time.sleep(random.uniform(1, 2))  # Небольшая задержка перед повторной попыткой
+                            continue
+                    
+                    # Если прокси нет или последняя попытка
+                    if retry >= max_retries:
+                        return None
+                else:
+                    # При других ошибках тоже пробуем сменить прокси
+                    if proxies_list and retry < max_retries:
+                        new_proxy = get_random_proxy(proxies_list)
+                        if new_proxy:
+                            self.change_proxy(new_proxy)
+                            time.sleep(random.uniform(1, 2))
+                            continue
+                    
+                    if retry >= max_retries:
+                        return None
+        
+        return None
     
-    def _get_nonce(self) -> Optional[str]:
+    def _get_nonce(self, wallet_index: int = None, total: int = None) -> Optional[str]:
         """Получение nonce для SIWE аутентификации с Turnstile captcha"""
         try:
-            turnstile_token = self._solve_turnstile()
+            turnstile_token = self._solve_turnstile(attempt=1, proxies_list=self.proxies_list, wallet_index=wallet_index, total=total)
             if not turnstile_token:
                 return None
             
@@ -604,27 +644,26 @@ class NeuraProtocolClient:
                 nonce = data.get('nonce')
                 if nonce:
                     return nonce
-            else:
-                if response.status_code == 429:
-                    log_warning(f"⚠️ [{self.address}] Rate limit при получении nonce, смена прокси...")
-                
+            
         except Exception as e:
-            log_error(f"❌ [{self.address}] Ошибка при получении nonce: {e}")
+            pass
         
         return None
     
-    def authenticate(self, max_retries: int = 3) -> bool:
+    def authenticate(self, max_retries: int = 3, wallet_index: int = None, total: int = None) -> bool:
         """
         Авторизация через SIWE (Sign-In with Ethereum) с retry при ошибках
         
         Args:
             max_retries: Максимальное количество попыток
+            wallet_index: Индекс кошелька для логирования
+            total: Общее количество кошельков для логирования
             
         Returns:
             True если авторизация успешна
         """
         try:
-            nonce = self._get_nonce()
+            nonce = self._get_nonce(wallet_index=wallet_index, total=total)
             if not nonce:
                 return False
 
@@ -674,15 +713,9 @@ class NeuraProtocolClient:
                     return True
                 return False
 
-            if response.status_code == 429:
-                log_warning(f"⚠️ [{self.address}] Rate limit (429), требуется смена прокси")
-                return False
-
-            log_error(f"❌ [{self.address}] Ошибка авторизации: HTTP {response.status_code}")
             return False
 
         except Exception as e:
-            log_error(f"❌ [{self.address}] Ошибка авторизации: {e}")
             return False
     
     def _api_get(self, endpoint: str, params: dict = None) -> Optional[dict]:
@@ -791,7 +824,7 @@ class NeuraProtocolClient:
         stats = {
             'timestamp': datetime.now().isoformat(),
             'address': self.address,
-            'balance': balance,
+            'testnet ANKR': balance,
             'account_info': account_info,
             'tasks': tasks,
             'transactions': transactions
@@ -999,6 +1032,9 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         
         wallet_short = f"{wallet_address[:6]}...{wallet_address[-4:]}"
         
+        # Блокировка для потокобезопасного вывода
+        print_lock = Lock()
+        
         def update_status(status, log_level="INFO"):
             timestamp = datetime.now().strftime("%H:%M:%S")
             level_map = {
@@ -1008,42 +1044,51 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
                 "WARNING": "WARNING "
             }
             level = level_map.get(log_level, "INFO    ")
-            print(f"\r{timestamp} | {level} | [{wallet_index:04d}] [{wallet_address}] [{progress_bar}] {progress_percent:.1f}% - {status}", end='', flush=True)
+            
+            # Формируем полную строку лога
+            log_line = f"{timestamp} | {level} | [{wallet_index:04d}] [{wallet_address}] [{progress_bar}] {progress_percent:.1f}% - {status}"
+            
+            with print_lock:
+                # Очищаем текущую строку и выводим новую
+                print(f"\r{' ' * 200}\r{log_line}", end='', flush=True)
+                
+                # Если это финальный статус (успех или ошибка), переходим на новую строку
+                if log_level in ["SUCCESS", "ERROR"]:
+                    print()
         
         mark_wallet_processing(wallet_address, private_key_hash)
         
-        update_status("🔧 Инициализация клиента")
-        client = NeuraProtocolClient(private_key, proxy)
+        update_status("🔧 Инициализация")
+        client = NeuraProtocolClient(private_key, proxy, proxies)
         
         auth_success = False
         max_auth_attempts = 3
         
         for attempt in range(1, max_auth_attempts + 1):
-            update_status(f"🔐 Авторизация: отправка капчи (попытка {attempt}/{max_auth_attempts})")
+            update_status(f"🔐 Авторизация {attempt}/{max_auth_attempts}")
             
-            if client.authenticate():
+            if client.authenticate(wallet_index=wallet_index, total=total):
                 auth_success = True
                 break
             
             if attempt < max_auth_attempts:
-                update_status(f"⚠️ Авторизация: смена прокси (попытка {attempt}/{max_auth_attempts})", "WARNING")
+                update_status(f"🔄 Смена прокси {attempt}/{max_auth_attempts}", "WARNING")
                 new_proxy = get_random_proxy(proxies)
                 if new_proxy:
                     client.change_proxy(new_proxy)
                 time.sleep(1)
         
         if not auth_success:
-            error_msg = "Авторизация не удалась"
+            error_msg = "Ошибка авторизации"
             mark_wallet_error(wallet_address, error_msg)
             update_progress(success=False)
             update_status(f"❌ {error_msg}", "ERROR")
-            print()  # Новая строка после ошибки
             return False
         
-        update_status("📊 Сбор данных: информация аккаунта")
+        update_status("📊 Сбор данных")
         stats = client.get_full_statistics()
         
-        update_status("💾 Сохранение результатов")
+        update_status("💾 Сохранение")
         client.save_to_json(stats)
         client.save_to_csv(stats)
         
@@ -1055,8 +1100,7 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         balance = stats.get('balance', 0)
         
         update_progress(success=True)
-        update_status(f"✅ Завершено | Points: {points} | Pulses: {pulses} | Balance: {balance:.4f} ETH", "SUCCESS")
-        print()  # Новая строка после успеха
+        update_status(f"✅ Points: {points} | Pulses: {pulses} | ANKR testnet: {balance:.4f}", "SUCCESS")
         
         # Задержка между кошельками
         sleep_time = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
@@ -1073,14 +1117,26 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
             pass
         update_progress(success=False)
         
-        if 'wallet_address' in locals():
-            wallet_short = f"{wallet_address[:6]}...{wallet_address[-4:]}"
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"\r{timestamp} | ERROR    | [{wallet_index:04d}] [{wallet_address}] ❌ Критическая ошибка: {error_msg}")
+        # Используем update_status если она доступна
+        if 'update_status' in locals():
+            try:
+                update_status(f"❌ Критическая ошибка: {error_msg}", "ERROR")
+            except:
+                # Fallback на обычный print
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                if 'wallet_address' in locals() and 'wallet_index' in locals():
+                    print(f"\r{' ' * 200}\r{timestamp} | ERROR    | [{wallet_index:04d}] [{wallet_address}] ❌ {error_msg}")
+                else:
+                    print(f"\r{' ' * 200}\r{timestamp} | ERROR    | ❌ {error_msg}")
+                print()
         else:
             timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"\r{timestamp} | ERROR    | [{wallet_index:04d}] [Unknown] ❌ Критическая ошибка: {error_msg}")
-        print()  # Новая строка после ошибки
+            if 'wallet_address' in locals() and 'wallet_index' in locals():
+                print(f"\r{' ' * 200}\r{timestamp} | ERROR    | [{wallet_index:04d}] [{wallet_address}] ❌ {error_msg}")
+            else:
+                print(f"\r{' ' * 200}\r{timestamp} | ERROR    | ❌ {error_msg}")
+            print()
+        
         return False
 
 
