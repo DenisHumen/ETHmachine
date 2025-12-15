@@ -124,6 +124,12 @@ NETWORKS = {
         'tx_url': "https://testnet.arcscan.app/tx/",
         'type': 'testnet'
     },
+    '🚀 Tempo Testnet': {
+        'rpc_urls': ['https://rpc.testnet.tempo.xyz/'],
+        'symbol': '???',
+        'tx_url': "https://explore.tempo.xyz/tx/",
+        'type': 'testnet'
+    },
 }
 
 SOL_NETWORKS = {
