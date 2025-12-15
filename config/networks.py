@@ -144,73 +144,28 @@ SOL_NETWORKS = {
 # === ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ===
 
 def get_all_networks():
-    """
-    Возвращает список всех доступных сетей
-    
-    Returns:
-        list: Список названий сетей
-    """
     return list(NETWORKS.keys())
 
 
 def get_mainnet_networks():
-    """
-    Возвращает словарь только mainnet сетей
-    
-    Returns:
-        dict: {network_name: rpc_urls}
-    """
     return {name: data['rpc_urls'] for name, data in NETWORKS.items() if data['type'] == 'mainnet'}
 
 
 def get_testnet_networks():
-    """
-    Возвращает словарь только testnet сетей
-    
-    Returns:
-        dict: {network_name: rpc_urls}
-    """
     return {name: data['rpc_urls'] for name, data in NETWORKS.items() if data['type'] == 'testnet'}
 
 
 def get_network_rpc_urls(network_name):
-    """
-    Возвращает список RPC URLs для указанной сети
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        list: Список RPC URLs или пустой список
-    """
     network = NETWORKS.get(network_name)
     return network['rpc_urls'] if network else []
 
 
 def get_network_symbol(network_name):
-    """
-    Возвращает символ нативного токена для указанной сети
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        str: Символ токена или 'ETH' по умолчанию
-    """
     network = NETWORKS.get(network_name)
     return network['symbol'] if network else 'ETH'
 
 
 def get_explorer_url(network_name):
-    """
-    Возвращает URL обозревателя (tx_url) для указанной сети
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        str: URL обозревателя или сообщение об ошибке
-    """
     network = NETWORKS.get(network_name)
     if network:
         return network['tx_url']
@@ -218,42 +173,15 @@ def get_explorer_url(network_name):
 
 
 def get_network_info(network_name):
-    """
-    Возвращает полную информацию о сети
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        dict: Словарь с ключами 'rpc_urls', 'symbol', 'tx_url', 'type' или None
-    """
     return NETWORKS.get(network_name)
 
 
 def get_network_type(network_name):
-    """
-    Определяет тип сети (mainnet/testnet)
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        str: 'mainnet' или 'testnet' или None
-    """
     network = NETWORKS.get(network_name)
     return network['type'] if network else None
 
 
 def is_mainnet_network(network_name):
-    """
-    Проверяет, является ли сеть mainnet
-    
-    Args:
-        network_name (str): Название сети
-        
-    Returns:
-        bool: True если mainnet, False если testnet или не найдено
-    """
     return get_network_type(network_name) == 'mainnet'
 
 
@@ -261,26 +189,26 @@ def is_mainnet_network(network_name):
 # Для совместимости со старым кодом создаем переменные
 
 # Старые переменные из rpc.py (для обратной совместимости)
-L1 = NETWORKS['🚀 Ethereum Mainnet']['rpc_urls']
-base = NETWORKS['🚀 Base']['rpc_urls']
-arbitrum = NETWORKS['🚀 Arbitrum One']['rpc_urls']
-optimism = NETWORKS['🚀 Optimism']['rpc_urls']
-soneium = NETWORKS['🚀 Soneium']['rpc_urls']
-Polygon = NETWORKS['🚀 Polygon']['rpc_urls']
-Binance_Smart_Chain = NETWORKS['🚀 Binance Smart Chain']['rpc_urls']
-Avalanche = NETWORKS['🚀 Avalanche']['rpc_urls']
-Fantom = NETWORKS['🚀 Fantom']['rpc_urls']
-Gravity_Alpha_Mainnet = NETWORKS['🚀 Gravity Alpha Mainnet (сеть Gravity )']['rpc_urls']
-zora = NETWORKS['🚀 Zora']['rpc_urls']
-Abstract = NETWORKS['🚀 Abstract']['rpc_urls']
-somnia = NETWORKS['🚀 Somnia']['rpc_urls']
+# L1 = NETWORKS['🚀 Ethereum Mainnet']['rpc_urls']
+# base = NETWORKS['🚀 Base']['rpc_urls']
+# arbitrum = NETWORKS['🚀 Arbitrum One']['rpc_urls']
+# optimism = NETWORKS['🚀 Optimism']['rpc_urls']
+# soneium = NETWORKS['🚀 Soneium']['rpc_urls']
+# Polygon = NETWORKS['🚀 Polygon']['rpc_urls']
+# Binance_Smart_Chain = NETWORKS['🚀 Binance Smart Chain']['rpc_urls']
+# Avalanche = NETWORKS['🚀 Avalanche']['rpc_urls']
+# Fantom = NETWORKS['🚀 Fantom']['rpc_urls']
+# Gravity_Alpha_Mainnet = NETWORKS['🚀 Gravity Alpha Mainnet (сеть Gravity )']['rpc_urls']
+# zora = NETWORKS['🚀 Zora']['rpc_urls']
+# Abstract = NETWORKS['🚀 Abstract']['rpc_urls']
+# somnia = NETWORKS['🚀 Somnia']['rpc_urls']
 
-sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
-pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']
-kite_testnet = NETWORKS['🚀 Kite Testnet']['rpc_urls']
-neura_testnet = NETWORKS['🚀 Neura Testnet']['rpc_urls']
-nexus_testnet = NETWORKS['🚀 Nexus Testnet']['rpc_urls']
+# sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
+# pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']
+# kite_testnet = NETWORKS['🚀 Kite Testnet']['rpc_urls']
+# neura_testnet = NETWORKS['🚀 Neura Testnet']['rpc_urls']
+# nexus_testnet = NETWORKS['🚀 Nexus Testnet']['rpc_urls']
 
-# Старый словарь explorers (для обратной совместимости)
-explorers = {name: {'symbol': data['symbol'], 'tx_url': data['tx_url']} 
-             for name, data in NETWORKS.items()}
+# # Старый словарь explorers (для обратной совместимости)
+# explorers = {name: {'symbol': data['symbol'], 'tx_url': data['tx_url']} 
+#              for name, data in NETWORKS.items()}
