@@ -307,7 +307,11 @@ def export_all_results_to_csv() -> Optional[str]:
                     'created_at', 'updated_at', 'stats_collected_at',
                     'balance', 'neura_points', 'trading_volume_month', 'trading_volume_all_time',
                     'pulses_count', 'first_pulse_collected', 'last_pulse_collected',
-                    'tasks_completed', 'transactions_count'
+                    'tasks_completed', 'transactions_count',
+                    'neurapoints_rank', 'neurapoints_value',
+                    'streak_rank', 'streak_value',
+                    'ankrWhales_rank', 'ankrWhales_value',
+                    'zotto_rank', 'zotto_value'
                 ]
                 
                 writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
@@ -332,7 +336,15 @@ def export_all_results_to_csv() -> Optional[str]:
                         'first_pulse_collected': '',
                         'last_pulse_collected': '',
                         'tasks_completed': '',
-                        'transactions_count': ''
+                        'transactions_count': '',
+                        'neurapoints_rank': '',
+                        'neurapoints_value': '',
+                        'streak_rank': '',
+                        'streak_value': '',
+                        'ankrWhales_rank': '',
+                        'ankrWhales_value': '',
+                        'zotto_rank': '',
+                        'zotto_value': ''
                     }
                     
                     if json_data:
@@ -362,6 +374,18 @@ def export_all_results_to_csv() -> Optional[str]:
                             
                             transactions = stats.get('transactions', [])
                             csv_row['transactions_count'] = len(transactions) if transactions else 0
+                            
+                            # Добавляем данные из leaderboards
+                            leaderboards = stats.get('leaderboards', {})
+                            if leaderboards:
+                                csv_row['neurapoints_rank'] = leaderboards.get('neurapoints_rank', '')
+                                csv_row['neurapoints_value'] = leaderboards.get('neurapoints_value', '')
+                                csv_row['streak_rank'] = leaderboards.get('streak_rank', '')
+                                csv_row['streak_value'] = leaderboards.get('streak_value', '')
+                                csv_row['ankrWhales_rank'] = leaderboards.get('ankrWhales_rank', '')
+                                csv_row['ankrWhales_value'] = leaderboards.get('ankrWhales_value', '')
+                                csv_row['zotto_rank'] = leaderboards.get('zotto_rank', '')
+                                csv_row['zotto_value'] = leaderboards.get('zotto_value', '')
                             
                         except (json.JSONDecodeError, TypeError) as e:
                             log_warning(f"⚠️ Ошибка парсинга JSON для {wallet_address}: {e}")
@@ -814,19 +838,52 @@ class NeuraProtocolClient:
         except Exception as e:
             return None
     
+    def get_leaderboards(self) -> Optional[dict]:
+        """Получение данных из leaderboards с рангами аккаунта"""
+        try:
+            response = self.session.get(
+                f"{self.base_url}/leaderboards",
+                headers=self.api_headers,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                leaderboards_data = data.get('leaderboards', [])
+                
+                # Извлекаем ранги аккаунта для каждого типа лидерборда
+                ranks = {}
+                for leaderboard in leaderboards_data:
+                    lb_type = leaderboard.get('type', '')
+                    account_rank = leaderboard.get('accountRank')
+                    account_value = leaderboard.get('accountValue')
+                    
+                    if lb_type:
+                        ranks[f'{lb_type}_rank'] = account_rank if account_rank is not None else 0
+                        ranks[f'{lb_type}_value'] = account_value if account_value is not None else 0
+                
+                return ranks
+            else:
+                return None
+                
+        except Exception as e:
+            return None
+    
     def get_full_statistics(self) -> dict:
         """Сбор полной статистики"""
         account_info = self.get_account_info()
         balance = self.get_balance()
         tasks = self.get_tasks()
         transactions = self.get_transactions()
+        leaderboards = self.get_leaderboards()
         
         stats = {
             'timestamp': datetime.now().isoformat(),
             'address': self.address,
-            'testnet ANKR': balance,
+            'balance': balance,
             'account_info': account_info,
             'tasks': tasks,
+            'leaderboards': leaderboards,
             'transactions': transactions
         }
         
@@ -958,6 +1015,34 @@ class NeuraProtocolClient:
         
         transactions = stats.get('transactions', [])
         row['transactions_count'] = len(transactions) if transactions else 0
+        
+        # Добавляем данные из leaderboards (ранги)
+        leaderboards = stats.get('leaderboards', {})
+        if leaderboards:
+            # Ранги по NeuraPoints
+            row['neurapoints_rank'] = leaderboards.get('neurapoints_rank', 0)
+            row['neurapoints_value'] = leaderboards.get('neurapoints_value', 0)
+            
+            # Ранги по Streak (Activity Streak)
+            row['streak_rank'] = leaderboards.get('streak_rank', 0)
+            row['streak_value'] = leaderboards.get('streak_value', 0)
+            
+            # Ранги по ANKR токенам (Native Token Holders)
+            row['ankrWhales_rank'] = leaderboards.get('ankrWhales_rank', 0)
+            row['ankrWhales_value'] = leaderboards.get('ankrWhales_value', 0)
+            
+            # Ранги по Zotto (Top Swappers)
+            row['zotto_rank'] = leaderboards.get('zotto_rank', 0)
+            row['zotto_value'] = leaderboards.get('zotto_value', 0)
+        else:
+            row['neurapoints_rank'] = 0
+            row['neurapoints_value'] = 0
+            row['streak_rank'] = 0
+            row['streak_value'] = 0
+            row['ankrWhales_rank'] = 0
+            row['ankrWhales_value'] = 0
+            row['zotto_rank'] = 0
+            row['zotto_value'] = 0
         
         return [row]
 
