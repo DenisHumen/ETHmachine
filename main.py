@@ -176,6 +176,8 @@ from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
 from modules.sol.eclipse_get_balances import eclipse_balance_checker
 from modules.sol.sol_get_balances import solana_balance_checker
 
+# Импорт модуля Neura Protocol
+from modules.neura.menu import neura_menu
 
 from modules.eth.transfer_wallets_to_wallets import (
     process_wallets_transfer, get_proxy_list
@@ -228,6 +230,7 @@ def main_menu():
                     Choice('🚀 TRANSACTIONS                 🌟 Транзакции между кошельками', 'transactions'),
                     Choice('🐦 Twitter                      🌟 Сбор данных по твиттерам', 'twitter'),
                     Choice('📊 Check project stats          🌟 Проверка статистики по проектам', 'project_stats'),
+                    Choice('🎮 PROJECTS                     🌟 Автоматизация проектов (Neura и др.)', 'projects_menu'),
                     #Choice('🔍 Selenium Profile              🌟 Профиль Selenium', 'selenium_profile'),
                     #Choice('🚰 Faucets                      🌟 Краны', 'faucets'),
                     #Choice('💰 Claimer                     🌟 Клейм дропов', 'claimer'),
@@ -244,6 +247,25 @@ def main_menu():
             match action:
                 case 'backup_menu':
                     backup_menu()
+                    continue
+
+                case 'projects_menu':
+                    # Projects submenu - автоматизация проектов
+                    projects_action = select(
+                        "🎮 Выберите проект для автоматизации:",
+                        choices=[
+                            Choice('🔮 Neura Protocol            🌟 Сбор пульсов и клейм задач', 'neura'),
+                            Choice('🔙 Назад', 'back')
+                        ],
+                        qmark='🎮',
+                        pointer='👉'
+                    ).ask()
+                    
+                    match projects_action:
+                        case 'neura':
+                            neura_menu()
+                        case 'back':
+                            continue
                     continue
 
                 case 'claimer':
