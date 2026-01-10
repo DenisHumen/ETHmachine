@@ -1,860 +1,392 @@
+"""
+Модуль проверки балансов нативных токенов EVM кошельков
+v3.1 - Без Lock, простой и надёжный
+"""
+
 import csv
-import random
-import time
 import sys
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import cycle
+import time
+import random
 from pathlib import Path
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from collections import deque
 
 import requests
-from colorama import Fore, Style, init
-from web3 import Web3
 from loguru import logger
+from colorama import init
+from questionary import Choice, select
 
-init()
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.text import Text
+from rich.table import Table
+from rich.console import Group
+
+init(autoreset=True)
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
-from config.networks import get_network_symbol
+from config.networks import NETWORKS, get_network_symbol
+from modules.eth.database import (
+    init_database, create_balance_tasks, get_pending_tasks,
+    update_task_status, reset_database_for_new_run
+)
 
-def setup_error_logging():
-    """Настраивает логирование ошибок в директорию log/"""
-    log_dir = project_root / 'log'
-    log_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f'balance_check_errors_{timestamp}.log'
-    
-    # Настройка логгера
-    logger = logging.getLogger('balance_checker')
-    logger.setLevel(logging.ERROR)
-    
-    # Очищаем существующие обработчики
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    
-    # Создаем обработчик для записи в файл
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.ERROR)
-    
-    # Форматирование логов с информацией о количестве попыток
-    formatter = logging.Formatter(
-        f'%(asctime)s | %(levelname)s | RETRY_COUNT={RETRY_COUNT} | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
-    
-    logger.addHandler(file_handler)
-    
-    return logger
+console = Console()
 
-def log_error(logger, wallet, error, proxy=None, rpc_url=None, network=None, attempt=None):
-    """Записывает детальную информацию об ошибке в лог"""
-    error_details = {
-        'wallet': wallet,
-        'error': str(error),
-        'short_error': get_short_error_message(str(error)),
-        'proxy': proxy[:20] + '...' if proxy and len(proxy) > 20 else proxy,
-        'rpc_url': rpc_url,
-        'network': network,
-        'attempt': attempt,
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    log_message = (
-        f"Wallet: {error_details['wallet']} | "
-        f"Network: {error_details['network']} | "
-        f"Attempt: {error_details['attempt']} | "
-        f"Proxy: {error_details['proxy']} | "
-        f"RPC: {error_details['rpc_url']} | "
-        f"Error: {error_details['short_error']} | "
-        f"Full Error: {error_details['error']}"
-    )
-    
-    logger.error(log_message)
 
-def load_wallets():
-    """Загружает адреса кошельков из файла data/walletss.txt"""
+def load_wallets() -> list:
+    wallet_file = project_root / 'data' / 'walletss.txt'
+    wallets = []
     try:
-        wallets_file = project_root / 'data' / 'walletss.txt'
-        with open(wallets_file, 'r') as f:
-            wallets = [line.strip() for line in f if line.strip()]
-        return wallets
-    except FileNotFoundError:
-        logger.error("❌ Файл data/walletss.txt не найден!")
-        return []
+        with open(wallet_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and line.startswith('0x'):
+                    wallets.append(line)
+    except Exception as e:
+        console.print(f"[red]Ошибка загрузки кошельков: {e}[/red]")
+    return wallets
 
-def load_proxies():
-    """Загружает прокси из файла data/proxy.csv"""
+
+def load_proxies() -> list:
+    proxy_file = project_root / 'data' / 'proxy.csv'
+    proxies = []
     try:
-        proxy_file = project_root / 'data' / 'proxy.csv'
-        with open(proxy_file, 'r') as f:
-            reader = csv.reader(f)
-            proxies = [row[0] for row in reader if row]
-        return proxies
-    except FileNotFoundError:
-        logger.warning("⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
-        return []
+        with open(proxy_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and '@' in line and ':' in line:
+                    proxies.append(line)
+    except:
+        pass
+    return proxies
 
-def get_proxy_dict(proxy_string):
-    """Преобразует строку прокси в формат для requests"""
-    if not proxy_string:
+
+def make_proxy_dict(proxy_str: str) -> dict:
+    if not proxy_str:
         return None
-    
     try:
-        auth_part, address_part = proxy_string.split('@')
-        login, password = auth_part.split(':')
-        ip, port = address_part.split(':')
-        
-        proxy_url = f"http://{login}:{password}@{ip}:{port}"
-        return {
-            'http': proxy_url,
-            'https': proxy_url
-        }
+        auth, addr = proxy_str.split('@')
+        proxy_url = f"http://{auth}@{addr}"
+        return {'http': proxy_url, 'https': proxy_url}
     except:
         return None
 
-def get_assigned_proxy(wallet_index, proxies_list):
-    """Назначает прокси кошельку по алгоритму"""
-    if not proxies_list:
-        return None
-    
-    num_wallets = wallet_index + 1  # Индекс начинается с 0
-    num_proxies = len(proxies_list)
-    
-    if num_proxies >= num_wallets:
-        # Если прокси больше или равно кошелькам, берем по порядку
-        return proxies_list[wallet_index % num_proxies]
-    else:
-        # Если прокси меньше кошельков, берем по порядку и повторяем цикл
-        return proxies_list[wallet_index % num_proxies]
 
-def get_reserve_proxy(proxies_list):
-    """Возвращает случайную резервную прокси"""
-    if not proxies_list:
-        return None
-    return random.choice(proxies_list)
-
-def get_short_error_message(error_str):
-    """Преобразует длинные технические ошибки в короткие понятные сообщения"""
-    error_lower = error_str.lower()
-    
-    if 'connection' in error_lower or 'timeout' in error_lower:
-        return 'Ошибка подключения'
-    elif 'poa chain' in error_lower or 'extradata' in error_lower:
-        return 'Несовместимая сеть (POA)'
-    elif 'too many requests' in error_lower or '429' in error_str:
-        return 'Превышен лимит запросов'
-    elif 'proxy' in error_lower:
-        return 'Ошибка прокси'
-    elif 'authentication' in error_lower:
-        return 'Ошибка аутентификации'
-    elif 'not found' in error_lower or '404' in error_str:
-        return 'RPC не найден'
-    elif 'internal server error' in error_lower or '500' in error_str:
-        return 'Внутренняя ошибка сервера'
-    elif 'bad gateway' in error_lower or '502' in error_str:
-        return 'Плохой шлюз'
-    elif 'service unavailable' in error_lower or '503' in error_str:
-        return 'Сервис недоступен'
-    elif 'gateway timeout' in error_lower or '504' in error_str:
-        return 'Таймаут шлюза'
-    elif 'json' in error_lower and 'decode' in error_lower:
-        return 'Неверный ответ RPC'
-    elif 'ssl' in error_lower or 'certificate' in error_lower:
-        return 'Ошибка SSL сертификата'
-    elif 'network is unreachable' in error_lower:
-        return 'Сеть недоступна'
-    elif 'name resolution failed' in error_lower or 'dns' in error_lower:
-        return 'Ошибка DNS'
-    else:
-        # Возвращаем первые 30 символов оригинальной ошибки
-        return error_str[:30] + '...' if len(error_str) > 30 else error_str
-
-def get_random_proxy_except_current(proxies_list, current_proxy):
-    """Возвращает случайную прокси, отличную от текущей"""
-    if not proxies_list:
-        return None
-    
-    if len(proxies_list) <= 1:
-        return proxies_list[0] if proxies_list else None
-    
-    available_proxies = [proxy for proxy in proxies_list if proxy != current_proxy]
-    return random.choice(available_proxies) if available_proxies else random.choice(proxies_list)
-
-def get_wallet_balance_with_web3(wallet_address, rpc_urls, proxy=None, logger=None, network_name=None):
-    """Получает баланс нативного токена для кошелька через Web3 с перебором всех RPC"""
-    
-    proxies_list = load_proxies()
-    current_proxy = proxy
-    
-    # Перебираем все RPC URLs
-    for rpc_attempt, rpc_url in enumerate(rpc_urls):
-        # Для каждого RPC пробуем несколько раз с разными прокси
-        for attempt in range(RETRY_COUNT + 1):
-            session = requests.Session()
-            try:
-                if current_proxy:
-                    proxy_dict = get_proxy_dict(current_proxy)
-                    if proxy_dict:
-                        session.proxies.update(proxy_dict)
-                
-                w3 = Web3(Web3.HTTPProvider(rpc_url, session=session))
-                
-                if not w3.is_connected():
-                    raise ConnectionError(f"Не удалось подключиться к RPC: {rpc_url}")
-                
-                checksum_address = w3.to_checksum_address(wallet_address)
-                balance_wei = w3.eth.get_balance(checksum_address)
-                balance_eth = w3.from_wei(balance_wei, 'ether')
-                
-                # Форматируем баланс чтобы избежать научной нотации
-                return float(f"{balance_eth:.18f}")
-                
-            except Exception as e:
-                # Логируем ошибку
-                if logger:
-                    log_error(logger, wallet_address, e, current_proxy, rpc_url, network_name, f"{attempt+1}/{RETRY_COUNT+1}")
-                
-                if attempt < RETRY_COUNT:
-                    # Меняем прокси при ошибке на случайную, отличную от текущей
-                    if proxies_list:
-                        current_proxy = get_random_proxy_except_current(proxies_list, current_proxy)
-                    time.sleep(random.uniform(1, 2))  # Добавляем случайную задержку
-                    continue
-                else:
-                    # Если все попытки для текущего RPC исчерпаны, переходим к следующему RPC
-                    if rpc_attempt < len(rpc_urls) - 1:
-                        # Меняем прокси для следующего RPC на случайную
-                        if proxies_list:
-                            current_proxy = get_random_proxy_except_current(proxies_list, current_proxy)
-                        break
-                    else:
-                        # Все RPC исчерпаны
-                        raise Exception(get_short_error_message(str(e)))
-            finally:
-                session.close()
-    
-    # Если дошли до сюда, значит все RPC не сработали
-    raise Exception("Все RPC недоступны")
-
-def process_wallet_task(wallet_index, wallet, assigned_proxy, rpc_urls, reserve_proxies, logger=None, network_name=None):
-    """Обрабатывает один кошелек с повторными попытками"""
-    
-    current_proxy = assigned_proxy
-    
-    for attempt in range(RETRY_COUNT + 1):
-        try:
-            balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy, logger, network_name)
-            return wallet, balance, True
-        
-        except Exception as e:
-            # Логируем ошибку на уровне задачи
-            if logger:
-                log_error(logger, wallet, e, current_proxy, None, network_name, f"Task attempt {attempt+1}/{RETRY_COUNT+1}")
-            
-            if attempt < RETRY_COUNT:
-                # При ошибке используем случайную прокси, отличную от текущей
-                current_proxy = get_random_proxy_except_current(reserve_proxies, current_proxy)
-                time.sleep(random.uniform(1, 3))  # Случайная задержка между попытками
-                continue
-            else:
-                error_msg = get_short_error_message(str(e))
-                return wallet, 0, False
-    
-    return wallet, 0, False
-
-def process_wallet_task_all_networks(wallet_index, wallet, assigned_proxy, all_networks, reserve_proxies, logger=None):
-    """Обрабатывает один кошелек для всех сетей"""
-    
-    wallet_results = {}
-    
-    for network_name, rpc_urls in all_networks.items():
-        current_proxy = assigned_proxy
-        
-        for attempt in range(RETRY_COUNT + 1):
-            try:
-                balance = get_wallet_balance_with_web3(wallet, rpc_urls, current_proxy, logger, network_name)
-                wallet_results[network_name] = balance
-                break
-                
-            except Exception as e:
-                # Логируем ошибку для конкретной сети
-                if logger:
-                    log_error(logger, wallet, e, current_proxy, None, network_name, f"Network attempt {attempt+1}/{RETRY_COUNT+1}")
-                
-                if attempt < RETRY_COUNT:
-                    # При ошибке используем случайную прокси, отличную от текущей
-                    current_proxy = get_random_proxy_except_current(reserve_proxies, current_proxy)
-                    time.sleep(random.uniform(1, 2))  # Случайная задержка между попытками
-                    continue
-                else:
-                    wallet_results[network_name] = 0
-                    break
-    
-    return wallet, wallet_results, True
-
-def get_token_price_usdt(token_symbol):
-    """Получает актуальный курс токена в USDT"""
+def get_balance_rpc(wallet: str, rpc_url: str, proxy_dict: dict = None) -> float:
+    """Получение баланса через JSON-RPC. Возвращает баланс или -1 при ошибке."""
     try:
-        # Маппинг символов токенов к идентификаторам CoinGecko
-        coingecko_ids = {
-            'ETH': 'ethereum',
-            'MATIC': 'matic-network', 
-            'BNB': 'binancecoin',
-            'AVAX': 'avalanche-2',
-            'FTM': 'fantom',
-            'G': 'gravity',
-            'SOMI': 'somnia'
-        }
-        
-        # Маппинг символов к торговым парам Binance
-        binance_pairs = {
-            'ETH': 'ETHUSDT',
-            'MATIC': 'MATICUSDT',
-            'BNB': 'BNBUSDT', 
-            'AVAX': 'AVAXUSDT',
-            'FTM': 'FTMUSDT'
-        }
-        
-        token_symbol = token_symbol.upper()
-        coingecko_id = coingecko_ids.get(token_symbol)
-        binance_pair = binance_pairs.get(token_symbol)
-        
-        # Пробуем несколько API для получения курса
-        apis = []
-        
-        # CoinGecko API
-        if coingecko_id:
-            apis.append(f"https://api.coingecko.com/api/v3/simple/price?ids={coingecko_id}&vs_currencies=usd")
-        
-        # Binance API
-        if binance_pair:
-            apis.append(f"https://api.binance.com/api/v3/ticker/price?symbol={binance_pair}")
+        resp = requests.post(
+            rpc_url,
+            json={"jsonrpc": "2.0", "method": "eth_getBalance", "params": [wallet, "latest"], "id": 1},
+            proxies=proxy_dict,
+            timeout=10,
+            headers={'Content-Type': 'application/json'}
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if 'result' in data and data['result']:
+                return int(data['result'], 16) / 10**18
+        return -1
+    except:
+        return -1
+
+
+def check_wallet(wallet: str, rpc_urls: list, proxies: list, proxy_idx: int) -> dict:
+    """Проверка одного кошелька. Возвращает результат."""
+    # Получаем прокси по индексу
+    proxy_str = proxies[proxy_idx % len(proxies)] if proxies else None
+    proxy_dict = make_proxy_dict(proxy_str)
+    
+    for rpc_url in rpc_urls[:3]:  # Максимум 3 RPC
+        balance = get_balance_rpc(wallet, rpc_url, proxy_dict)
+        if balance >= 0:
+            return {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
+        # Меняем прокси при ошибке
+        if proxies:
+            proxy_str = random.choice(proxies)
+            proxy_dict = make_proxy_dict(proxy_str)
+    
+    return {'wallet': wallet, 'balance': 0, 'success': False, 'error': 'RPC failed'}
+
+
+def create_panel(network: str, total: int, success: int, failed: int, logs: list) -> Panel:
+    """Создание панели прогресса в стиле Ubuntu/Neura"""
+    processed = success + failed
+    percent = (processed / total * 100) if total > 0 else 0
+    
+    # Прогресс бар
+    bar_width = 40
+    filled = int(bar_width * percent / 100)
+    bar_filled = "━" * filled
+    bar_empty = "─" * (bar_width - filled)
+    
+    # Цвет бара
+    success_rate = (success / processed * 100) if processed > 0 else 100
+    bar_style = "bright_green" if success_rate >= 80 else "yellow" if success_rate >= 50 else "red"
+    
+    # Таблица статистики
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("L1", style="dim")
+    table.add_column("V1")
+    table.add_column("L2", style="dim")
+    table.add_column("V2")
+    table.add_row(
+        "✅ Успешно:", Text(str(success), style="bold green"),
+        "❌ Ошибки:", Text(str(failed), style="bold red")
+    )
+    table.add_row(
+        "📊 Всего:", Text(str(total), style="bold"),
+        "⚡ Потоков:", Text(str(NUM_THREADS), style="bold cyan")
+    )
+    
+    # Заголовок
+    header = Text()
+    header.append(f"\n🌐 ", style="bold")
+    header.append(f"{network}\n", style="bold cyan")
+    
+    # Прогресс бар
+    progress_bar = Text()
+    progress_bar.append(bar_filled, style=f"bold {bar_style}")
+    progress_bar.append(bar_empty, style="dim")
+    progress_bar.append(f" {percent:.1f}%\n", style=f"bold {bar_style}")
+    
+    # Обработано
+    processed_text = Text()
+    processed_text.append(f"Обработано: ", style="dim")
+    processed_text.append(f"{processed}/{total}\n\n", style="bold")
+    
+    # Логи
+    logs_section = Text()
+    logs_section.append("📝 Последние события:\n", style="bold")
+    for ts, msg, lvl in logs[-8:]:
+        logs_section.append(f"  {ts} ", style="dim")
+        style = {"SUCCESS": "green", "ERROR": "red", "WARNING": "yellow"}.get(lvl, "white")
+        logs_section.append(f"{msg}\n", style=style)
+    if not logs:
+        logs_section.append("  Ожидание...\n", style="dim")
+    
+    content = Group(header, progress_bar, processed_text, table, Text(""), logs_section)
+    
+    return Panel(
+        content,
+        title="[bold bright_blue]💰 ETH BALANCE CHECKER[/bold bright_blue]",
+        subtitle="[dim]ETHmachine v2.0[/dim]",
+        border_style="bright_blue",
+        padding=(1, 2)
+    )
+
+
+def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: str) -> dict:
+    """Обработка кошельков с прогресс-баром. Возвращает dict для сохранения порядка."""
+    results = {}
+    total = len(wallets)
+    success = 0
+    failed = 0
+    logs = []  # (timestamp, message, level)
+    
+    proxies = load_proxies()
+    max_workers = min(NUM_THREADS, total, 20)
+    
+    logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках", "INFO"))
+    
+    with Live(create_panel(network_name, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Создаём задачи с индексом для прокси
+            futures = {
+                executor.submit(check_wallet, wallet, rpc_urls, proxies, idx): wallet
+                for idx, wallet in enumerate(wallets)
+            }
             
-        # Coinbase API (только для основных токенов)
-        if token_symbol in ['ETH', 'BNB']:
-            apis.append(f"https://api.coinbase.com/v2/exchange-rates?currency={token_symbol}")
-        
-        for api_url in apis:
-            try:
-                response = requests.get(api_url, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
+            for future in as_completed(futures):
+                wallet = futures[future]
+                short = f"{wallet[:6]}...{wallet[-4:]}"
+                
+                try:
+                    result = future.result(timeout=30)
+                    results[wallet] = result
                     
-                    if "coingecko" in api_url and coingecko_id:
-                        price = data.get(coingecko_id, {}).get('usd', 0)
-                    elif "binance" in api_url:
-                        price = float(data.get('price', 0))
-                    elif "coinbase" in api_url:
-                        rates = data.get('data', {}).get('rates', {})
-                        price = float(rates.get('USD', 0))
-                    else:
-                        continue
-                    
-                    if price > 0:
-                        logger.success(f"💰 Получен курс {token_symbol}: ${price:.2f} USDT")
-                        return float(price)
-                        
-            except Exception as e:
-                continue
-        
-        logger.warning(f"⚠️ Не удалось получить курс {token_symbol}, стоимость в USDT не будет рассчитана")
-        return 0
-        
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка получения курса {token_symbol}: {e}")
-        return 0
-
-def get_eth_price_usdt():
-    """Получает актуальный курс ETH в USDT (обратная совместимость)"""
-    return get_token_price_usdt('ETH')
-
-def is_mainnet_network(network_name):
-    """Проверяет, является ли сеть mainnet через модуль rpc_return_module"""
-    try:
-        from modules.eth.rpc_return_module import mainnet_rpc_urls
-        # Проверяем как по полному имени, так и по очищенному
-        clean_name = network_name.replace('🚀 ', '')
-        return network_name in mainnet_rpc_urls or clean_name in [net.replace('🚀 ', '') for net in mainnet_rpc_urls.keys()]
-    except ImportError:
-        # Fallback список mainnet сетей
-        mainnet_networks = [
-            '🚀 Ethereum Mainnet',
-            'Ethereum Mainnet',
-            '🚀 Base', 
-            'Base',
-            '🚀 Arbitrum One',
-            'Arbitrum One',
-            '🚀 Optimism',
-            'Optimism',
-            '🚀 Soneium',
-            'Soneium',
-            '🚀 Polygon',
-            'Polygon',
-            '🚀 Binance Smart Chain',
-            'Binance Smart Chain',
-            '🚀 Avalanche',
-            'Avalanche',
-            '🚀 Fantom',
-            'Fantom',
-            '🚀 Gravity Alpha Mainnet (сеть Gravity )',
-            'Gravity Alpha Mainnet',
-            '🚀 Zora',
-            'Zora',
-            '🚀 Abstract',
-            'Abstract'
-            '🚀 Somnia'
-            'Somnia',
-        ]
-        return network_name in mainnet_networks
-
-def save_results(results, network_name, wallets, network_type=None):
-    try:
-        """Сохраняет результаты в CSV файл с сохранением порядка"""
-        result_dir = project_root / 'result'
-        result_dir.mkdir(exist_ok=True)
-        
-        result_file = result_dir / 'result.csv'
-        
-        results_dict = {}
-        for wallet, balance, success in results:
-            results_dict[wallet] = (balance, success)
-        
-        full_network_name = network_name if network_name.startswith('🚀') else f'🚀 {network_name}'
-        native_symbol = get_network_symbol(full_network_name)
-        
-        token_price = 0
-        is_mainnet = network_type == "mainnet" if network_type else is_mainnet_network(network_name)
-        
-        if is_mainnet:
-            token_price = get_token_price_usdt(native_symbol)
-        
-        with open(result_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            
-            # Определяем заголовки в зависимости от типа сети
-            if is_mainnet and token_price > 0:
-                writer.writerow(['address', f'balance_{native_symbol.lower()}', 'balance_usdt', 'network'])
-            else:
-                writer.writerow(['address', f'balance_{native_symbol.lower()}', 'network'])
-            
-            for wallet in wallets:
-                if wallet in results_dict:
-                    balance, success = results_dict[wallet]
-                    if success:
-                        # Форматируем баланс без научной нотации
-                        formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
-                        if is_mainnet and token_price > 0:
-                            balance_usdt = balance * token_price
-                            writer.writerow([wallet, formatted_balance, f"{balance_usdt:.2f}", network_name])
+                    if result['success']:
+                        success += 1
+                        update_task_status(wallet, 'native_balance', 'completed', network=network_name, balance=str(result['balance']))
+                        if result['balance'] > 0:
+                            logs.append((time.strftime("%H:%M:%S"), f"[{short}] ✅ {result['balance']:.6f} {symbol}", "SUCCESS"))
                         else:
-                            writer.writerow([wallet, formatted_balance, network_name])
+                            logs.append((time.strftime("%H:%M:%S"), f"[{short}] ✅ 0 {symbol}", "SUCCESS"))
                     else:
-                        writer.writerow([wallet, "0", "0.00" if is_mainnet and token_price > 0 else "", network_name])
-                else:
-                    writer.writerow([wallet, "0", "0.00" if is_mainnet and token_price > 0 else "", network_name])
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
-        raise
+                        failed += 1
+                        update_task_status(wallet, 'native_balance', 'failed', network=network_name, error_message=result['error'])
+                        logs.append((time.strftime("%H:%M:%S"), f"[{short}] ❌ {result['error']}", "ERROR"))
+                except Exception as e:
+                    failed += 1
+                    results[wallet] = {'wallet': wallet, 'balance': 0, 'success': False, 'error': str(e)[:30]}
+                    update_task_status(wallet, 'native_balance', 'failed', network=network_name, error_message=str(e)[:50])
+                    logs.append((time.strftime("%H:%M:%S"), f"[{short}] ❌ {str(e)[:20]}", "ERROR"))
+                
+                # Обновляем панель
+                live.update(create_panel(network_name, total, success, failed, logs))
+    
+    return results
 
-def save_results_all_networks(results, all_networks, wallets):
-    try:
-        """Сохраняет результаты всех сетей в CSV файл с сохранением порядка"""
-        result_dir = project_root / 'result'
-        result_dir.mkdir(exist_ok=True)
-        
-        result_file = result_dir / 'result.csv'
-        
-        results_dict = {}
-        for wallet, network_balances, success in results:
-            results_dict[wallet] = (network_balances, success)
-        
-        # Получаем курсы токенов для всех mainnet сетей
-        token_prices = {}
-        for network_name in all_networks.keys():
-            if is_mainnet_network(network_name):
-                native_symbol = get_network_symbol(network_name)
-                token_prices[network_name] = get_token_price_usdt(native_symbol)
-        
-        with open(result_file, 'w', newline='', encoding='utf-8') as f:
+
+def save_results(results: dict, wallets: list, network_name: str, symbol: str):
+    """Сохранение результатов в порядке wallets"""
+    result_dir = project_root / 'result'
+    result_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    clean_network = network_name.replace('🚀 ', '').replace(' ', '_')
+    
+    for filepath in [result_dir / f"balances_{clean_network}_{timestamp}.csv", result_dir / 'result.csv']:
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            
-            # Создаем заголовок с названиями сетей
-            header = ['address']
-            for network_name in all_networks.keys():
-                clean_network_name = network_name.replace('🚀 ', '')
-                # Получаем символ нативного токена для сети
-                native_symbol = get_network_symbol(network_name)
-                header.append(f"{clean_network_name}_{native_symbol}")
-                # Добавляем колонку USDT для mainnet сетей
-                if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
-                    header.append(f"{clean_network_name}_USDT")
-            
-            writer.writerow(header)
-            
+            writer.writerow(['wallet', 'balance', 'symbol', 'network', 'status'])
             for wallet in wallets:
-                if wallet in results_dict:
-                    network_balances, success = results_dict[wallet]
-                    if success and isinstance(network_balances, dict):
-                        row = [wallet]
-                        for network_name in all_networks.keys():
-                            balance = network_balances.get(network_name, 0)
-                            # Форматируем баланс без научной нотации
-                            formatted_balance = f"{balance:.18f}".rstrip('0').rstrip('.')
-                            row.append(formatted_balance)
-                            # Добавляем стоимость в USDT для mainnet сетей
-                            if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
-                                balance_usdt = balance * token_prices[network_name]
-                                row.append(f"{balance_usdt:.2f}")
-                        writer.writerow(row)
-                    else:
-                        row = [wallet]
-                        for network_name in all_networks.keys():
-                            row.append("0")
-                            # Добавляем 0 USDT для mainnet сетей
-                            if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
-                                row.append("0.00")
-                        writer.writerow(row)
+                if wallet in results:
+                    r = results[wallet]
+                    status = 'OK' if r['success'] else f"ERROR: {r['error']}"
+                    writer.writerow([wallet, r['balance'], symbol, network_name, status])
                 else:
-                    row = [wallet]
-                    for network_name in all_networks.keys():
-                        row.append("0")
-                        # Добавляем 0 USDT для mainnet сетей
-                        if is_mainnet_network(network_name) and token_prices.get(network_name, 0) > 0:
-                            row.append("0.00")
-                    writer.writerow(row)
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка при сохранении результатов: {e}")
-        raise
+                    writer.writerow([wallet, 0, symbol, network_name, 'ERROR: Not processed'])
     
-def format_time_remaining(seconds):
-    """Форматирует оставшееся время в читаемый вид"""
-    if seconds < 60:
-        return f"{int(seconds)}с"
-    elif seconds < 3600:
-        minutes = int(seconds // 60)
-        seconds = int(seconds % 60)
-        return f"{minutes}м {seconds}с"
-    else:
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        return f"{hours}ч {minutes}м"
+    console.print(f"[green]💾 Результаты сохранены в result/result.csv[/green]")
 
-def get_estimated_completion_time(seconds_remaining):
-    """Возвращает предполагаемое время завершения"""
-    completion_time = datetime.now() + timedelta(seconds=seconds_remaining)
-    return completion_time.strftime("%H:%M:%S")
 
-def check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network):
-    """Функция для проверки балансов в одной сети"""
+def print_summary(results: dict, symbol: str):
+    """Вывод итогов"""
+    success_list = [r for r in results.values() if r['success']]
+    failed_list = [r for r in results.values() if not r['success']]
+    total_balance = sum(r['balance'] for r in success_list)
     
-    # Настраиваем логирование ошибок
-    error_logger = setup_error_logging()
+    console.print("\n" + "="*60)
+    console.print(f"[bold cyan]📊 ИТОГИ ПРОВЕРКИ[/bold cyan]")
+    console.print("="*60)
+    console.print(f"[green]✅ Успешно: {len(success_list)}[/green]")
+    console.print(f"[red]❌ Ошибки: {len(failed_list)}[/red]")
+    console.print(f"[yellow]💰 Общий баланс: {total_balance:.6f} {symbol}[/yellow]")
+    console.print("="*60)
     
-    if not rpc_urls_list:
-        error_msg = f"RPC URLs для сети {clean_network} не найдены!"
-        logger.error(f"❌ {error_msg}")
-        if error_logger:
-            error_logger.error(f"Configuration Error: {error_msg}")
-        return
-    
-    # Получаем символ нативного токена для сети
-    native_symbol = get_network_symbol(f"🚀 {clean_network}")
-    
-    logger.info("="*80)
-    logger.info(f"🚀 Начинаем проверку балансов нативных токенов")
-    logger.info(f"🌐 Сеть: {clean_network} ({network_type})")
-    
-    # Показываем информацию о mainnet и курсе - используем network_type для определения
-    if network_type == "mainnet" or is_mainnet_network(clean_network):
-        logger.success(f"💎 Mainnet сеть - будет добавлена стоимость в USDT")
-        token_price = get_token_price_usdt(native_symbol)
-        if token_price > 0:
-            logger.success(f"💰 Курс {native_symbol}: ${token_price:.2f} USDT")
-    else:
-        logger.warning(f"🔧 Testnet сеть - только баланс в {native_symbol}")
-    
-    logger.info(f"🔗 RPC URLs: {len(rpc_urls_list)} шт.")
-    logger.info(f"🧵 Потоков: {NUM_THREADS}")
-    logger.info("="*80)
-    
-    wallets = load_wallets()
-    proxies_list = load_proxies()
-    
-    if not wallets:
-        logger.error("❌ Нет кошельков для обработки!")
-        return
-    
-    logger.success(f"📂 Загружено {len(wallets)} кошельков")
-    logger.success(f"🔗 Загружено {len(proxies_list)} прокси")
-    
-    total_wallets = len(wallets)
-    completed_wallets = 0
-    bar_length = 50
-    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    spinner_cycle = cycle(spinner)
-    
-    results = []
-    successful_count = 0
-    failed_count = 0
-    
-    # Для расчета времени
-    start_time = time.time()
-    
-    logger.info("-"*80)
-    logger.info("🔄 Начинаем обработку кошельков...")
-    logger.info("-"*80+ "\n")
-    
-    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        future_to_wallet = {
-            executor.submit(
-                process_wallet_task, 
-                i,
-                wallet,
-                get_assigned_proxy(i, proxies_list),
-                rpc_urls_list,
-                proxies_list,
-                logger,
-                clean_network
-            ): wallet
-            for i, wallet in enumerate(wallets)
-        }
-        
-        for future in as_completed(future_to_wallet):
-            wallet = future_to_wallet[future]
-            try:
-                wallet_result, balance, success = future.result(timeout=30)
-                results.append((wallet_result, balance, success))
-                
-                if success:
-                    successful_count += 1
-                    status_icon = "✅"
-                    status_color = Fore.GREEN
-                    balance_info = f"Баланс: {Fore.GREEN}{balance:.6f}{Fore.RESET} {Fore.GREEN}{native_symbol}{Fore.RESET}"
-                else:
-                    failed_count += 1
-                    status_icon = "❌"
-                    status_color = Fore.RED
-                    balance_info = "Ошибка получения баланса"
-                
-            except Exception as e:
-                failed_count += 1
-                results.append((wallet, 0, False))
-                status_icon = "❌"
-                status_color = Fore.RED
-                balance_info = f"Исключение: {str(e)[:20]}..."
-                wallet_result = wallet
-            
-            finally:
-                completed_wallets += 1
-                progress = int((completed_wallets / total_wallets) * bar_length)
-                progress_percent = (completed_wallets / total_wallets) * 100
-                bar = "█" * progress + "░" * (bar_length - progress)
-                spinner_frame = next(spinner_cycle)
-                
-                remaining_wallets = total_wallets - completed_wallets
-                
-                # Расчет времени
-                elapsed_time = time.time() - start_time
-                if completed_wallets > 0:
-                    avg_time_per_wallet = elapsed_time / completed_wallets
-                    estimated_remaining_time = avg_time_per_wallet * remaining_wallets
-                    time_remaining_str = format_time_remaining(estimated_remaining_time)
-                    completion_time_str = get_estimated_completion_time(estimated_remaining_time)
-                    time_info = f"⏱️  {time_remaining_str} | 🎯 {completion_time_str}"
-                else:
-                    time_info = "⏱️Расчет... | 🎯--:--:--"
-                
-                print(
-                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
-                    f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
-                    f"Осталось: {remaining_wallets} | {time_info} | {status_color}{status_icon} {wallet_result[:10]}...{wallet_result[-6:]} | {balance_info}{Style.RESET_ALL}",
-                    end="\n" if progress_percent >= 100 else "",
-                    flush=True,
-                )
+    # Топ кошельков с балансом
+    with_balance = sorted([r for r in success_list if r['balance'] > 0], key=lambda x: x['balance'], reverse=True)
+    if with_balance:
+        console.print("\n[bold cyan]🏆 Топ кошельков с балансом:[/bold cyan]")
+        for i, r in enumerate(with_balance[:10], 1):
+            console.print(f"  {i}. {r['wallet'][:10]}...{r['wallet'][-6:]} → [green]{r['balance']:.6f} {symbol}[/green]")
 
-    logger.info("" + "="*80)
-    logger.info("📊 ИТОГОВАЯ СТАТИСТИКА:")
-    logger.success(f"✅ Успешно обработано: {successful_count}")
-    logger.error(f"❌ Ошибок: {failed_count}")
-    logger.info(f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
-    
-    total_time = time.time() - start_time
-    logger.info(f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
-    
-    logger.info("💾 Сохраняем результаты...")
-    saved_result = save_results(results, clean_network, wallets, network_type)
-    if saved_result:
-        logger.success("✅ Результаты сохранены в result/result.csv")
-    logger.info("="*80 + "\n")
-    
-    # Уведомление в Telegram с файлом
-    from modules.notifications import send_telegram_notification
-    result_file_path = project_root / 'result' / 'result.csv'
-    send_telegram_notification(
-        notif_type="success",
-        title="Проверка балансов завершена",
-        message=f"Сеть: {clean_network} ({network_type})\nУспешно: {successful_count}\nОшибок: {failed_count}",
-        main_title="Баланс чек завершён",
-        file_path=str(result_file_path)
-    )
-
-def check_wallet_balances_all_networks(all_networks):
-    """Функция для проверки балансов во всех сетях"""
-    
-    # Настраиваем логирование ошибок
-    error_logger = setup_error_logging()
-    
-    logger.info("="*80)
-    logger.info(f"🚀 Начинаем проверку балансов во ВСЕХ сетях")
-    logger.info(f"🌐 Количество сетей: {len(all_networks)}")
-    
-    # Показываем информацию о mainnet сетях
-    mainnet_count = sum(1 for network in all_networks.keys() if is_mainnet_network(network))
-    testnet_count = len(all_networks) - mainnet_count
-    
-    logger.success(f"💎 Mainnet сетей: {mainnet_count}")
-    logger.warning(f"🔧 Testnet сетей: {testnet_count}")
-    
-    if mainnet_count > 0:
-        logger.success(f"💰 Для mainnet сетей будет добавлена стоимость в USDT")
-    
-    logger.info(f"🧵 Потоков: {NUM_THREADS}")
-    logger.info("="*80)
-    
-    wallets = load_wallets()
-    proxies_list = load_proxies()
-    
-    if not wallets:
-        logger.error("❌ Нет кошельков для обработки!")
-        return
-    
-    logger.success(f"📂 Загружено {len(wallets)} кошельков")
-    logger.success(f"🔗 Загружено {len(proxies_list)} прокси")
-    
-    total_wallets = len(wallets)
-    completed_wallets = 0
-    bar_length = 50
-    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    spinner_cycle = cycle(spinner)
-    
-    results = []
-    successful_count = 0
-    failed_count = 0
-    
-    # Для расчета времени
-    start_time = time.time()
-    
-    logger.info("-"*80)
-    logger.info("🔄 Начинаем обработку кошельков...\n")
-    logger.info("-"*80)
-    
-    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        future_to_wallet = {
-            executor.submit(
-                process_wallet_task_all_networks, 
-                i,
-                wallet,
-                get_assigned_proxy(i, proxies_list),
-                all_networks,
-                proxies_list,
-                logger
-            ): wallet
-            for i, wallet in enumerate(wallets)
-        }
-        
-        for future in as_completed(future_to_wallet):
-            wallet = future_to_wallet[future]
-            try:
-                wallet_result, network_balances, success = future.result(timeout=60)
-                results.append((wallet_result, network_balances, success))
-                
-                if success:
-                    successful_count += 1
-                    networks_with_balance = sum(1 for balance in network_balances.values() if balance > 0)
-                    status_info = f"Сетей с балансом: {networks_with_balance}/{len(all_networks)}"
-                else:
-                    failed_count += 1
-                    status_info = "Ошибка получения балансов"
-                
-            except Exception as e:
-                failed_count += 1
-                results.append((wallet, {}, False))
-                status_info = f"Исключение: {str(e)[:20]}..."
-                wallet_result = wallet
-            
-            finally:
-                completed_wallets += 1
-                progress = int((completed_wallets / total_wallets) * bar_length)
-                progress_percent = (completed_wallets / total_wallets) * 100
-                bar = "█" * progress + "░" * (bar_length - progress)
-                spinner_frame = next(spinner_cycle)
-                
-                remaining_wallets = total_wallets - completed_wallets
-                
-                # Расчет времени
-                elapsed_time = time.time() - start_time
-                if completed_wallets > 0:
-                    avg_time_per_wallet = elapsed_time / completed_wallets
-                    estimated_remaining_time = avg_time_per_wallet * remaining_wallets
-                    time_remaining_str = format_time_remaining(estimated_remaining_time)
-                    completion_time_str = get_estimated_completion_time(estimated_remaining_time)
-                    time_info = f"⏱️{time_remaining_str} | 🎯{completion_time_str}"
-                else:
-                    time_info = "⏱️Расчет... | 🎯--:--:--"
-                
-                print(
-                    f"\r{Fore.BLUE}[{bar}] {completed_wallets}/{total_wallets} ({progress_percent:.1f}%) | "
-                    f"{spinner_frame} | ✅{successful_count} | ❌{failed_count} | "
-                    f"Осталось: {remaining_wallets} | {time_info} | {wallet_result[:10]}...{wallet_result[-6:]} | {status_info}{Style.RESET_ALL}",
-                    end="",
-                    flush=True,
-                )
-    
-    logger.info("")
-    logger.info("="*80)
-    logger.info("📊 ИТОГОВАЯ СТАТИСТИКА:")
-    logger.success(f"✅ Успешно обработано: {successful_count}")
-    logger.error(f"❌ Ошибок: {failed_count}")
-    logger.info(f"📈 Процент успеха: {(successful_count/total_wallets)*100:.1f}%")
-    
-    total_time = time.time() - start_time
-    logger.info(f"⏱️ Общее время выполнения: {format_time_remaining(total_time)}")
-    
-    logger.info("💾 Сохраняем результаты...")
-    saved_result = save_results_all_networks(results, all_networks, wallets)
-    if saved_result:
-        logger.success("✅ Результаты сохранены в result/result.csv")
-    logger.info("="*80)
-    
-    logger.info("💬 Отправляем уведомление в Telegram...")
-    from modules.notifications import send_telegram_notification
-    result_file_path = project_root / 'result' / 'result.csv'
-    send_telegram_notification(
-        notif_type="success",
-        title="Проверка балансов по всем сетям завершена",
-        message=f"Сетей: {len(all_networks)}\nУспешно: {successful_count}\nОшибок: {failed_count}",
-        main_title="Баланс чек завершён",
-        file_path=str(result_file_path)
-    )
 
 def check_wallet_balances_menu():
-    """Главная функция для запуска проверки балансов кошельков"""
-    from modules.eth.rpc_return_module import get_network_rpc_selection
-
-    rpc_urls_list, network_type, clean_network = get_network_rpc_selection()
-    if rpc_urls_list is None:
+    """Главное меню"""
+    wallets = load_wallets()
+    if not wallets:
+        console.print("[red]❌ Нет кошельков![/red]")
         return
+    
+    console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
+    
+    # Выбор типа сети
+    network_type = select(
+        "\n╔════════════════════════════════════════════════╗\n"
+        "║      Выбор типа сети / Network Type            ║\n"
+        "╚════════════════════════════════════════════════╝",
+        choices=[
+            Choice('   🌐 Mainnet Networks', 'mainnet'),
+            Choice('   🔧 Testnet Networks', 'testnet'),
+            Choice('   🌐 Все Mainnet сети', 'all_mainnet'),
+            Choice('   🔧 Все Testnet сети', 'all_testnet'),
+            Choice('   🔙 Назад / Back', 'back')
+        ],
+        qmark='🛠️ ',
+        pointer='👉'
+    ).ask()
+    
+    if network_type == 'back' or not network_type:
+        return
+    
+    # Получаем сети
+    networks = {k: v for k, v in NETWORKS.items() if v['type'] == ('mainnet' if 'mainnet' in network_type else 'testnet')}
+    
+    # Если выбрана одна сеть
+    if network_type in ['mainnet', 'testnet']:
+        choices = [Choice(name, name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
+        selected = select("Выберите сеть:", choices=choices, qmark='🛠️', pointer='👉').ask()
+        if selected == 'back' or not selected:
+            return
+        networks = {selected: networks[selected]}
+    
+    # Действие с БД
+    action = select(
+        "\n╔════════════════════════════════════════════════╗\n"
+        "║      Действие с базой данных                   ║\n"
+        "╚════════════════════════════════════════════════╝",
+        choices=[
+            Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
+            Choice('   🔄 Начать заново (сброс БД)', 'reset'),
+            Choice('   🔙 Назад', 'back')
+        ],
+        qmark='🛠️ ',
+        pointer='👉'
+    ).ask()
+    
+    if action == 'back' or not action:
+        return
+    
+    all_results = {}
+    
+    for network_name, network_data in networks.items():
+        rpc_urls = network_data['rpc_urls']
+        symbol = network_data['symbol']
+        
+        console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
+        console.print(f"[bold cyan]🌐 Сеть: {network_name}[/bold cyan]")
+        console.print(f"[bold cyan]{'='*60}[/bold cyan]")
+        
+        init_database()
+        
+        if action == 'reset':
+            reset_database_for_new_run('native_balance', network_name)
+            create_balance_tasks(wallets, 'native_balance', network_name)
+        
+        pending = get_pending_tasks('native_balance', network_name)
+        if not pending:
+            create_balance_tasks(wallets, 'native_balance', network_name)
+            pending = get_pending_tasks('native_balance', network_name)
+        
+        if not pending:
+            console.print(f"[yellow]⚠️ Все задачи уже выполнены[/yellow]")
+            continue
+        
+        wallets_to_check = [t['wallet_address'] for t in pending]
+        console.print(f"[cyan]📋 Задач: {len(wallets_to_check)}[/cyan]")
+        
+        # Обработка
+        results = process_wallets(wallets_to_check, rpc_urls, network_name, symbol)
+        all_results.update(results)
+        
+        # Сохранение в порядке wallets
+        save_results(results, wallets, network_name, symbol)
+        print_summary(results, symbol)
+    
+    console.print("\n[bold green]✅ Проверка завершена![/bold green]\n")
+    
+    # Telegram
+    try:
+        from modules.notifications import send_telegram_notification
+        results_list = list(all_results.values())
+        send_telegram_notification(
+            notif_type="success",
+            title="Проверка балансов завершена",
+            message=f"Всего: {len(results_list)}\nУспешно: {len([r for r in results_list if r['success']])}",
+            main_title="ETHmachine Balance Check"
+        )
+    except:
+        pass
 
-    if rpc_urls_list == 'ALL_NETWORKS':
-        check_wallet_balances_all_networks(network_type)
-    else:
-        check_wallet_balances_single_network(rpc_urls_list, network_type, clean_network)
+
+if __name__ == "__main__":
+    check_wallet_balances_menu()
 

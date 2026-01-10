@@ -1,8 +1,3 @@
-"""
-Клиент Neura Protocol для сбора пульсов и клейма задач
-Адаптирован из src_example с интеграцией в ETHmachine
-"""
-
 import uuid
 import random
 import asyncio
@@ -18,7 +13,6 @@ from curl_cffi.requests import AsyncSession, BrowserType
 from eth_account import Account as EthAccount
 from eth_account.messages import encode_defunct
 
-# Добавляем путь к корню проекта
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
@@ -28,7 +22,6 @@ from config.config import (
 )
 from modules.neura.types import UserData
 
-# AstrumSolver защищён pyarmor, импортируем с type: ignore
 try:
     from modules.statistics.astrum_captcha_solver import AstrumSolver  # type: ignore
 except ImportError:
@@ -38,27 +31,22 @@ colorama_init(autoreset=False)
 
 
 def log_success(wallet: str, message: str):
-    """Зелёный лог успеха в стиле проекта"""
     logger.opt(colors=False).success(f"{Fore.GREEN}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_warning(wallet: str, message: str):
-    """Жёлтый лог предупреждения"""
     logger.opt(colors=False).warning(f"{Fore.YELLOW}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_error(wallet: str, message: str):
-    """Красный лог ошибки"""
     logger.opt(colors=False).error(f"{Fore.RED}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_info(wallet: str, message: str):
-    """Информационный лог"""
     logger.opt(colors=False).info(f"[{wallet}] | {message}")
 
 
 class NeuraClient:
-    """Клиент для работы с Neura Protocol API"""
     
     def __init__(self, private_key: str, proxy: Optional[str] = None):
         self.private_key = private_key
@@ -66,11 +54,9 @@ class NeuraClient:
         self.jwt_token = None
         self.user_data: Optional[UserData] = None
         
-        # Инициализация аккаунта из приватного ключа
         self.account = EthAccount.from_key(private_key)
         self.wallet_address = self.account.address
         
-        # Формируем proxy URL
         proxy_url = None
         proxy_dict = None
         if proxy:
@@ -79,7 +65,6 @@ class NeuraClient:
             else:
                 proxy_url = proxy
             proxy_dict = {'http': proxy_url, 'https': proxy_url}
-            # Логируем IP прокси (скрываем креды)
             proxy_ip = proxy.split('@')[-1] if '@' in proxy else proxy[:30]
             log_info(self.wallet_address, f"Using proxy: {proxy_ip}")
         else:
@@ -90,7 +75,6 @@ class NeuraClient:
             impersonate="chrome131"  # type: ignore
         )
         
-        # Captcha solver (синхронный, как в neura_stats.py)
         self._captcha_solver = None
         if astrum_CAPTCHA_API_KEY and AstrumSolver:
             try:
@@ -101,7 +85,6 @@ class NeuraClient:
             except Exception as e:
                 log_warning(self.wallet_address, f"Failed to init AstrumSolver: {e}")
         
-        # Headers для авторизации
         self.auth_headers = {
             'accept': 'application/json',
             'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -137,7 +120,6 @@ class NeuraClient:
         }
     
     async def close(self):
-        """Закрыть сессию"""
         if self.session:
             await self.session.close()
     
@@ -148,7 +130,6 @@ class NeuraClient:
         await self.close()
     
     def _get_signature(self, message: str) -> str:
-        """Подписать сообщение приватным ключом"""
         signed_message = EthAccount.sign_message(
             encode_defunct(text=message), 
             private_key=self.private_key
@@ -164,7 +145,6 @@ class NeuraClient:
         data: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None
     ) -> Tuple[Optional[Dict[str, Any]], int]:
-        """Выполнить HTTP запрос"""
         try:
             response = await self.session.request(
                 method=method,  # type: ignore
@@ -191,14 +171,12 @@ class NeuraClient:
             return None, 0
     
     async def _get_nonce(self) -> Optional[str]:
-        """Получить nonce для авторизации с решением captcha"""
         if not self._captcha_solver:
             log_error(self.wallet_address, "Captcha solver not initialized!")
             return None
             
         for attempt in range(RETRY_COUNT):
             try:
-                # Решаем turnstile captcha (синхронный вызов)
                 turnstile_token = self._captcha_solver.solve_turnstile(
                     sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
                     pageurl='https://neuraverse.neuraprotocol.io/',
@@ -226,7 +204,6 @@ class NeuraClient:
                 if status == 200 and response_json:
                     return response_json.get('nonce')
                 
-                # При 429 (rate limit) увеличиваем задержку
                 if status == 429:
                     wait_time = random.uniform(10, 20)
                     log_warning(self.wallet_address, f"Rate limited (429), waiting {wait_time:.1f}s...")
@@ -244,7 +221,6 @@ class NeuraClient:
         return None
     
     async def _send_auth_request(self, message: str, signature: str) -> bool:
-        """Отправить запрос авторизации"""
         json_data = {
             'message': message,
             'signature': signature,
@@ -271,7 +247,6 @@ class NeuraClient:
         return False
     
     async def authorize(self) -> bool:
-        """Авторизация в Neura Protocol"""
         for attempt in range(RETRY_COUNT):
             nonce = await self._get_nonce()
             if not nonce:
@@ -306,7 +281,6 @@ class NeuraClient:
         return False
     
     async def _process_action(self, action_type: str) -> bool:
-        """Отправить событие действия"""
         json_data = {'type': action_type}
         response_json, status = await self._make_request(
             method="POST",
@@ -316,7 +290,6 @@ class NeuraClient:
         return status == 200
     
     async def get_user(self) -> Optional[UserData]:
-        """Получить данные пользователя"""
         response_json, status = await self._make_request(
             method="GET",
             url='https://neuraverse-testnet.infra.neuraprotocol.io/api/account'
@@ -329,7 +302,6 @@ class NeuraClient:
         return None
     
     async def _collect_pulse(self, pulse_id: str) -> bool:
-        """Собрать один пульс"""
         json_data = {
             'type': 'pulse:collectPulse',
             'payload': {'id': pulse_id}
@@ -348,10 +320,6 @@ class NeuraClient:
         return False
     
     async def collect_pulses(self) -> bool:
-        """
-        Собрать все доступные пульсы
-        Возвращает True когда все пульсы собраны
-        """
         max_cycles = NEURA_MAX_RETRIES_PER_TASK
         consecutive_failures = 0
         
@@ -361,13 +329,12 @@ class NeuraClient:
             user = await self.get_user()
             if not user:
                 consecutive_failures += 1
-                # Увеличиваем задержку при повторных ошибках
                 wait_time = min(5 + consecutive_failures * 3, 30)
                 log_warning(self.wallet_address, f"Failed to get user data, waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 continue
             
-            consecutive_failures = 0  # Сбрасываем счетчик при успехе
+            consecutive_failures = 0 
             
             uncollected_pulses = [
                 pulse for pulse in self.user_data.pulses.data
@@ -382,7 +349,6 @@ class NeuraClient:
             
             for pulse_obj in uncollected_pulses:
                 for attempt in range(NEURA_MAX_RETRIES_PER_TASK):
-                    # Проверяем актуальный статус пульса
                     fresh_user = await self.get_user()
                     if fresh_user:
                         fresh_pulse = next(
@@ -403,7 +369,6 @@ class NeuraClient:
                         )
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
-            # Проверяем итоговый результат
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             user_after = await self.get_user()
             
@@ -422,7 +387,6 @@ class NeuraClient:
         return False
     
     async def _get_tasks(self) -> Optional[list]:
-        """Получить список задач"""
         response_json, status = await self._make_request(
             method="GET",
             url='https://neuraverse-testnet.infra.neuraprotocol.io/api/tasks'
@@ -434,7 +398,6 @@ class NeuraClient:
         return None
     
     async def _claim_task(self, task_id: str) -> bool:
-        """Заклеймить одну задачу"""
         response_json, status = await self._make_request(
             method="POST",
             url=f'https://neuraverse-testnet.infra.neuraprotocol.io/api/tasks/{task_id}/claim'
@@ -452,10 +415,6 @@ class NeuraClient:
         return False
     
     async def claim_tasks(self) -> bool:
-        """
-        Заклеймить все доступные задачи
-        Возвращает True когда все задачи заклеймлены
-        """
         max_cycles = NEURA_MAX_RETRIES_PER_TASK
         consecutive_failures = 0
         
@@ -470,7 +429,7 @@ class NeuraClient:
                 await asyncio.sleep(wait_time)
                 continue
             
-            consecutive_failures = 0  # Сбрасываем счетчик при успехе
+            consecutive_failures = 0 
             
             claimable_tasks = [task for task in all_tasks if task.get('status') == 'claimable']
             
@@ -485,7 +444,6 @@ class NeuraClient:
                 task_name = task.get('name', 'Unknown')
                 
                 for attempt in range(NEURA_MAX_RETRIES_PER_TASK):
-                    # Проверяем актуальный статус задачи
                     fresh_tasks = await self._get_tasks()
                     if fresh_tasks:
                         fresh_task = next((t for t in fresh_tasks if t.get('id') == task_id), None)
@@ -503,7 +461,6 @@ class NeuraClient:
                         )
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
-            # Проверяем итоговый результат
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             all_tasks_after = await self._get_tasks()
             

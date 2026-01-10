@@ -1,6 +1,3 @@
-"""
-Модуль Neura Protocol - автоматизация сбора пульсов и клейма задач
-"""
 
 from modules.neura.menu import neura_menu
 

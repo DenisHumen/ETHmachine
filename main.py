@@ -140,7 +140,7 @@ check_and_create_files()
 
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
-from modules.eth.eth_get_token_balance import check_token_balances_menu
+from modules.eth.eth_get_token_balance import check_token_balance_menu
 from modules.password_generator import password_generator_menu
 from modules.get_gas_price import check_all_gas_prices
 
@@ -587,7 +587,7 @@ def main_menu():
                             case 'check_wallet_balances_eth':
                                 check_wallet_balances_menu()
                             case 'check_token_balances':
-                                check_token_balances_menu()
+                                check_token_balance_menu()
                             case 'back':
                                 continue
 

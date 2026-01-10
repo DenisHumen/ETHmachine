@@ -1,7 +1,3 @@
-"""
-Типы данных для Neura Protocol
-"""
-
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from datetime import datetime

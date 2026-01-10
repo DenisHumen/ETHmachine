@@ -1,8 +1,3 @@
-"""
-База данных для отслеживания прогресса задач Neura Protocol
-Хранит статус выполнения каждой задачи для каждого кошелька
-"""
-
 import sqlite3
 import hashlib
 from datetime import datetime
@@ -10,7 +5,6 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from threading import Lock
 
-# Путь к базе данных
 DB_DIR = Path(__file__).parent.parent.parent / "db"
 DB_FILE = DB_DIR / "neura_tasks.db"
 
@@ -18,24 +12,20 @@ db_lock = Lock()
 
 
 def ensure_db_directory():
-    """Создание директории для БД если не существует"""
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_private_key_hash(private_key: str) -> str:
-    """Хеширование приватного ключа для безопасного хранения"""
     return hashlib.sha256(private_key.encode()).hexdigest()[:16]
 
 
 def init_database():
-    """Инициализация базы данных с таблицей задач"""
     ensure_db_directory()
     
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
             
-            # Таблица задач для каждого кошелька
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS neura_wallet_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +43,6 @@ def init_database():
                 )
             ''')
             
-            # Индексы для быстрого поиска
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_wallet_task 
                 ON neura_wallet_tasks(wallet_address, task_type)
@@ -68,13 +57,6 @@ def init_database():
 
 
 def create_tasks_for_wallets(wallets: List[Tuple[str, str]], task_types: List[str]):
-    """
-    Создание задач для списка кошельков
-    
-    Args:
-        wallets: список кортежей (wallet_address, private_key)
-        task_types: список типов задач (например ['collect_pulses', 'claim_tasks'])
-    """
     init_database()
     
     with db_lock:
@@ -85,7 +67,6 @@ def create_tasks_for_wallets(wallets: List[Tuple[str, str]], task_types: List[st
                 pk_hash = get_private_key_hash(private_key)
                 
                 for task_type in task_types:
-                    # Используем INSERT OR IGNORE чтобы не дублировать задачи
                     cursor.execute('''
                         INSERT OR IGNORE INTO neura_wallet_tasks 
                         (wallet_address, private_key_hash, task_type, status)
@@ -96,13 +77,6 @@ def create_tasks_for_wallets(wallets: List[Tuple[str, str]], task_types: List[st
 
 
 def get_pending_tasks(task_type: str) -> List[Dict]:
-    """
-    Получить все pending задачи определенного типа
-    Включает: pending, failed, in_progress (застрявшие при перезапуске)
-    
-    Returns:
-        Список словарей с информацией о задачах
-    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             conn.row_factory = sqlite3.Row
@@ -119,7 +93,6 @@ def get_pending_tasks(task_type: str) -> List[Dict]:
 
 
 def get_wallet_task_status(wallet_address: str, task_type: str) -> Optional[Dict]:
-    """Получить статус задачи для кошелька"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             conn.row_factory = sqlite3.Row
@@ -140,15 +113,6 @@ def update_task_status(
     status: str, 
     error_message: Optional[str] = None
 ):
-    """
-    Обновить статус задачи
-    
-    Args:
-        wallet_address: адрес кошелька
-        task_type: тип задачи
-        status: новый статус ('pending', 'in_progress', 'completed', 'failed')
-        error_message: сообщение об ошибке (опционально)
-    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -179,7 +143,6 @@ def update_task_status(
 
 
 def increment_task_attempts(wallet_address: str, task_type: str):
-    """Увеличить счетчик попыток для задачи"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -195,7 +158,6 @@ def increment_task_attempts(wallet_address: str, task_type: str):
 
 
 def get_task_statistics() -> Dict:
-    """Получить статистику по всем задачам"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -217,13 +179,6 @@ def get_task_statistics() -> Dict:
 
 
 def reset_failed_tasks(task_type: Optional[str] = None, max_attempts: Optional[int] = None):
-    """
-    Сбросить failed задачи обратно в pending
-    
-    Args:
-        task_type: тип задачи (None = все типы)
-        max_attempts: сбросить только задачи с попытками <= max_attempts
-    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -246,7 +201,6 @@ def reset_failed_tasks(task_type: Optional[str] = None, max_attempts: Optional[i
 
 
 def clear_all_tasks():
-    """Очистить все задачи (для отладки)"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -255,15 +209,6 @@ def clear_all_tasks():
 
 
 def all_tasks_completed(task_types: List[str]) -> bool:
-    """
-    Проверить, все ли задачи указанных типов завершены (completed)
-    
-    Args:
-        task_types: список типов задач для проверки
-    
-    Returns:
-        True если все задачи completed или БД пуста
-    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -287,12 +232,6 @@ def all_tasks_completed(task_types: List[str]) -> bool:
 
 
 def reset_database_for_new_run(task_types: List[str]):
-    """
-    Сбросить БД для нового запуска - удалить все задачи указанных типов
-    
-    Args:
-        task_types: список типов задач для удаления
-    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -310,7 +249,6 @@ def reset_database_for_new_run(task_types: List[str]):
 
 
 def get_all_tasks_for_wallet(wallet_address: str) -> List[Dict]:
-    """Получить все задачи для кошелька"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             conn.row_factory = sqlite3.Row

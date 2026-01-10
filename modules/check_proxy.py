@@ -11,22 +11,18 @@ import requests
 from web3 import Web3
 from loguru import logger
 
-# Настройка путей для импорта
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.config import NUM_THREADS, RETRY_COUNT
 
-# Настройка логирования для модуля check_proxy
 def setup_proxy_checker_logging():
-    """Настраивает логирование для модуля проверки прокси"""
     log_dir = Path("log")
     log_dir.mkdir(exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f'proxy_checker_{timestamp}.log'
     
-    # Добавляем обработчик для записи в файл
     logger.add(
         log_file,
         rotation="10 MB",
@@ -39,7 +35,6 @@ def setup_proxy_checker_logging():
     logger.info(f"Логирование настроено. Файл: {log_file}")
 
 def load_proxies():
-    """Загружает прокси из файла data/proxy.csv построчно в формате login:password@ip:port"""
     try:
         proxy_file = project_root / 'data' / 'proxy.csv'
         proxies = []
@@ -48,19 +43,15 @@ def load_proxies():
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 
-                # Пропускаем пустые строки и заголовки
                 if not line or line.lower().startswith('proxy') or line.lower().startswith('login'):
                     continue
                 
-                # Проверяем формат login:password@ip:port
                 if '@' in line and ':' in line:
                     try:
-                        # Разбираем строку для валидации формата
                         auth_part, address_part = line.split('@', 1)
                         login, password = auth_part.split(':', 1)
                         ip, port = address_part.split(':', 1)
                         
-                        # Базовая валидация
                         if login and password and ip and port:
                             proxies.append(line)
                         else:
@@ -81,16 +72,13 @@ def load_proxies():
         return []
 
 def get_proxy_dict(proxy_string):
-    """Преобразует строку прокси в формат для requests"""
     if not proxy_string:
         return None
     
     try:
-        # Убираем http:// если есть
         if proxy_string.startswith('http://'):
             proxy_string = proxy_string[7:]
         
-        # Проверяем формат login:password@ip:port
         if '@' in proxy_string:
             auth_part, address_part = proxy_string.split('@', 1)
             login, password = auth_part.split(':', 1)
@@ -98,7 +86,6 @@ def get_proxy_dict(proxy_string):
             
             proxy_url = f"http://{login}:{password}@{ip}:{port}"
         else:
-            # Формат ip:port (без авторизации)
             ip, port = proxy_string.split(':', 1)
             proxy_url = f"http://{ip}:{port}"
         
@@ -111,7 +98,6 @@ def get_proxy_dict(proxy_string):
         return None
 
 def get_proxy_location(proxy_dict):
-    """Получает геолокацию прокси"""
     session = None
     try:
         session = requests.Session()
@@ -146,7 +132,6 @@ def get_proxy_location(proxy_dict):
     }
 
 def test_service_availability(proxy_dict, service_name, service_url, timeout=10):
-    """Тестирует доступность конкретного сервиса через прокси"""
     session = None
     try:
         start_time = time.time()
@@ -209,19 +194,15 @@ def test_service_availability(proxy_dict, service_name, service_url, timeout=10)
             session.close()
 
 def test_rpc_connection(proxy_dict, rpc_name, rpc_url, timeout=15):
-    """Тестирует подключение к RPC и получает высоту блока"""
     session = None
     try:
         start_time = time.time()
         
-        # Создаем сессию с прокси
         session = requests.Session()
         session.proxies.update(proxy_dict)
         
-        # Подключаемся к Web3
         w3 = Web3(Web3.HTTPProvider(rpc_url, session=session))
         
-        # Проверяем подключение
         if not w3.is_connected():
             return {
                 'rpc': rpc_name,
@@ -231,7 +212,6 @@ def test_rpc_connection(proxy_dict, rpc_name, rpc_url, timeout=15):
                 'error': 'Failed to connect to RPC'
             }
         
-        # Получаем номер последнего блока
         block_number = w3.eth.block_number
         response_time = round((time.time() - start_time) * 1000, 2)
         
@@ -264,9 +244,7 @@ def test_rpc_connection(proxy_dict, rpc_name, rpc_url, timeout=15):
             session.close()
 
 def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
-    """Комплексное тестирование одного прокси с повторными попытками"""
     
-    # Список популярных сервисов для тестирования
     test_services = {
         'Google': 'https://www.google.com',
         'GitHub': 'https://api.github.com',
@@ -277,7 +255,6 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
         'CoinGecko': 'https://api.coingecko.com/api/v3/ping'
     }
     
-    # RPC из config/rpc.py
     test_rpcs = {
         'ETH_Merkle': 'https://eth.merkle.io',
         'ETH_LlamaRPC': 'https://eth.llamarpc.com',
@@ -304,7 +281,6 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
             'retry_attempt': 0
         }
     
-    # Основной цикл тестирования с повторными попытками
     best_result = None
     
     for attempt in range(RETRY_COUNT + 1):
@@ -312,14 +288,12 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
         
         logger.debug(f"Попытка {attempt + 1}/{RETRY_COUNT + 1} для прокси {proxy_string[:20]}...")
         
-        # Получаем геолокацию только в первой попытке
         if attempt == 0:
             logger.debug(f"Получаем геолокацию для {proxy_string[:20]}...")
             location = get_proxy_location(proxy_dict)
         else:
             location = best_result.get('location', {}) if best_result else {}
         
-        # Тестируем сервисы
         logger.debug(f"Тестируем {len(test_services)} сервисов...")
         service_results = []
         for service_name, service_url in test_services.items():
@@ -327,7 +301,6 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
             service_results.append(result)
             logger.debug(f"  {service_name}: {result['status']} ({result['response_time_ms']}ms)")
         
-        # Тестируем RPC
         logger.debug(f"Тестируем {len(test_rpcs)} RPC...")
         rpc_results = []
         for rpc_name, rpc_url in test_rpcs.items():
@@ -335,7 +308,6 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
             rpc_results.append(result)
             logger.debug(f"  {rpc_name}: {result['status']} (блок: {result['block_height']})")
         
-        # Рассчитываем статистику
         successful_services = len([r for r in service_results if r['status'] == 'SUCCESS'])
         successful_rpcs = len([r for r in rpc_results if r['status'] == 'SUCCESS'])
         total_tests = len(service_results) + len(rpc_results)
@@ -359,33 +331,27 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
             'retry_attempt': attempt + 1
         }
         
-        # Если это первая попытка или результат лучше предыдущего
         if best_result is None or current_result['success_rate'] > best_result['success_rate']:
             best_result = current_result
         
-        # Если прокси работает хорошо (>50%), прерываем попытки
         if success_rate > 50:
             logger.debug(f"✅ Прокси {proxy_index}: {proxy_string[:20]}... - Отлично работает ({success_rate:.1f}%) на попытке {attempt + 1}")
             break
         
-        # Если success_rate > 0 и это не последняя попытка, продолжаем
         if success_rate > 0 and attempt < RETRY_COUNT:
             logger.debug(f"⚠️ Прокси {proxy_index}: {proxy_string[:20]}... - Частично работает ({success_rate:.1f}%), попытка {attempt + 1}")
-            time.sleep(random.uniform(1, 3))  # Случайная задержка между попытками
+            time.sleep(random.uniform(1, 3)) 
             continue
         
-        # Если success_rate = 0 и это не последняя попытка, повторяем
         if success_rate == 0 and attempt < RETRY_COUNT:
             logger.debug(f"❌ Прокси {proxy_index}: {proxy_string[:20]}... - Не работает ({success_rate:.1f}%), повтор {attempt + 1}/{RETRY_COUNT}")
-            time.sleep(random.uniform(2, 5))  # Больше задержка для неработающих прокси
+            time.sleep(random.uniform(2, 5)) 
             continue
         
-        # Последняя попытка
         if attempt == RETRY_COUNT:
             logger.debug(f"❌ Прокси {proxy_index}: {proxy_string[:20]}... - Финальный результат после {attempt + 1} попыток: ({success_rate:.1f}%)")
             break
     
-    # Возвращаем лучший результат
     final_result = best_result if best_result else current_result
     
     if final_result['success_rate'] > 70:
@@ -398,30 +364,22 @@ def comprehensive_proxy_test(proxy_string, proxy_index, total_proxies):
     return final_result
 
 def save_proxy_test_results(results):
-    """Сохраняет результаты тестирования в CSV файлы"""
     
-    # Создаем директорию результатов с временной меткой
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_dir = Path(f"result/proxy/{timestamp}")
     result_dir.mkdir(parents=True, exist_ok=True)
     
-    # Основной файл с результатами
     main_file = result_dir / f"proxy_test_results.csv"
     
-    # Детальный файл с тестами сервисов
     services_file = result_dir / f"proxy_services_test.csv"
     
-    # Детальный файл с тестами RPC
     rpcs_file = result_dir / f"proxy_rpcs_test.csv"
     
-    # Файл с работающими прокси
     working_file = result_dir / f"working_proxies.csv"
     
-    # Файл с общей статистикой (одна строка на прокси)
     total_stats_file = result_dir / f"total_statistics.csv"
     
     try:
-        # Основной файл
         with open(main_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -448,7 +406,6 @@ def save_proxy_test_results(results):
         
         logger.success(f"💾 Основные результаты сохранены в {main_file}")
         
-        # Детальные результаты по сервисам
         with open(services_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['proxy', 'service', 'status', 'status_code', 'response_time_ms', 'error'])
@@ -467,7 +424,6 @@ def save_proxy_test_results(results):
         
         logger.success(f"💾 Результаты по сервисам сохранены в {services_file}")
         
-        # Детальные результаты по RPC
         with open(rpcs_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['proxy', 'rpc', 'status', 'block_height', 'response_time_ms', 'error'])
@@ -486,7 +442,6 @@ def save_proxy_test_results(results):
         
         logger.success(f"💾 Результаты по RPC сохранены в {rpcs_file}")
         
-        # Файл с работающими прокси (success_rate > 50%)
         working_proxies = [r for r in results if r['success_rate'] > 50]
         
         with open(working_file, 'w', newline='', encoding='utf-8') as f:
@@ -498,7 +453,6 @@ def save_proxy_test_results(results):
         
         logger.success(f"💾 Работающие прокси сохранены в {working_file} ({len(working_proxies)} шт.)")
         
-        # Сохраняем общую статистику
         save_total_statistics(results, total_stats_file)
         
         return {
@@ -516,25 +470,20 @@ def save_proxy_test_results(results):
         return None
 
 def save_total_statistics(results, stats_file):
-    """Сохраняет общую статистику в CSV файл - одна строка на прокси"""
     
     try:
-        # Сохраняем статистику по каждому прокси в отдельной строке
         with open(stats_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # Заголовок
             writer.writerow([
                 'proxy', 'success_rate_percent', 'avg_response_time_ms', 
                 'error_code', 'country', 'city', 'status'
             ])
             
-            # Данные по каждому прокси
             for result in results:
                 proxy = result['proxy']
                 success_rate = result['success_rate']
                 
-                # Рассчитываем среднее время ответа для успешных запросов
                 all_responses = []
                 for service in result.get('services', []):
                     if service['status'] == 'SUCCESS' and service['response_time_ms'] > 0:
@@ -546,15 +495,13 @@ def save_total_statistics(results, stats_file):
                 
                 avg_response_time = round(sum(all_responses) / len(all_responses), 2) if all_responses else 0
                 
-                # Определяем код ошибки
-                error_code = 'OK'  # По умолчанию нет ошибки
+                error_code = 'OK' 
                 
                 if result['status'] == 'INVALID_FORMAT':
                     error_code = 'INVALID_FORMAT'
                 elif result['status'] == 'EXCEPTION':
                     error_code = 'EXCEPTION'
                 elif result['status'] == 'NOT_WORKING':
-                    # Находим наиболее частую ошибку
                     error_counts = {}
                     
                     for service in result.get('services', []):
@@ -568,20 +515,17 @@ def save_total_statistics(results, stats_file):
                             error_counts[error_type] = error_counts.get(error_type, 0) + 1
                     
                     if error_counts:
-                        # Берем самую частую ошибку
                         error_code = max(error_counts, key=error_counts.get)
                     else:
                         error_code = 'UNKNOWN_ERROR'
                 elif result['status'] == 'PARTIALLY_WORKING':
                     error_code = 'PARTIAL'
                 
-                # Получаем геолокацию
                 location = result.get('location', {})
                 country = location.get('country', 'Unknown')
                 city = location.get('city', 'Unknown')
                 status = result['status']
                 
-                # Записываем строку для прокси
                 writer.writerow([
                     proxy,
                     f"{success_rate:.1f}",
@@ -594,7 +538,6 @@ def save_total_statistics(results, stats_file):
         
         logger.success(f"💾 Общая статистика сохранена в {stats_file}")
         
-        # Дополнительно сохраняем сводную статистику в отдельный файл
         summary_file = stats_file.parent / "summary_statistics.csv"
         save_summary_statistics(results, summary_file)
         
@@ -602,7 +545,6 @@ def save_total_statistics(results, stats_file):
         logger.error(f"❌ Ошибка сохранения общей статистики: {e}")
 
 def save_summary_statistics(results, summary_file):
-    """Сохраняет сводную статистику в отдельный файл"""
     
     try:
         total_proxies = len(results)
@@ -612,23 +554,19 @@ def save_summary_statistics(results, summary_file):
         invalid_format = len([r for r in results if r['status'] == 'INVALID_FORMAT'])
         exceptions = len([r for r in results if r['status'] == 'EXCEPTION'])
         
-        # Рассчитываем средние значения
         avg_success_rate = sum([r['success_rate'] for r in results]) / total_proxies if total_proxies > 0 else 0
         avg_response_time = sum([r['total_response_time'] for r in results]) / total_proxies if total_proxies > 0 else 0
         avg_test_duration = sum([r['test_duration'] for r in results]) / total_proxies if total_proxies > 0 else 0
         
-        # Статистика по странам
         countries = {}
         for result in results:
-            if result['success_rate'] > 50:  # Только работающие прокси
+            if result['success_rate'] > 50: 
                 location = result.get('location', {})
                 country = location.get('country', 'Unknown')
                 countries[country] = countries.get(country, 0) + 1
         
-        # Топ-3 страны
         top_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)[:3]
         
-        # Статистика по сервисам
         service_stats = {}
         for result in results:
             for service in result.get('services', []):
@@ -639,7 +577,6 @@ def save_summary_statistics(results, summary_file):
                 if service['status'] == 'SUCCESS':
                     service_stats[service_name]['success'] += 1
         
-        # Статистика по RPC
         rpc_stats = {}
         for result in results:
             for rpc in result.get('rpcs', []):
@@ -650,14 +587,11 @@ def save_summary_statistics(results, summary_file):
                 if rpc['status'] == 'SUCCESS':
                     rpc_stats[rpc_name]['success'] += 1
         
-        # Сохраняем сводную статистику
         with open(summary_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # Заголовок
             writer.writerow(['Metric', 'Value'])
             
-            # Основная статистика
             writer.writerow(['Test Date', datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
             writer.writerow(['Total Proxies Tested', total_proxies])
             writer.writerow(['Working Proxies', working_proxies])
@@ -672,27 +606,21 @@ def save_summary_statistics(results, summary_file):
             writer.writerow(['Average Response Time ms', f"{avg_response_time:.2f}"])
             writer.writerow(['Average Test Duration sec', f"{avg_test_duration:.2f}"])
             
-            # Пустая строка
             writer.writerow(['', ''])
             
-            # Топ страны
             writer.writerow(['Top Countries (Working Proxies)', ''])
             for i, (country, count) in enumerate(top_countries, 1):
                 writer.writerow([f"{i}. {country}", count])
             
-            # Пустая строка
             writer.writerow(['', ''])
             
-            # Статистика по сервисам
             writer.writerow(['Service Success Rates', ''])
             for service_name, stats in service_stats.items():
                 success_rate = (stats['success'] / stats['total'] * 100) if stats['total'] > 0 else 0
                 writer.writerow([service_name, f"{success_rate:.1f}% ({stats['success']}/{stats['total']})"])
             
-            # Пустая строка
             writer.writerow(['', ''])
             
-            # Статистика по RPC
             writer.writerow(['RPC Success Rates', ''])
             for rpc_name, stats in rpc_stats.items():
                 success_rate = (stats['success'] / stats['total'] * 100) if stats['total'] > 0 else 0
@@ -704,7 +632,6 @@ def save_summary_statistics(results, summary_file):
         logger.error(f"❌ Ошибка сохранения сводной статистики: {e}")
 
 def print_test_statistics(results):
-    """Выводит статистику тестирования"""
     
     if not results:
         logger.warning("⚠️ Нет результатов для анализа")
@@ -727,7 +654,6 @@ def print_test_statistics(results):
     if invalid_format > 0:
         logger.error(f"🔧 Неверный формат: {invalid_format} ({invalid_format/total_proxies*100:.1f}%)")
     
-    # Топ-5 лучших прокси
     working_results = [r for r in results if r['success_rate'] > 0]
     if working_results:
         working_results.sort(key=lambda x: x['success_rate'], reverse=True)
@@ -746,10 +672,9 @@ def print_test_statistics(results):
             logger.info(f"   ⏱️ Время ответа: {result['total_response_time']:.0f}ms")
             logger.info("")
     
-    # Статистика по странам
     countries = {}
     for result in results:
-        if result['success_rate'] > 50:  # Только работающие прокси
+        if result['success_rate'] > 50:
             location = result.get('location', {})
             country = location.get('country', 'Unknown')
             countries[country] = countries.get(country, 0) + 1
@@ -759,13 +684,12 @@ def print_test_statistics(results):
         logger.info("-" * 40)
         
         sorted_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)
-        for country, count in sorted_countries[:10]:  # Топ-10 стран
+        for country, count in sorted_countries[:10]: 
             logger.info(f"   {country}: {count} прокси")
     
     logger.info("="*80)
 
 def check_proxy_menu():
-    """Главная функция модуля проверки прокси"""
     
     setup_proxy_checker_logging()
     
@@ -774,7 +698,6 @@ def check_proxy_menu():
     logger.info("🔍 ПРОДВИНУТАЯ ПРОВЕРКА ПРОКСИ")
     logger.info("="*80)
     
-    # Загружаем прокси
     proxies = load_proxies()
     
     if not proxies:
@@ -787,7 +710,6 @@ def check_proxy_menu():
     logger.info("🔧 Тестируемые сервисы: Google, GitHub, CloudFlare, JSONPlaceholder, HTTPBin, IPInfo, CoinGecko")
     logger.info("⚡ Тестируемые RPC: ETH Merkle, LlamaRPC, MEVBlocker, DRPC, Payload, Blockrazor")
     
-    # Спрашиваем пользователя о количестве прокси для тестирования
     try:
         max_proxies = input(f"\nВведите максимальное количество прокси для тестирования (Enter для всех {len(proxies)}): ").strip()
         if max_proxies:
@@ -805,28 +727,24 @@ def check_proxy_menu():
     logger.info(f"🧵 Используем {NUM_THREADS} потоков")
     logger.info("-" * 80)
     
-    # Многопоточное тестирование
     results = []
     start_time = time.time()
     completed_count = 0
     
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        # Создаем задачи для каждого прокси
         future_to_proxy = {
             executor.submit(comprehensive_proxy_test, proxy, i + 1, len(proxies)): (proxy, i + 1)
             for i, proxy in enumerate(proxies)
         }
         
-        # Обрабатываем завершенные задачи по мере их выполнения
         for future in as_completed(future_to_proxy):
             proxy, proxy_index = future_to_proxy[future]
             completed_count += 1
             
             try:
-                result = future.result(timeout=300)  # Увеличиваем timeout до 5 минут для повторных попыток
+                result = future.result(timeout=300) 
                 results.append(result)
                 
-                # Логируем прогресс каждые 10 прокси или если это последний
                 if completed_count % 10 == 0 or completed_count == len(proxies):
                     progress_percent = (completed_count / len(proxies)) * 100
                     retry_info = f"(попытка {result.get('retry_attempt', 1)})" if result.get('retry_attempt', 1) > 1 else ""
@@ -854,10 +772,8 @@ def check_proxy_menu():
     logger.success(f"✅ Многопоточное тестирование завершено за {total_duration} секунд")
     logger.info(f"⚡ Средняя скорость: {len(proxies)/total_duration:.2f} прокси/сек")
     
-    # Выводим статистику
     print_test_statistics(results)
     
-    # Сохраняем результаты
     logger.info("💾 Сохраняем результаты...")
     saved_files = save_proxy_test_results(results)
     
