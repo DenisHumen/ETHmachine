@@ -7,7 +7,7 @@ TX_SEND_ATTEMPTS = 1  # Количество попыток отправки т�
 RETRY_COUNT = 3  # Количество попыток в случае ошибки | замен прокси, rpc и т.д.
 
 '------------------------- Captcha Settings -----------------------'
-astrum_CAPTCHA_API_KEY = '13c904aa-ec6d-4fac-a84c-e3b9cf5959b5'  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
+astrum_CAPTCHA_API_KEY = ''  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
 
 '------------------------- проверка статуса транзакций -----------------------'
 WHAITE_TRANSACTION_PENDING = 10  # Количество секунд ожидания ожидания подтверждения транзакции "Pending" (0 ставить не советую, минимум 5)
@@ -299,7 +299,7 @@ FULLNAME_GENERATOR = {
 # Доступные модули: 'collect_pulses', 'faucet', 'swap', 'claim_tasks'
 # ВАЖНО: 'claim_tasks' ВСЕГДА выполняется последним (автоматически перемещается в конец)
 # Модули (кроме claim_tasks) выполняются в рандомном порядке для каждого кошелька
-NEURA_MODULES = ['collect_pulses', 'faucet', 'swap', 'claim_tasks']  # Список модулей
+NEURA_MODULES = ['faucet', 'swap']  # Список модулей
 
 # Рандомизация порядка модулей
 NEURA_RANDOM_MODULE_ORDER = True  # Включить рандомный порядок модулей (claim_tasks всегда последний)
