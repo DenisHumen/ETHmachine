@@ -32,7 +32,8 @@ from config.config import (
     NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT,
     NEURA_MODULES, NEURA_USE_PROXY, NEURA_RANDOM_PROXY,
     NEURA_TELEGRAM_NOTIFICATIONS, NEURA_TELEGRAM_LOG_LEVEL,
-    astrum_CAPTCHA_API_KEY, SHUFFLE_WALLET_LIST_NEURA
+    astrum_CAPTCHA_API_KEY, SHUFFLE_WALLET_LIST_NEURA,
+    NEURA_RANDOM_MODULE_ORDER
 )
 from modules.neura.client import NeuraClient
 from modules.neura.database import (
@@ -233,6 +234,27 @@ def prepare_wallets(private_keys: List[str]) -> List[Tuple[str, str]]:
     return wallets
 
 
+def get_randomized_modules(modules: List[str]) -> List[str]:
+    """
+    Рандомизировать порядок модулей, оставляя claim_tasks последним.
+    """
+    if not NEURA_RANDOM_MODULE_ORDER:
+        return modules
+    
+    # Отделяем claim_tasks
+    modules_copy = [m for m in modules if m != 'claim_tasks']
+    has_claim_tasks = 'claim_tasks' in modules
+    
+    # Рандомизируем остальные модули
+    random.shuffle(modules_copy)
+    
+    # Добавляем claim_tasks в конец если он был
+    if has_claim_tasks:
+        modules_copy.append('claim_tasks')
+    
+    return modules_copy
+
+
 async def process_wallet_task(
     private_key: str, 
     proxy: str, 
@@ -258,6 +280,8 @@ async def process_wallet_task(
                         proxy_ip = current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy[:20]
                     await asyncio.sleep(random.uniform(3, 7)) 
                     continue
+                
+                success = False
                 
                 if task_type == 'collect_pulses':
                     user_data = await client.get_user()
@@ -288,6 +312,21 @@ async def process_wallet_task(
                     if success:
                         add_log(f"[{wallet_address}] ✅ Заклеймлено {claimable} задач", "SUCCESS")
                         return wallet_address, True, ""
+                
+                elif task_type == 'faucet':
+                    success = await client.request_tokens()
+                    
+                    if success:
+                        add_log(f"[{wallet_address}] ✅ Токены из faucet получены", "SUCCESS")
+                        return wallet_address, True, ""
+                
+                elif task_type == 'swap':
+                    success = await client.execute_swap()
+                    
+                    if success:
+                        add_log(f"[{wallet_address}] ✅ Swap выполнен успешно", "SUCCESS")
+                        return wallet_address, True, ""
+                
                 else:
                     return wallet_address, False, f"Unknown task type: {task_type}"
                 
@@ -325,6 +364,12 @@ def run_module_pipeline(task_types: List[str]):
         console.print("[yellow]⚠️ Для работы модуля Neura необходим API ключ для решения капчи.[/yellow]")
         console.print("[cyan]ℹ️ Получить ключ: https://t.me/astrumsolutionsbot[/cyan]")
         return
+    
+    # Рандомизируем порядок модулей (claim_tasks всегда последним)
+    task_types = get_randomized_modules(task_types)
+    
+    if NEURA_RANDOM_MODULE_ORDER:
+        add_log(f"🔀 Порядок модулей: {' → '.join(task_types)}", "INFO")
     
     stats['logs'] = []
     stats['success'] = 0
@@ -477,6 +522,8 @@ def neura_menu():
                 Choice('🚀 Запустить конвейер модулей    🌟 Выполнить все модули из конфига', 'run_pipeline'),
                 Choice('📥 Collect Pulses               🌟 Только сбор пульсов', 'collect_pulses'),
                 Choice('🎁 Claim Tasks                  🌟 Только клейм задач', 'claim_tasks'),
+                Choice('� Faucet                       🌟 Получить токены из faucet', 'faucet'),
+                Choice('🔄 Swap                         🌟 Выполнить swap токенов', 'swap'),
                 Choice('📊 Статистика                   🌟 Показать статус задач', 'show_stats'),
                 Choice('🔄 Сбросить failed задачи       🌟 Перезапустить неудачные', 'reset_failed'),
                 Choice('🔙 Назад', 'back')
@@ -496,6 +543,14 @@ def neura_menu():
             
             case 'claim_tasks':
                 run_module_pipeline(['claim_tasks'])
+                input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+            
+            case 'faucet':
+                run_module_pipeline(['faucet'])
+                input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+            
+            case 'swap':
+                run_module_pipeline(['swap'])
                 input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
             
             case 'show_stats':

@@ -2,6 +2,8 @@ import uuid
 import random
 import asyncio
 import sys
+import re
+import json
 import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Tuple
@@ -12,13 +14,19 @@ from colorama import Fore, Style, init as colorama_init
 from curl_cffi.requests import AsyncSession, BrowserType
 from eth_account import Account as EthAccount
 from eth_account.messages import encode_defunct
+from web3 import Web3
+from web3.contract import AsyncContract
 
 project_root = Path(__file__).parent.parent.parent
+neura_module_path = Path(__file__).parent  # modules/neura
 sys.path.append(str(project_root))
 
 from config.config import (
     RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, astrum_CAPTCHA_API_KEY,
-    NEURA_MAX_RETRIES_PER_TASK
+    NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
+    NEURA_SWAP_PERCENTAGE, NEURA_SWAP_SLIPPAGE,
+    NEURA_ROUTER_ADDRESS, NEURA_QUOTER_ADDRESS, NEURA_TOKENS,
+    NEURA_SWAP_PAIRS, NEURA_RANDOM_SWAP_PAIR
 )
 from modules.neura.types import UserData
 
@@ -476,4 +484,428 @@ class NeuraClient:
                     )
         
         log_error(self.wallet_address, "Failed to claim all tasks after max attempts")
+        return False
+
+    # ==================== FAUCET METHODS ====================
+    
+    async def _extract_request_uuid(self) -> Optional[str]:
+        """Извлечь UUID из HTML страницы faucet"""
+        uuid4_regex = re.compile(
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+            re.IGNORECASE,
+        )
+        
+        try:
+            response = await self.session.get(
+                'https://neuraverse.neuraprotocol.io/?section=faucet',
+                headers=self.headers,
+                verify=False
+            )
+            html = response.text
+            
+            match = uuid4_regex.search(html)
+            if not match:
+                log_warning(self.wallet_address, "Failed to extract request UUID from faucet page")
+                return None
+            
+            return match.group(0)
+        except Exception as e:
+            log_error(self.wallet_address, f"Error extracting faucet UUID: {e}")
+            return None
+    
+    async def _send_faucet_request(self) -> bool:
+        """Отправить запрос на получение токенов из faucet"""
+        if not self._captcha_solver:
+            log_error(self.wallet_address, "Captcha solver not initialized!")
+            return False
+        
+        log_info(self.wallet_address, "Requesting tokens from faucet...")
+        log_info(self.wallet_address, "Solving Turnstile captcha for faucet...")
+        
+        # Решаем Turnstile капчу (без action, как в рабочем примере)
+        try:
+            turnstile_token = self._captcha_solver.solve_turnstile(
+                sitekey='0x4AAAAAACFWAVaa_Rh1pBFY',
+                pageurl='https://neuraverse.neuraprotocol.io/?section=faucet'
+            )
+        except Exception as e:
+            import traceback
+            log_error(self.wallet_address, f"Captcha solver error: {e}")
+            logger.error(f"[{self.wallet_address}] Full captcha error:\n{traceback.format_exc()}")
+            return False
+        
+        if not turnstile_token:
+            log_warning(self.wallet_address, "Failed to solve faucet captcha - no token returned")
+            return False
+        
+        log_info(self.wallet_address, "Turnstile solved, extracting UUID...")
+        
+        # Получаем UUID
+        uuid_request_token = await self._extract_request_uuid()
+        if not uuid_request_token:
+            log_warning(self.wallet_address, "Failed to extract UUID from faucet page")
+            return False
+        
+        log_info(self.wallet_address, f"UUID extracted: {uuid_request_token[:8]}...")
+        
+        # Отправляем запрос
+        headers = self.headers.copy()
+        headers['accept'] = 'text/x-component'
+        headers['next-action'] = NEURA_FAUCET_TOKEN
+        
+        params = {'section': 'faucet'}
+        data = f'["{self.wallet_address}",267,"{self.jwt_token}",true,"{turnstile_token}","{uuid_request_token}"]'
+        
+        try:
+            response = await self.session.request(
+                method="POST",
+                url='https://neuraverse.neuraprotocol.io/',
+                headers=headers,
+                data=data,
+                params=params,
+                verify=False
+            )
+            
+            log_info(self.wallet_address, f"Faucet response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                response_text = response.text.strip()
+                lines = response_text.split('\n')
+                
+                for line in lines:
+                    if line.startswith("1:"):
+                        try:
+                            response_json = json.loads(line[2:])
+                            status = response_json.get('status', '')
+                            
+                            if status not in ['error', 'failure']:
+                                log_success(self.wallet_address, "Successfully requested tokens from faucet!")
+                                return True
+                            else:
+                                error_msg = response_json.get('message', 'Unknown error')
+                                log_error(self.wallet_address, f"Faucet failed | Status: {status} | Message: {error_msg}")
+                                log_error(self.wallet_address, f"Full response: {response_json}")
+                                return False
+                        except json.JSONDecodeError as e:
+                            log_warning(self.wallet_address, f"Failed to parse response line: {line[:100]}")
+                            continue
+                
+                # Если не нашли формат 1:, логируем полный ответ
+                log_warning(self.wallet_address, f"Unexpected response format. Full response: {response_text[:500]}")
+                return False
+            else:
+                log_error(self.wallet_address, f"Faucet HTTP error: {response.status_code}")
+                log_error(self.wallet_address, f"Response: {response.text[:500]}")
+                return False
+                
+        except Exception as e:
+            import traceback
+            log_error(self.wallet_address, f"Faucet request error: {e}")
+            logger.error(f"[{self.wallet_address}] Full faucet error:\n{traceback.format_exc()}")
+            return False
+    
+    async def request_tokens(self) -> bool:
+        """Запросить токены из faucet с retry логикой"""
+        max_attempts = NEURA_MAX_RETRIES_PER_TASK
+        
+        for attempt in range(max_attempts):
+            try:
+                # Регистрируем посещение faucet
+                await self._process_action(action_type='faucet:visit')
+                await self._process_action(action_type='game:visitFountain')
+                
+                # Отправляем запрос на faucet
+                if await self._send_faucet_request():
+                    # Регистрируем успешный claim
+                    await self._process_action(action_type='faucet:claimTokens')
+                    return True
+                
+                log_warning(self.wallet_address, f"Faucet attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+                
+            except Exception as e:
+                log_error(self.wallet_address, f"Faucet error: {e}")
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+        
+        log_error(self.wallet_address, f"Failed to request faucet tokens after {max_attempts} attempts")
+        return False
+
+    # ==================== SWAP METHODS ====================
+    
+    def _load_contract_abi(self, abi_name: str) -> list:
+        """Загрузить ABI контракта из modules/neura/abi"""
+        abi_path = neura_module_path / 'abi' / f'{abi_name}.json'
+        try:
+            with open(abi_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            log_error(self.wallet_address, f"Failed to load ABI {abi_name}: {e}")
+            return []
+    
+    def _get_web3(self) -> Web3:
+        """Получить Web3 instance для Neura"""
+        return Web3(Web3.HTTPProvider('https://testnet.rpc.neuraprotocol.io'))
+    
+    def _normalize_addr(self, addr: str) -> str:
+        """Нормализовать адрес для path encoding"""
+        if not (isinstance(addr, str) and addr.startswith("0x") and len(addr) == 42):
+            raise ValueError(f"Invalid address: {addr}")
+        return addr[2:].lower()
+    
+    def _encode_path(self, token_in: str, token_out: str) -> str:
+        """Кодировать path для quoter"""
+        a = self._normalize_addr(token_in)
+        b = self._normalize_addr(token_out)
+        zeros20 = "00" * 20
+        return "0x" + a + zeros20 + b
+    
+    async def _get_wallet_balance(self, web3: Web3, is_native: bool = True, token_address: Optional[str] = None) -> int:
+        """Получить баланс кошелька"""
+        try:
+            if is_native or not token_address:
+                balance = web3.eth.get_balance(self.wallet_address)
+                return balance
+            else:
+                erc20_abi = self._load_contract_abi('erc20')
+                contract = web3.eth.contract(
+                    address=Web3.to_checksum_address(token_address),
+                    abi=erc20_abi
+                )
+                balance = contract.functions.balanceOf(self.wallet_address).call()
+                return balance
+        except Exception as e:
+            log_error(self.wallet_address, f"Failed to get balance: {e}")
+            return 0
+    
+    async def _get_min_amount_out(self, web3: Web3, from_token_address: str, to_token_address: str, amount: int) -> int:
+        """Получить минимальное количество токенов на выходе через quoter"""
+        try:
+            quoter_abi = self._load_contract_abi('quoter')
+            quoter = web3.eth.contract(
+                address=Web3.to_checksum_address(NEURA_QUOTER_ADDRESS),
+                abi=quoter_abi
+            )
+            
+            path = self._encode_path(from_token_address, to_token_address)
+            
+            result = quoter.functions.quoteExactInput(path, amount).call()
+            min_amount_out = result[0][0] if isinstance(result[0], (list, tuple)) else result[0]
+            
+            log_info(self.wallet_address, f"Quote received: {min_amount_out / 10**18:.6f}")
+            
+            # Применяем slippage (уменьшаем ожидаемую сумму)
+            slippage_amount = int(min_amount_out * (100 - NEURA_SWAP_SLIPPAGE) / 100)
+            return slippage_amount
+            
+        except Exception as e:
+            log_warning(self.wallet_address, f"Quoter call failed: {e}")
+            # Fallback для тестнета - принимаем любой результат > 0
+            # Установим 0 чтобы swap прошел с любым выходом
+            return 0
+    
+    async def _approve_token(self, web3: Web3, token_address: str, spender: str, amount: int) -> bool:
+        """Approve токена для swaps"""
+        try:
+            erc20_abi = self._load_contract_abi('erc20')
+            contract = web3.eth.contract(
+                address=Web3.to_checksum_address(token_address),
+                abi=erc20_abi
+            )
+            
+            # Проверяем текущий allowance
+            current_allowance = contract.functions.allowance(
+                self.wallet_address,
+                Web3.to_checksum_address(spender)
+            ).call()
+            
+            if current_allowance >= amount:
+                log_info(self.wallet_address, "Token already approved")
+                return True
+            
+            # Создаем транзакцию approve
+            tx = contract.functions.approve(
+                Web3.to_checksum_address(spender),
+                amount
+            ).build_transaction({
+                'from': self.wallet_address,
+                'nonce': web3.eth.get_transaction_count(self.wallet_address),
+                'gasPrice': int(web3.eth.gas_price * 1.2),
+                'gas': 100000
+            })
+            
+            # Подписываем и отправляем
+            signed_tx = web3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            # Ждем подтверждения
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                log_success(self.wallet_address, f"Token approved! TX: {tx_hash.hex()}")
+                return True
+            else:
+                log_error(self.wallet_address, "Token approval failed")
+                return False
+                
+        except Exception as e:
+            log_error(self.wallet_address, f"Approve error: {e}")
+            return False
+    
+    async def swap(self, from_token: str = None, to_token: str = None) -> bool:
+        """Выполнить swap токенов"""
+        web3 = self._get_web3()
+        
+        # Выбираем пару для свапа
+        if from_token is None or to_token is None:
+            if NEURA_RANDOM_SWAP_PAIR:
+                from_token, to_token = random.choice(NEURA_SWAP_PAIRS)
+            else:
+                from_token, to_token = NEURA_SWAP_PAIRS[0]
+        
+        log_info(self.wallet_address, f"Starting swap: {from_token} -> {to_token}")
+        
+        try:
+            await self._process_action(action_type='game:visitFountain')
+            
+            # Определяем адреса токенов
+            is_native = from_token == 'ANKR'
+            from_token_address = NEURA_TOKENS.get(from_token if not is_native else 'WANKR')
+            to_token_address = NEURA_TOKENS.get(to_token if to_token != 'ANKR' else 'WANKR')
+            
+            if not from_token_address and not is_native:
+                log_error(self.wallet_address, f"Unknown from token: {from_token}")
+                return False
+            if not to_token_address:
+                log_error(self.wallet_address, f"Unknown to token: {to_token}")
+                return False
+            
+            # Получаем баланс
+            token_addr_for_balance = None if is_native else NEURA_TOKENS.get(from_token)
+            balance = await self._get_wallet_balance(web3, is_native=is_native, token_address=token_addr_for_balance)
+            
+            if balance == 0:
+                log_warning(self.wallet_address, f"Zero balance for {from_token}")
+                return False
+            
+            # Определяем сумму для свапа
+            swap_percentage = random.uniform(*NEURA_SWAP_PERCENTAGE)
+            amount = int(balance * swap_percentage)
+            
+            if amount == 0:
+                log_warning(self.wallet_address, "Calculated swap amount is 0")
+                return False
+            
+            log_info(self.wallet_address, f"Swapping {amount / 10**18:.6f} {from_token} ({swap_percentage*100:.1f}% of balance)")
+            
+            # Approve если не нативный токен
+            if not is_native:
+                if not await self._approve_token(web3, NEURA_TOKENS.get(from_token), NEURA_ROUTER_ADDRESS, amount):
+                    return False
+            
+            # Загружаем ABI роутера
+            router_abi = self._load_contract_abi('router')
+            router_contract = web3.eth.contract(
+                address=Web3.to_checksum_address(NEURA_ROUTER_ADDRESS),
+                abi=router_abi
+            )
+            
+            # Получаем min amount out
+            min_amount_out = await self._get_min_amount_out(
+                web3,
+                from_token_address if not is_native else NEURA_TOKENS['WANKR'],
+                to_token_address,
+                amount
+            )
+            
+            # Строим swap транзакцию
+            deadline = int(time.time() * 1000 + 1800000)  # 30 минут
+            
+            swap_params = (
+                Web3.to_checksum_address(from_token_address if not is_native else NEURA_TOKENS['WANKR']),
+                Web3.to_checksum_address(to_token_address),
+                Web3.to_checksum_address('0x0000000000000000000000000000000000000000'),
+                self.wallet_address if from_token == 'ANKR' else Web3.to_checksum_address('0x0000000000000000000000000000000000000000'),
+                deadline,
+                amount,
+                min_amount_out,
+                0
+            )
+            
+            transaction_data = router_contract.encode_abi(
+                abi_element_identifier="exactInputSingle",
+                args=[swap_params]
+            )
+            
+            multicall_data = [transaction_data]
+            
+            # Если свапаем в ANKR, добавляем unwrap
+            if to_token == 'ANKR':
+                unwrap_data = router_contract.encode_abi(
+                    abi_element_identifier="unwrapWNativeToken",
+                    args=[min_amount_out, self.wallet_address]
+                )
+                multicall_data.append(unwrap_data)
+            
+            # Оцениваем gas
+            try:
+                gas_estimate = router_contract.functions.multicall(multicall_data).estimate_gas({
+                    'from': self.wallet_address,
+                    'value': amount if is_native else 0
+                })
+                gas_limit = int(gas_estimate * 1.15)
+            except Exception as e:
+                log_warning(self.wallet_address, f"Gas estimation failed, using default: {e}")
+                gas_limit = 300000
+            
+            # Строим транзакцию
+            tx = router_contract.functions.multicall(multicall_data).build_transaction({
+                'value': amount if is_native else 0,
+                'nonce': web3.eth.get_transaction_count(self.wallet_address),
+                'from': self.wallet_address,
+                'gasPrice': int(web3.eth.gas_price * 1.2),
+                'gas': gas_limit
+            })
+            
+            # Подписываем и отправляем
+            signed_tx = web3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            log_info(self.wallet_address, f"Swap TX sent: {tx_hash.hex()}")
+            
+            # Ждем подтверждения
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                log_success(
+                    self.wallet_address,
+                    f"Successfully swapped {from_token} -> {to_token} | TX: https://testnet-blockscout.infra.neuraprotocol.io/tx/{tx_hash.hex()}"
+                )
+                return True
+            else:
+                log_error(self.wallet_address, f"Swap transaction failed")
+                return False
+                
+        except Exception as e:
+            import traceback
+            log_error(self.wallet_address, f"Swap error: {e}")
+            logger.error(f"[{self.wallet_address}] Full swap error:\n{traceback.format_exc()}")
+            return False
+    
+    async def execute_swap(self) -> bool:
+        """Выполнить swap с retry логикой (для использования в pipeline)"""
+        max_attempts = NEURA_MAX_RETRIES_PER_TASK
+        
+        for attempt in range(max_attempts):
+            try:
+                if await self.swap():
+                    return True
+                
+                log_warning(self.wallet_address, f"Swap attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+                
+            except Exception as e:
+                log_error(self.wallet_address, f"Swap error: {e}")
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+        
+        log_error(self.wallet_address, f"Failed to execute swap after {max_attempts} attempts")
         return False
