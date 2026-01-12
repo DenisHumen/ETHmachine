@@ -1,8 +1,3 @@
-"""
-Модуль для получения статистики Neura Protocol
-Многопоточная обработка с сохранением прогресса в БД
-"""
-
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -36,9 +31,8 @@ from modules.statistics.astrum_captcha_solver import AstrumSolver
 
 csv_lock = Lock()
 db_lock = Lock()
-progress_lock = Lock()  # Для безопасного обновления прогресса
+progress_lock = Lock()  
 
-# Глобальная переменная для отслеживания прогресса
 current_progress = {
     'processed': 0,
     'success': 0,
@@ -46,7 +40,6 @@ current_progress = {
     'start_time': None
 }
 
-# Event для остановки потока мониторинга
 stop_monitoring = Event()
 
 try:
@@ -69,24 +62,19 @@ logger.add(
 )
 
 def log_success(message: str):
-    """Зелёный лог успеха"""
     logger.opt(colors=False).success(f"{Fore.GREEN}{message}{Style.RESET_ALL}")
 
 def log_warning(message: str):
-    """Жёлтый лог предупреждения"""
     logger.opt(colors=False).warning(f"{Fore.YELLOW}{message}{Style.RESET_ALL}")
 
 def log_error(message: str):
-    """Красный лог ошибки"""
     logger.opt(colors=False).error(f"{Fore.RED}{message}{Style.RESET_ALL}")
 
 def log_info(message: str):
-    """Обычный информационный лог"""
     logger.opt(colors=False).info(message)
 
 
 def update_progress(success: bool = None):
-    """Обновляет глобальный прогресс выполнения"""
     global current_progress
     with progress_lock:
         current_progress['processed'] += 1
@@ -97,7 +85,6 @@ def update_progress(success: bool = None):
 
 
 def show_progress_status(total_tasks: int):
-    """Показывает текущий статус прогресса для длительных операций"""
     global current_progress
     with progress_lock:
         processed = current_progress['processed']
@@ -119,7 +106,6 @@ def show_progress_status(total_tasks: int):
         
         progress_percent = (processed / total_tasks * 100) if total_tasks > 0 else 0
         
-        # Прогресс-бар
         bar_length = 30
         filled = int(bar_length * processed / total_tasks) if total_tasks > 0 else 0
         bar = '█' * filled + '░' * (bar_length - filled)
@@ -131,18 +117,12 @@ def show_progress_status(total_tasks: int):
 
 
 def progress_monitor_thread(total_tasks: int, interval: int = 60):
-    """
-    Отдельный поток для мониторинга прогресса.
-    Показывает прогресс каждые `interval` секунд пока не получит сигнал остановки.
-    """
     log_info(f"🔄 Запущен мониторинг прогресса (обновление каждые {interval} секунд)")
     
     while not stop_monitoring.is_set():
-        # Ждем interval секунд или пока не придет сигнал остановки
         if stop_monitoring.wait(timeout=interval):
-            break  # Получен сигнал остановки
+            break 
         
-        # Показываем прогресс
         show_progress_status(total_tasks)
     
     log_info("🛑 Мониторинг прогресса остановлен")
@@ -156,13 +136,11 @@ CURRENT_CSV_FILE = None
 
 
 def ensure_directories():
-    """Создание необходимых директорий"""
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def create_new_csv_file() -> Path:
-    """Создать новый CSV файл с датой и временем"""
     ensure_directories()
     timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = RESULT_DIR / f"neura_stats_{timestamp_str}.csv"
@@ -170,7 +148,6 @@ def create_new_csv_file() -> Path:
 
 
 def init_database():
-    """Инициализация базы данных для хранения прогресса и JSON"""
     ensure_directories()
     
     with sqlite3.connect(str(DB_FILE)) as conn:
@@ -208,7 +185,6 @@ def init_database():
 
 
 def get_unprocessed_wallets() -> List[Dict[str, Any]]:
-    """Получить список необработанных кошельков из БД (включая зависшие processing)"""
     with sqlite3.connect(str(DB_FILE)) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -224,7 +200,6 @@ def get_unprocessed_wallets() -> List[Dict[str, Any]]:
 
 
 def mark_wallet_processing(wallet_address: str, private_key_hash: str):
-    """Отметить кошелек как обрабатываемый"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -237,7 +212,6 @@ def mark_wallet_processing(wallet_address: str, private_key_hash: str):
 
 
 def mark_wallet_success(wallet_address: str):
-    """Отметить кошелек как успешно обработанный"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -250,7 +224,6 @@ def mark_wallet_success(wallet_address: str):
 
 
 def mark_wallet_error(wallet_address: str, error_message: str):
-    """Отметить кошелек с ошибкой"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -263,7 +236,6 @@ def mark_wallet_error(wallet_address: str, error_message: str):
 
 
 def save_json_to_db(wallet_address: str, json_data: dict):
-    """Сохранить JSON данные в БД"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -275,7 +247,6 @@ def save_json_to_db(wallet_address: str, json_data: dict):
 
 
 def export_all_results_to_csv() -> Optional[str]:
-    """Экспортировать ВСЕ результаты из БД в итоговый CSV файл"""
     global CURRENT_CSV_FILE
     
     try:
@@ -375,7 +346,6 @@ def export_all_results_to_csv() -> Optional[str]:
                             transactions = stats.get('transactions', [])
                             csv_row['transactions_count'] = len(transactions) if transactions else 0
                             
-                            # Добавляем данные из leaderboards
                             leaderboards = stats.get('leaderboards', {})
                             if leaderboards:
                                 csv_row['neurapoints_rank'] = leaderboards.get('neurapoints_rank', '')
@@ -403,7 +373,6 @@ def export_all_results_to_csv() -> Optional[str]:
 
 
 def clear_database():
-    """Очистить базу данных (начать заново)"""
     with sqlite3.connect(str(DB_FILE)) as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM processing_progress')
@@ -413,7 +382,6 @@ def clear_database():
 
 
 def initialize_all_wallets(wallets: List[str]):
-    """Инициализировать все кошельки в БД как pending"""
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -439,7 +407,6 @@ def initialize_all_wallets(wallets: List[str]):
 
 
 def has_pending_tasks() -> bool:
-    """Проверить, есть ли незавершенные задачи"""
     with sqlite3.connect(str(DB_FILE)) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -451,7 +418,6 @@ def has_pending_tasks() -> bool:
 
 
 def get_progress_stats() -> Dict[str, int]:
-    """Получить статистику прогресса"""
     with sqlite3.connect(str(DB_FILE)) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -472,17 +438,8 @@ def get_progress_stats() -> Dict[str, int]:
 
 
 class NeuraProtocolClient:
-    """Клиент для работы с Neura Protocol API"""
     
     def __init__(self, private_key: str, proxy_url: Optional[str] = None, proxies_list: List[str] = None):
-        """
-        Инициализация клиента
-        
-        Args:
-            private_key: Приватный ключ кошелька
-            proxy_url: URL прокси (опционально)
-            proxies_list: Список всех доступных прокси для смены (опционально)
-        """
         if not private_key.startswith('0x'):
             private_key = '0x' + private_key
             
@@ -555,7 +512,6 @@ class NeuraProtocolClient:
             log_warning("⚠️ API ключ капчи не найден")
     
     def change_proxy(self, new_proxy: str):
-        """Смена прокси"""
         if new_proxy:
             self.proxies = {
                 'http': new_proxy,
@@ -570,7 +526,6 @@ class NeuraProtocolClient:
             self.session.proxies.clear()
     
     def _load_captcha_key(self) -> Optional[str]:
-        """Загрузка API ключа капчи из config"""
         if astrum_CAPTCHA_API_KEY and len(astrum_CAPTCHA_API_KEY) > 0:
             return astrum_CAPTCHA_API_KEY
         
@@ -585,18 +540,6 @@ class NeuraProtocolClient:
         return None
     
     def _solve_turnstile(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
-        """
-        Решение Turnstile captcha через AstrumSolver с автоматической сменой прокси при ошибках
-        
-        Args:
-            attempt: Текущая попытка (начинается с 1)
-            proxies_list: Список доступных прокси для смены
-            wallet_index: Индекс кошелька для логирования
-            total: Общее количество кошельков для логирования
-            
-        Returns:
-            Токен капчи или None
-        """
         if not self.captcha_solver:
             return None
         
@@ -617,21 +560,17 @@ class NeuraProtocolClient:
             except Exception as e:
                 error_str = str(e)
                 
-                # Проверка на ошибку CAPTCHA_UNSOLVABLE или другие ошибки
                 if "CAPTCHA_UNSOLVABLE" in error_str or not token:
-                    # Если есть доступные прокси и не последняя попытка - меняем прокси
                     if proxies_list and retry < max_retries:
                         new_proxy = get_random_proxy(proxies_list)
                         if new_proxy:
                             self.change_proxy(new_proxy)
-                            time.sleep(random.uniform(1, 2))  # Небольшая задержка перед повторной попыткой
+                            time.sleep(random.uniform(1, 2)) 
                             continue
                     
-                    # Если прокси нет или последняя попытка
                     if retry >= max_retries:
                         return None
                 else:
-                    # При других ошибках тоже пробуем сменить прокси
                     if proxies_list and retry < max_retries:
                         new_proxy = get_random_proxy(proxies_list)
                         if new_proxy:
@@ -645,7 +584,6 @@ class NeuraProtocolClient:
         return None
     
     def _get_nonce(self, wallet_index: int = None, total: int = None) -> Optional[str]:
-        """Получение nonce для SIWE аутентификации с Turnstile captcha"""
         try:
             turnstile_token = self._solve_turnstile(attempt=1, proxies_list=self.proxies_list, wallet_index=wallet_index, total=total)
             if not turnstile_token:
@@ -675,17 +613,6 @@ class NeuraProtocolClient:
         return None
     
     def authenticate(self, max_retries: int = 3, wallet_index: int = None, total: int = None) -> bool:
-        """
-        Авторизация через SIWE (Sign-In with Ethereum) с retry при ошибках
-        
-        Args:
-            max_retries: Максимальное количество попыток
-            wallet_index: Индекс кошелька для логирования
-            total: Общее количество кошельков для логирования
-            
-        Returns:
-            True если авторизация успешна
-        """
         try:
             nonce = self._get_nonce(wallet_index=wallet_index, total=total)
             if not nonce:
@@ -743,7 +670,6 @@ class NeuraProtocolClient:
             return False
     
     def _api_get(self, endpoint: str, params: dict = None) -> Optional[dict]:
-        """Универсальный GET запрос к API"""
         url = f"{self.base_url}{endpoint}"
         
         try:
@@ -751,7 +677,7 @@ class NeuraProtocolClient:
                 url,
                 headers=self.api_headers,
                 params=params,
-                timeout=15  # Уменьшено с 30 до 15 секунд
+                timeout=15 
             )
             
             if response.status_code == 200:
@@ -771,7 +697,6 @@ class NeuraProtocolClient:
             return None
     
     def get_balance(self) -> Optional[float]:
-        """Получение баланса кошелька"""
         try:
             request_kwargs = {'timeout': 15}
             if self.proxies:
@@ -786,11 +711,9 @@ class NeuraProtocolClient:
             return None
     
     def get_account_info(self) -> Optional[dict]:
-        """Получение информации об аккаунте"""
         return self._api_get("/account")
     
     def get_tasks(self) -> Optional[List[dict]]:
-        """Получение списка задач"""
         account = self.get_account_info()
         if account:
             tasks = account.get('tasks', [])
@@ -798,7 +721,6 @@ class NeuraProtocolClient:
         return None
     
     def get_transactions(self) -> Optional[List[dict]]:
-        """Получение транзакций через GraphQL"""
         query = {
             "query": f"""
             {{
@@ -839,7 +761,6 @@ class NeuraProtocolClient:
             return None
     
     def get_leaderboards(self) -> Optional[dict]:
-        """Получение данных из leaderboards с рангами аккаунта"""
         try:
             response = self.session.get(
                 f"{self.base_url}/leaderboards",
@@ -851,7 +772,6 @@ class NeuraProtocolClient:
                 data = response.json()
                 leaderboards_data = data.get('leaderboards', [])
                 
-                # Извлекаем ранги аккаунта для каждого типа лидерборда
                 ranks = {}
                 for leaderboard in leaderboards_data:
                     lb_type = leaderboard.get('type', '')
@@ -870,7 +790,6 @@ class NeuraProtocolClient:
             return None
     
     def get_full_statistics(self) -> dict:
-        """Сбор полной статистики"""
         account_info = self.get_account_info()
         balance = self.get_balance()
         tasks = self.get_tasks()
@@ -890,12 +809,10 @@ class NeuraProtocolClient:
         return stats
     
     def save_to_json(self, stats: dict) -> str:
-        """Сохранение статистики в JSON (БД)"""
         save_json_to_db(stats['address'], stats)
         return "db"
     
     def save_to_csv(self, stats: dict) -> str:
-        """Сохранение статистики в CSV (потокобезопасно)"""
         global CURRENT_CSV_FILE
         
         if CURRENT_CSV_FILE is None:
@@ -963,7 +880,6 @@ class NeuraProtocolClient:
         return str(filename)
     
     def _parse_stats_to_rows(self, stats: dict) -> List[dict]:
-        """Преобразование статистики в одну строку CSV на кошелек"""
         timestamp = stats.get('timestamp', '')
         address = stats.get('address', '')
         balance = stats.get('balance', 0)
@@ -1016,22 +932,17 @@ class NeuraProtocolClient:
         transactions = stats.get('transactions', [])
         row['transactions_count'] = len(transactions) if transactions else 0
         
-        # Добавляем данные из leaderboards (ранги)
         leaderboards = stats.get('leaderboards', {})
         if leaderboards:
-            # Ранги по NeuraPoints
             row['neurapoints_rank'] = leaderboards.get('neurapoints_rank', 0)
             row['neurapoints_value'] = leaderboards.get('neurapoints_value', 0)
             
-            # Ранги по Streak (Activity Streak)
             row['streak_rank'] = leaderboards.get('streak_rank', 0)
             row['streak_value'] = leaderboards.get('streak_value', 0)
             
-            # Ранги по ANKR токенам (Native Token Holders)
             row['ankrWhales_rank'] = leaderboards.get('ankrWhales_rank', 0)
             row['ankrWhales_value'] = leaderboards.get('ankrWhales_value', 0)
             
-            # Ранги по Zotto (Top Swappers)
             row['zotto_rank'] = leaderboards.get('zotto_rank', 0)
             row['zotto_value'] = leaderboards.get('zotto_value', 0)
         else:
@@ -1048,7 +959,6 @@ class NeuraProtocolClient:
 
 
 def load_wallets() -> List[str]:
-    """Загрузка приватных ключей из файла"""
     try:
         with open('data/private_keys.txt', 'r') as f:
             keys = [line.strip() for line in f if line.strip()]
@@ -1059,7 +969,6 @@ def load_wallets() -> List[str]:
 
 
 def load_proxies() -> List[str]:
-    """Загрузка всех прокси"""
     try:
         with open('data/proxy.csv', 'r', encoding='utf-8') as f:
             proxies = [line.strip() for line in f if line.strip()]
@@ -1070,7 +979,6 @@ def load_proxies() -> List[str]:
 
 
 def get_proxy_for_wallet(wallet_index: int, proxies: List[str]) -> Optional[str]:
-    """Получить прокси для кошелька по индексу (1к1)"""
     if not proxies:
         return None
     proxy_index = wallet_index % len(proxies)
@@ -1078,27 +986,22 @@ def get_proxy_for_wallet(wallet_index: int, proxies: List[str]) -> Optional[str]
 
 
 def get_random_proxy(proxies: List[str]) -> Optional[str]:
-    """Получить случайную прокси"""
     if not proxies:
         return None
     return f"http://{random.choice(proxies)}"
 
 
 def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
-    """Обработка одного кошелька в потоке"""
-    wallet_index = wallet_data['index']
+    wallet_index = wallet_data['index'] 
+    task_index = wallet_data['task_index'] 
+    total_tasks = wallet_data['total_tasks'] 
     private_key = wallet_data['private_key']
     proxy = wallet_data['proxy']
     proxies = wallet_data['proxies']
-    total = wallet_data['total']
     
-    # Плавный старт потоков: первая волна (NUM_THREADS) стартует сразу,
-    # остальные подтягиваются с минимальной задержкой
-    if wallet_index <= NUM_THREADS:
-        # Первая волна: стартуют практически сразу (0-0.5 сек для распределения)
+    if task_index <= NUM_THREADS:
         delay = random.uniform(0, 0.5)
     else:
-        # Следующие волны: минимальная задержка (0-1 сек)
         delay = random.uniform(0, 1)
     
     time.sleep(delay)
@@ -1110,14 +1013,13 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         account = Account.from_key(private_key)
         wallet_address = account.address
         
-        progress_percent = (wallet_index / total) * 100
+        progress_percent = (task_index / total_tasks) * 100
         bar_length = 30
-        filled_length = int(bar_length * wallet_index // total)
+        filled_length = int(bar_length * task_index // total_tasks)
         progress_bar = '█' * filled_length + '░' * (bar_length - filled_length)
         
         wallet_short = f"{wallet_address[:6]}...{wallet_address[-4:]}"
         
-        # Блокировка для потокобезопасного вывода
         print_lock = Lock()
         
         def update_status(status, log_level="INFO"):
@@ -1130,14 +1032,11 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
             }
             level = level_map.get(log_level, "INFO    ")
             
-            # Формируем полную строку лога
-            log_line = f"{timestamp} | {level} | [{wallet_index:04d}] [{wallet_address}] [{progress_bar}] {progress_percent:.1f}% - {status}"
+            log_line = f"{timestamp} | {level} | [{task_index:04d}/{total_tasks}] [{wallet_address}] [{progress_bar}] {progress_percent:.1f}% - {status}"
             
             with print_lock:
-                # Очищаем текущую строку и выводим новую
                 print(f"\r{' ' * 200}\r{log_line}", end='', flush=True)
                 
-                # Если это финальный статус (успех или ошибка), переходим на новую строку
                 if log_level in ["SUCCESS", "ERROR"]:
                     print()
         
@@ -1152,7 +1051,7 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         for attempt in range(1, max_auth_attempts + 1):
             update_status(f"🔐 Авторизация {attempt}/{max_auth_attempts}")
             
-            if client.authenticate(wallet_index=wallet_index, total=total):
+            if client.authenticate(wallet_index=task_index, total=total_tasks):
                 auth_success = True
                 break
             
@@ -1187,7 +1086,6 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         update_progress(success=True)
         update_status(f"✅ Points: {points} | Pulses: {pulses} | ANKR testnet: {balance:.4f}", "SUCCESS")
         
-        # Задержка между кошельками
         sleep_time = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
         time.sleep(sleep_time)
         
@@ -1202,12 +1100,10 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
             pass
         update_progress(success=False)
         
-        # Используем update_status если она доступна
         if 'update_status' in locals():
             try:
                 update_status(f"❌ Критическая ошибка: {error_msg}", "ERROR")
             except:
-                # Fallback на обычный print
                 timestamp = datetime.now().strftime("%H:%M:%S")
                 if 'wallet_address' in locals() and 'wallet_index' in locals():
                     print(f"\r{' ' * 200}\r{timestamp} | ERROR    | [{wallet_index:04d}] [{wallet_address}] ❌ {error_msg}")
@@ -1226,7 +1122,6 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
 
 
 def neura_statistics():
-    """Главная функция с многопоточностью"""
     global CURRENT_CSV_FILE
     
     print("\n" + "="*60)
@@ -1442,6 +1337,15 @@ def neura_statistics():
     if not tasks:
         log_success("✅ Все кошельки обработаны!")
         return
+    
+    random.shuffle(tasks)
+    
+    total_tasks = len(tasks)
+    for i, task in enumerate(tasks):
+        task['task_index'] = i + 1 
+        task['total_tasks'] = total_tasks 
+    
+    log_info(f"🎲 Порядок кошельков рандомизирован")
     
     log_info(f"\n{'='*70}")
     log_info(f"🚀 Запуск обработки {len(tasks)} кошельков")

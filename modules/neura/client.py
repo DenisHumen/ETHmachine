@@ -6,7 +6,7 @@ import re
 import json
 import time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 
 from loguru import logger
@@ -24,10 +24,12 @@ sys.path.append(str(project_root))
 from config.config import (
     RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, astrum_CAPTCHA_API_KEY,
     NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
-    NEURA_SWAP_PERCENTAGE, NEURA_SWAP_SLIPPAGE,
+    NEURA_SWAP_COUNT, NEURA_SWAP_PERCENTAGE, NEURA_SWAP_SLIPPAGE,
+    NEURA_SWAP_PAUSE_BETWEEN_SWAPS,
     NEURA_ROUTER_ADDRESS, NEURA_QUOTER_ADDRESS, NEURA_TOKENS,
     NEURA_SWAP_PAIRS, NEURA_RANDOM_SWAP_PAIR
 )
+from config.networks import NETWORKS
 from modules.neura.types import UserData
 
 try:
@@ -608,6 +610,16 @@ class NeuraClient:
         """Запросить токены из faucet с retry логикой"""
         max_attempts = NEURA_MAX_RETRIES_PER_TASK
         
+        # Показываем текущий баланс перед запросом faucet
+        try:
+            web3 = self._get_web3()
+            balance = web3.eth.get_balance(self.wallet_address)
+            balance_ankr = balance / 10**18
+            symbol = NETWORKS.get('🚀 Neura Testnet', {}).get('symbol', 'ANKR')
+            log_info(self.wallet_address, f"Текущий баланс: {balance_ankr:.6f} {symbol}")
+        except Exception as e:
+            log_warning(self.wallet_address, f"Не удалось получить баланс: {e}")
+        
         for attempt in range(max_attempts):
             try:
                 # Регистрируем посещение faucet
@@ -618,6 +630,16 @@ class NeuraClient:
                 if await self._send_faucet_request():
                     # Регистрируем успешный claim
                     await self._process_action(action_type='faucet:claimTokens')
+                    
+                    # Показываем новый баланс после получения токенов
+                    try:
+                        await asyncio.sleep(2)  # Ждем обновления баланса
+                        new_balance = web3.eth.get_balance(self.wallet_address)
+                        new_balance_ankr = new_balance / 10**18
+                        log_info(self.wallet_address, f"Новый баланс: {new_balance_ankr:.6f} {symbol}")
+                    except Exception:
+                        pass
+                    
                     return True
                 
                 log_warning(self.wallet_address, f"Faucet attempt {attempt + 1}/{max_attempts} failed, retrying...")
@@ -751,8 +773,8 @@ class NeuraClient:
             log_error(self.wallet_address, f"Approve error: {e}")
             return False
     
-    async def swap(self, from_token: str = None, to_token: str = None) -> bool:
-        """Выполнить swap токенов"""
+    async def swap(self, from_token: str = None, to_token: str = None) -> Tuple[bool, Optional[str]]:
+        """Выполнить swap токенов. Возвращает (success, tx_hash)"""
         web3 = self._get_web3()
         
         # Выбираем пару для свапа
@@ -774,10 +796,10 @@ class NeuraClient:
             
             if not from_token_address and not is_native:
                 log_error(self.wallet_address, f"Unknown from token: {from_token}")
-                return False
+                return False, None
             if not to_token_address:
                 log_error(self.wallet_address, f"Unknown to token: {to_token}")
-                return False
+                return False, None
             
             # Получаем баланс
             token_addr_for_balance = None if is_native else NEURA_TOKENS.get(from_token)
@@ -785,7 +807,7 @@ class NeuraClient:
             
             if balance == 0:
                 log_warning(self.wallet_address, f"Zero balance for {from_token}")
-                return False
+                return False, None
             
             # Определяем сумму для свапа
             swap_percentage = random.uniform(*NEURA_SWAP_PERCENTAGE)
@@ -793,14 +815,14 @@ class NeuraClient:
             
             if amount == 0:
                 log_warning(self.wallet_address, "Calculated swap amount is 0")
-                return False
+                return False, None
             
             log_info(self.wallet_address, f"Swapping {amount / 10**18:.6f} {from_token} ({swap_percentage*100:.1f}% of balance)")
             
             # Approve если не нативный токен
             if not is_native:
                 if not await self._approve_token(web3, NEURA_TOKENS.get(from_token), NEURA_ROUTER_ADDRESS, amount):
-                    return False
+                    return False, None
             
             # Загружаем ABI роутера
             router_abi = self._load_contract_abi('router')
@@ -876,36 +898,74 @@ class NeuraClient:
             receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             if receipt.status == 1:
+                tx_hash_hex = tx_hash.hex()
+                explorer_url = NETWORKS.get('🚀 Neura Testnet', {}).get('tx_url', 'https://testnet-blockscout.infra.neuraprotocol.io/tx/')
                 log_success(
                     self.wallet_address,
-                    f"Successfully swapped {from_token} -> {to_token} | TX: https://testnet-blockscout.infra.neuraprotocol.io/tx/{tx_hash.hex()}"
+                    f"Successfully swapped {from_token} -> {to_token} | TX: {explorer_url}{tx_hash_hex}"
                 )
-                return True
+                return True, tx_hash_hex
             else:
                 log_error(self.wallet_address, f"Swap transaction failed")
-                return False
+                return False, None
                 
         except Exception as e:
             import traceback
             log_error(self.wallet_address, f"Swap error: {e}")
             logger.error(f"[{self.wallet_address}] Full swap error:\n{traceback.format_exc()}")
-            return False
+            return False, None
     
-    async def execute_swap(self) -> bool:
-        """Выполнить swap с retry логикой (для использования в pipeline)"""
+    async def execute_swap(self, progress_callback=None) -> Tuple[bool, List[str]]:
+        """Выполнить swap с retry логикой (для использования в pipeline). Возвращает (success, list_of_tx_hashes)
+        
+        Args:
+            progress_callback: Optional callback function(swap_num, total_swaps, tx_hash, status)
+                              status: "start", "success", "failed"
+        """
         max_attempts = NEURA_MAX_RETRIES_PER_TASK
         
-        for attempt in range(max_attempts):
-            try:
-                if await self.swap():
-                    return True
-                
-                log_warning(self.wallet_address, f"Swap attempt {attempt + 1}/{max_attempts} failed, retrying...")
-                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
-                
-            except Exception as e:
-                log_error(self.wallet_address, f"Swap error: {e}")
-                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+        # Определяем количество swap транзакций
+        swap_count = random.randint(NEURA_SWAP_COUNT[0], NEURA_SWAP_COUNT[1])
+        log_info(self.wallet_address, f"Запланировано {swap_count} swap транзакций")
         
-        log_error(self.wallet_address, f"Failed to execute swap after {max_attempts} attempts")
-        return False
+        successful_swaps = 0
+        tx_hashes = []
+        
+        for swap_num in range(swap_count):
+            log_info(self.wallet_address, f"Swap {swap_num + 1}/{swap_count}")
+            
+            # Уведомляем о старте свапа
+            if progress_callback:
+                progress_callback(swap_num + 1, swap_count, None, "start")
+            
+            for attempt in range(max_attempts):
+                try:
+                    success, tx_hash = await self.swap()
+                    if success:
+                        successful_swaps += 1
+                        if tx_hash:
+                            tx_hashes.append(tx_hash)
+                            # Уведомляем об успешном свапе
+                            if progress_callback:
+                                progress_callback(swap_num + 1, swap_count, tx_hash, "success")
+                        break
+                    
+                    log_warning(self.wallet_address, f"Swap {swap_num + 1} attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                    await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+                    
+                except Exception as e:
+                    log_error(self.wallet_address, f"Swap error: {e}")
+                    await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+            
+            # Задержка между свапами
+            if swap_num < swap_count - 1:
+                pause = random.uniform(*NEURA_SWAP_PAUSE_BETWEEN_SWAPS)
+                log_info(self.wallet_address, f"Пауза {pause:.1f}с перед следующим свапом...")
+                await asyncio.sleep(pause)
+        
+        if successful_swaps > 0:
+            log_success(self.wallet_address, f"Выполнено {successful_swaps}/{swap_count} свапов")
+            return True, tx_hashes
+        
+        log_error(self.wallet_address, f"Failed to execute any swaps after all attempts")
+        return False, tx_hashes

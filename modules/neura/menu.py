@@ -35,6 +35,7 @@ from config.config import (
     astrum_CAPTCHA_API_KEY, SHUFFLE_WALLET_LIST_NEURA,
     NEURA_RANDOM_MODULE_ORDER
 )
+from config.networks import NETWORKS
 from modules.neura.client import NeuraClient
 from modules.neura.database import (
     init_database, create_tasks_for_wallets, get_pending_tasks,
@@ -321,10 +322,20 @@ async def process_wallet_task(
                         return wallet_address, True, ""
                 
                 elif task_type == 'swap':
-                    success = await client.execute_swap()
+                    # Callback для логирования каждого свапа в реальном времени
+                    def swap_progress_callback(swap_num: int, total_swaps: int, tx_hash: str = None, status: str = "progress"):
+                        explorer_url = NETWORKS.get('🚀 Neura Testnet', {}).get('tx_url', 'https://testnet-blockscout.infra.neuraprotocol.io/tx/')
+                        short_addr = wallet_address[:8] + "..." + wallet_address[-4:]
+                        if status == "success" and tx_hash:
+                            add_log(f"[{short_addr}] ✅ Swap [{swap_num}/{total_swaps}] | {explorer_url}{tx_hash}", "SUCCESS")
+                        elif status == "start":
+                            add_log(f"[{short_addr}] 🔄 Swap [{swap_num}/{total_swaps}] начат...", "INFO")
+                    
+                    success, tx_hashes = await client.execute_swap(progress_callback=swap_progress_callback)
                     
                     if success:
-                        add_log(f"[{wallet_address}] ✅ Swap выполнен успешно", "SUCCESS")
+                        if not tx_hashes:
+                            add_log(f"[{wallet_address}] ✅ Swap выполнен успешно", "SUCCESS")
                         return wallet_address, True, ""
                 
                 else:
@@ -353,6 +364,24 @@ async def process_wallet_task(
 
 
 def run_task_sync(private_key: str, proxy: str, task_type: str, all_proxies: List[str] = None) -> Tuple[str, bool, str]:
+    return asyncio.run(process_wallet_task(private_key, proxy, task_type, all_proxies))
+
+
+def run_task_sync_with_delay(private_key: str, proxy: str, task_type: str, all_proxies: List[str] = None, wallet_index: int = 0) -> Tuple[str, bool, str]:
+    """
+    Запуск задачи с задержкой старта на основе индекса кошелька.
+    Это позволяет запустить все задачи параллельно, но каждый кошелёк
+    начинает работу с небольшим смещением для равномерного распределения нагрузки.
+    """
+    # Задержка старта: каждый кошелёк стартует через случайный интервал
+    # Распределяем старт равномерно, чтобы не все ломились одновременно
+    if wallet_index > 0:
+        # Группируем кошельки по потокам, задержка только для разных "волн"
+        wave = wallet_index // NUM_THREADS
+        if wave > 0:
+            delay = wave * random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
+            time.sleep(delay)
+    
     return asyncio.run(process_wallet_task(private_key, proxy, task_type, all_proxies))
 
 
@@ -462,6 +491,7 @@ def run_module_pipeline(task_types: List[str]):
                             live_ref.update(create_progress_panel())
                     return done_callback
                 
+                # Отправляем ВСЕ задачи в пул сразу для параллельной обработки
                 for idx, (wallet_address, private_key) in enumerate(wallets_to_process):
                     proxy = None
                     if proxies:
@@ -476,17 +506,15 @@ def run_module_pipeline(task_types: List[str]):
                     with progress_lock:
                         stats['sent'] += 1
                     
-                    future = executor.submit(run_task_sync, private_key, proxy, task_type, proxies)
+                    # Передаём индекс для вычисления задержки старта внутри потока
+                    future = executor.submit(run_task_sync_with_delay, private_key, proxy, task_type, proxies, idx)
                     futures_dict[future] = wallet_address
                     
                     future.add_done_callback(make_done_callback(wallet_address, task_type, live))
                     
                     live.update(create_progress_panel())
-                    
-                    if idx < len(wallets_to_process) - 1:  
-                        delay = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
-                        time.sleep(delay)
                 
+                # Ждём завершения всех задач
                 for future in futures_dict:
                     try:
                         future.result() 
