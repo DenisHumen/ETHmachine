@@ -3,10 +3,37 @@
 """
 import sqlite3
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from loguru import logger
+
+# Количество попыток для операций с БД
+DB_RETRY_COUNT = 5
+DB_RETRY_DELAY = 0.5  # секунды между попытками
+
+
+def with_retry(func):
+    """Декоратор для повторных попыток при ошибках SQLite"""
+    def wrapper(*args, **kwargs):
+        last_error = None
+        for attempt in range(DB_RETRY_COUNT):
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                last_error = e
+                error_msg = str(e).lower()
+                # Ошибки, которые можно повторить
+                if 'disk i/o error' in error_msg or 'database is locked' in error_msg or 'busy' in error_msg:
+                    if attempt < DB_RETRY_COUNT - 1:
+                        logger.warning(f"SQLite ошибка (попытка {attempt + 1}/{DB_RETRY_COUNT}): {e}")
+                        time.sleep(DB_RETRY_DELAY * (attempt + 1))  # Увеличиваем задержку
+                        continue
+                raise
+        raise last_error
+    return wrapper
+
 
 class TwitterTaskDatabase:
     """Управление базой данных для Twitter задач"""
@@ -20,13 +47,29 @@ class TwitterTaskDatabase:
     def init_database(self):
         """Инициализация базы данных"""
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            self.conn = sqlite3.connect(
+                self.db_path,
+                timeout=30.0,  # Увеличенный таймаут для WSL
+                isolation_level=None  # Autocommit для уменьшения блокировок
+            )
             self.conn.row_factory = sqlite3.Row
+            
+            # Настройки для улучшения стабильности на WSL/сетевых дисках
+            self.conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging
+            self.conn.execute("PRAGMA synchronous=NORMAL")  # Баланс скорости и надежности
+            self.conn.execute("PRAGMA busy_timeout=30000")  # 30 секунд ожидания при блокировке
+            self.conn.execute("PRAGMA temp_store=MEMORY")  # Временные таблицы в памяти
+            
             self._create_tables()
             logger.info(f"База данных инициализирована: {self.db_path}")
         except Exception as e:
             logger.error(f"Ошибка инициализации БД: {e}")
             raise
+    
+    @with_retry
+    def _execute_commit(self):
+        """Выполняет commit с retry"""
+        self.conn.commit()
     
     def _create_tables(self):
         """Создание таблиц"""
@@ -102,7 +145,7 @@ class TwitterTaskDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_task_id ON operations(task_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
         
-        self.conn.commit()
+        self._execute_commit()
         logger.success("Таблицы базы данных созданы")
     
     def create_session(self, session_id: str, total_operations: int) -> int:
@@ -112,7 +155,7 @@ class TwitterTaskDatabase:
             INSERT INTO sessions (session_id, total_operations, status)
             VALUES (?, ?, 'running')
         ''', (session_id, total_operations))
-        self.conn.commit()
+        self._execute_commit()
         logger.info(f"Создана сессия: {session_id}")
         return cursor.lastrowid
     
@@ -138,7 +181,7 @@ class TwitterTaskDatabase:
                 failed_operations = ?
             WHERE session_id = ?
         ''', (completed, successful, failed, session_id))
-        self.conn.commit()
+        self._execute_commit()
     
     def complete_session(self, session_id: str):
         """Завершает сессию"""
@@ -149,7 +192,7 @@ class TwitterTaskDatabase:
                 completed_at = CURRENT_TIMESTAMP
             WHERE session_id = ?
         ''', (session_id,))
-        self.conn.commit()
+        self._execute_commit()
         logger.success(f"Сессия завершена: {session_id}")
     
     def save_tasks(self, tasks: List[Dict]) -> List[int]:
@@ -175,7 +218,7 @@ class TwitterTaskDatabase:
             
             task_ids.append(cursor.lastrowid)
         
-        self.conn.commit()
+        self._execute_commit()
         logger.info(f"Сохранено {len(task_ids)} задач в БД")
         return task_ids
     
@@ -201,7 +244,7 @@ class TwitterTaskDatabase:
             
             operation_ids.append(cursor.lastrowid)
         
-        self.conn.commit()
+        self._execute_commit()
         logger.info(f"Сохранено {len(operation_ids)} операций в БД")
         return operation_ids
     
@@ -250,7 +293,7 @@ class TwitterTaskDatabase:
                 executed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (status, username, message, operation_id))
-        self.conn.commit()
+        self._execute_commit()
     
     def save_result(self, operation_id: int, result: Dict):
         """Сохраняет результат выполнения"""
@@ -272,7 +315,7 @@ class TwitterTaskDatabase:
             result.get('message', ''),
             result.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         ))
-        self.conn.commit()
+        self._execute_commit()
     
     def get_all_results(self) -> List[Dict]:
         """Получает все результаты"""
@@ -326,7 +369,7 @@ class TwitterTaskDatabase:
         cursor.execute('DELETE FROM operations')
         cursor.execute('DELETE FROM tasks')
         cursor.execute('DELETE FROM sessions')
-        self.conn.commit()
+        self._execute_commit()
         logger.warning("Все данные из БД удалены")
     
     def has_pending_operations(self) -> bool:
