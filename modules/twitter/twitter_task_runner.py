@@ -301,17 +301,17 @@ class TwitterTaskRunner:
         
         return "new"
 
-    async def run_all_tasks(self):
+    async def run_all_tasks(self, mode: str = "new"):
         """
         Выполняет задачи с поддержкой БД для сохранения прогресса.
         Поддерживает продолжение с места остановки.
+        
+        Args:
+            mode: Режим работы - "new" (новый запуск), "continue" (продолжение), "cancel" (отмена)
         """
         if not self.accounts:
             logger.error("Нет загруженных аккаунтов")
             return []
-        
-        # Проверяем режим работы
-        mode = await self.check_and_choose_mode()
         
         if mode == "cancel":
             print(Fore.YELLOW + "Операция отменена пользователем")
@@ -731,6 +731,8 @@ def run_twitter_tasks():
             # Загружаем новые задачи
             if not load_and_prepare_tasks(runner):
                 return
+            
+            execution_mode = "new"
         
         elif action == "continue":
             # Загружаем только аккаунты для продолжения
@@ -750,11 +752,14 @@ def run_twitter_tasks():
             if not confirm:
                 print(Fore.YELLOW + "Операция отменена")
                 return
+            
+            execution_mode = "continue"
     else:
         # Нет незавершенных задач - загружаем новые
         print(Fore.GREEN + "\n✅ Нет незавершенных задач в БД")
         if not load_and_prepare_tasks(runner):
             return
+        execution_mode = "new"
     
     # Запускаем выполнение
     print(Fore.CYAN + f"\n{'='*70}")
@@ -762,7 +767,7 @@ def run_twitter_tasks():
     print(Fore.CYAN + f"{'='*70}\n")
     
     try:
-        results = asyncio.run(runner.run_all_tasks())
+        results = asyncio.run(runner.run_all_tasks(mode=execution_mode))
         
         if results:
             # Сохраняем результаты
