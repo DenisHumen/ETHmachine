@@ -36,23 +36,34 @@ from config import networks as rpc
 from modules.cex.exchange_selector import select_mexc_account
 
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
-os.makedirs(log_path, exist_ok=True)
 
-logger.add(
-    os.path.join(log_path, 'mexc_withdraw_errors.log'),
-    level="ERROR",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-    rotation="10 MB",
-    retention="7 days"
-)
+# Флаг инициализации логгера
+_logger_initialized = False
 
-logger.add(
-    os.path.join(log_path, 'mexc_withdraw_full.log'),
-    level="DEBUG",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {function} | {message}",
-    rotation="50 MB",
-    retention="3 days"
-)
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    os.makedirs(log_path, exist_ok=True)
+    
+    logger.add(
+        os.path.join(log_path, 'mexc_withdraw_errors.log'),
+        level="ERROR",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        rotation="10 MB",
+        retention="7 days"
+    )
+
+    logger.add(
+        os.path.join(log_path, 'mexc_withdraw_full.log'),
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {function} | {message}",
+        rotation="50 MB",
+        retention="3 days"
+    )
 
 db_lock = threading.Lock()
 csv_lock = threading.Lock()
@@ -1045,6 +1056,7 @@ def check_existing_progress():
 
 def mexc_withdraw():
     """Основная функция"""
+    _setup_logging()
     logger.info("=== MEXC Withdrawal Module ===")
     
     # Выбор аккаунта MEXC

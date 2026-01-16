@@ -29,11 +29,23 @@ from config.config import (
 # Инициализация colorama
 init(autoreset=True)
 
-# Настройка логгера
-logger.add("log/email_checker.log", 
-          format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-          level="INFO",
-          rotation="10 MB")
+# Флаг инициализации логгера
+_logger_initialized = False
+
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    import os
+    os.makedirs("log", exist_ok=True)
+    
+    logger.add("log/email_checker.log", 
+              format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+              level="INFO",
+              rotation="10 MB")
 
 class EmailChecker:
     """Класс для проверки email аккаунтов через IMAP"""
@@ -358,6 +370,7 @@ class EmailChecker:
 
 def run_email_checker():
     """Главная функция запуска модуля проверки почт"""
+    _setup_logging()
     try:
         checker = EmailChecker()
         checker.run_multithreaded_check()

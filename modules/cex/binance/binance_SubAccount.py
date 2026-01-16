@@ -18,30 +18,41 @@ init()
 # Настройка логгера
 project_root = Path(__file__).parent.parent.parent.parent
 log_dir = project_root / 'log'
-log_dir.mkdir(exist_ok=True)
 
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
-)
+# Флаг инициализации логгера
+_logger_initialized = False
 
-logger.add(
-    log_dir / "binance_subaccount_errors.log",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    level="ERROR",
-    rotation="10 MB",
-    retention="7 days"
-)
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    log_dir.mkdir(exist_ok=True)
+    
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO"
+    )
 
-logger.add(
-    log_dir / "binance_subaccount_full.log",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    level="DEBUG",
-    rotation="50 MB",
-    retention="3 days"
-)
+    logger.add(
+        log_dir / "binance_subaccount_errors.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="ERROR",
+        rotation="10 MB",
+        retention="7 days"
+    )
+
+    logger.add(
+        log_dir / "binance_subaccount_full.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="DEBUG",
+        rotation="50 MB",
+        retention="3 days"
+    )
 
 class BinanceClient:
     def __init__(self, api_key, secret_key, testnet=False):
@@ -472,6 +483,7 @@ def get_balances_binance():
     Функция только для получения и отображения всех балансов Binance.
     Выводит в терминал и сохраняет в result/binance_balances.csv
     """
+    _setup_logging()
     
     logger.info(Fore.MAGENTA + "="*80)
     logger.info(Fore.YELLOW + "📊 ПОЛУЧЕНИЕ БАЛАНСОВ BINANCE")
@@ -615,6 +627,7 @@ def subaccount_collector_binance():
     """
     Функция только для сбора средств с субаккаунтов на основной аккаунт Binance.
     """
+    _setup_logging()
     
     logger.info(Fore.MAGENTA + "="*80)
     logger.info(Fore.YELLOW + "🤖 СБОРЩИК СРЕДСТВ С СУБАККАУНТОВ BINANCE")

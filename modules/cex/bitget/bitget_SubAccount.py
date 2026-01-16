@@ -32,24 +32,35 @@ init()
 
 project_root = Path(__file__).resolve().parent.parent.parent  
 log_dir = project_root.parent / 'log'  
-log_dir.mkdir(parents=True, exist_ok=True)
 
 result_dir = project_root / 'result'
 result_dir.mkdir(parents=True, exist_ok=True)
 
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
-)
-logger.add(
-    log_dir / "bitget.log",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    level="ERROR",
-    rotation="10 MB",
-    retention="30 days"
-)
+# Флаг инициализации логгера
+_logger_initialized = False
+
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO"
+    )
+    logger.add(
+        log_dir / "bitget.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="ERROR",
+        rotation="10 MB",
+        retention="30 days"
+    )
 
 AUTO_TRANSFER = False   
 TRANSFER_MIN_AMOUNT = 1e-8  
@@ -446,7 +457,8 @@ def pretty_float_str(x):
     except Exception:
         return str(x)
 
-def check_bitget_subaccounts_and_balances(auto_transfer=True): 
+def check_bitget_subaccounts_and_balances(auto_transfer=True):
+    _setup_logging()
     logger.info(Fore.MAGENTA + "\n" + "="*80)
     logger.info(Fore.YELLOW + "🚀 Запуск проверки стандартных субаккаунтов Bitget")
     logger.info(Fore.MAGENTA + "="*80)

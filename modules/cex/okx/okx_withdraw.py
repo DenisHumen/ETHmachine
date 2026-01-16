@@ -38,25 +38,36 @@ from modules.cex.exchange_selector import select_okx_account
 
 # Настройка логирования
 log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'log')
-os.makedirs(log_path, exist_ok=True)
 
-# Добавляем файловый хендлер для ошибок
-logger.add(
-    os.path.join(log_path, 'okx_withdraw_errors.log'),
-    level="ERROR",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-    rotation="10 MB",
-    retention="7 days"
-)
+# Флаг инициализации логгера
+_logger_initialized = False
 
-# Добавляем файловый хендлер для всех логов
-logger.add(
-    os.path.join(log_path, 'okx_withdraw_full.log'),
-    level="DEBUG",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {function} | {message}",
-    rotation="50 MB",
-    retention="3 days"
-)
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    os.makedirs(log_path, exist_ok=True)
+    
+    # Добавляем файловый хендлер для ошибок
+    logger.add(
+        os.path.join(log_path, 'okx_withdraw_errors.log'),
+        level="ERROR",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        rotation="10 MB",
+        retention="7 days"
+    )
+
+    # Добавляем файловый хендлер для всех логов
+    logger.add(
+        os.path.join(log_path, 'okx_withdraw_full.log'),
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {function} | {message}",
+        rotation="50 MB",
+        retention="3 days"
+    )
 
 # Блокировка для thread-safe операций
 db_lock = threading.Lock()
@@ -934,6 +945,7 @@ def check_existing_progress():
 
 def okx_withdraw():
     """Основная функция"""
+    _setup_logging()
     logger.info("=== OKX Withdrawal Module ===")
     
     # Выбираем аккаунт OKX

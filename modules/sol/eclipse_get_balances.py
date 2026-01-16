@@ -30,27 +30,38 @@ processed_wallets = 0
 successful_checks = 0
 failed_checks = 0
 
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-    colorize=True,
-    level="INFO"
-)
-
 log_dir = project_root / 'log'
-log_dir.mkdir(exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_file = log_dir / f'eclipse_balance_check_{timestamp}.log'
 
-logger.add(
-    log_file,
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-    level="DEBUG",
-    rotation="10 MB",
-    retention="7 days",
-    encoding='utf-8'
-)
+# Флаг инициализации логгера
+_logger_initialized = False
+
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    log_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f'eclipse_balance_check_{timestamp}.log'
+    
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        colorize=True,
+        level="INFO"
+    )
+
+    logger.add(
+        log_file,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+        level="DEBUG",
+        rotation="10 MB",
+        retention="7 days",
+        encoding='utf-8'
+    )
 
 
 def load_wallets():
@@ -348,6 +359,7 @@ def eclipse_balance_checker():
     Главная функция для проверки балансов Eclipse
     Запускает многопоточную проверку балансов всех кошельков
     """
+    _setup_logging()
     global total_wallets, processed_wallets, successful_checks, failed_checks
     
     print("\n" + "="*70)

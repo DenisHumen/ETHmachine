@@ -39,21 +39,45 @@ except ImportError:
 
 colorama_init(autoreset=False)
 
+# Функция для получения add_log из menu - используется для интеграции с Rich Live панелью
+_add_log_func = None
+
+def set_log_callback(callback):
+    """Установить callback для логирования в Rich панель"""
+    global _add_log_func
+    _add_log_func = callback
+
 
 def log_success(wallet: str, message: str):
-    logger.opt(colors=False).success(f"{Fore.GREEN}[{wallet}] | {message}{Style.RESET_ALL}")
+    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
+    if _add_log_func:
+        _add_log_func(f"[{short_wallet}] ✅ {message}", "SUCCESS")
+    else:
+        logger.opt(colors=False).success(f"{Fore.GREEN}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_warning(wallet: str, message: str):
-    logger.opt(colors=False).warning(f"{Fore.YELLOW}[{wallet}] | {message}{Style.RESET_ALL}")
+    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
+    if _add_log_func:
+        _add_log_func(f"[{short_wallet}] ⚠️ {message}", "WARNING")
+    else:
+        logger.opt(colors=False).warning(f"{Fore.YELLOW}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_error(wallet: str, message: str):
-    logger.opt(colors=False).error(f"{Fore.RED}[{wallet}] | {message}{Style.RESET_ALL}")
+    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
+    if _add_log_func:
+        _add_log_func(f"[{short_wallet}] ❌ {message}", "ERROR")
+    else:
+        logger.opt(colors=False).error(f"{Fore.RED}[{wallet}] | {message}{Style.RESET_ALL}")
 
 
 def log_info(wallet: str, message: str):
-    logger.opt(colors=False).info(f"[{wallet}] | {message}")
+    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
+    if _add_log_func:
+        _add_log_func(f"[{short_wallet}] {message}", "INFO")
+    else:
+        logger.opt(colors=False).info(f"[{wallet}] | {message}")
 
 
 class NeuraClient:
@@ -75,10 +99,6 @@ class NeuraClient:
             else:
                 proxy_url = proxy
             proxy_dict = {'http': proxy_url, 'https': proxy_url}
-            proxy_ip = proxy.split('@')[-1] if '@' in proxy else proxy[:30]
-            log_info(self.wallet_address, f"Using proxy: {proxy_ip}")
-        else:
-            log_warning(self.wallet_address, "No proxy configured!")
         
         self.session = AsyncSession(
             proxies=proxy_dict,  # type: ignore

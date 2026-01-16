@@ -36,7 +36,7 @@ from config.config import (
     NEURA_RANDOM_MODULE_ORDER
 )
 from config.networks import NETWORKS
-from modules.neura.client import NeuraClient
+from modules.neura.client import NeuraClient, set_log_callback
 from modules.neura.database import (
     init_database, create_tasks_for_wallets, get_pending_tasks,
     update_task_status, get_task_statistics, reset_failed_tasks,
@@ -182,9 +182,6 @@ def create_progress_panel() -> Panel:
         border_style="bright_blue",
         padding=(1, 2)
     )
-
-
-logger.remove()
 
 
 def load_private_keys() -> List[str]:
@@ -388,6 +385,12 @@ def run_task_sync_with_delay(private_key: str, proxy: str, task_type: str, all_p
 def run_module_pipeline(task_types: List[str]):
     global stats
     
+    # Устанавливаем callback для логирования в Rich панель
+    set_log_callback(add_log)
+    
+    # Отключаем стандартный вывод loguru чтобы не ломать Rich Live
+    logger.remove()
+    
     if not astrum_CAPTCHA_API_KEY or astrum_CAPTCHA_API_KEY.strip() == '':
         console.print("[red]❌ ОШИБКА: astrum_CAPTCHA_API_KEY не указан в config/config.py![/red]")
         console.print("[yellow]⚠️ Для работы модуля Neura необходим API ключ для решения капчи.[/yellow]")
@@ -540,6 +543,10 @@ def run_module_pipeline(task_types: List[str]):
             message=f"Статистика: {final_stats}",
             main_title="ETHmachine Neura"
         )
+    
+    # Сбрасываем callback и восстанавливаем стандартный логгер
+    set_log_callback(None)
+    logger.add(sys.stderr, level="INFO")
 
 
 def neura_menu():

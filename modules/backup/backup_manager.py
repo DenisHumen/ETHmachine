@@ -42,25 +42,36 @@ except ImportError:
     PARAMIKO_AVAILABLE = False
     logger.warning("⚠️  Paramiko не установлен. SFTP функции недоступны. Установите: pip install paramiko")
 
-# Настройка логирования
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-    level="INFO",
-    colorize=True
-)
-
-# Добавляем файл для логирования
+# Путь для логов
 log_dir = os.path.join(project_root, 'log')
-os.makedirs(log_dir, exist_ok=True)
-logger.add(
-    os.path.join(log_dir, 'backup.log'),
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-    level="DEBUG",
-    rotation="10 MB",
-    retention="30 days"
-)
+
+# Флаг инициализации логгера
+_logger_initialized = False
+
+def _setup_logging():
+    """Настройка логирования - вызывается при запуске модуля"""
+    global _logger_initialized
+    if _logger_initialized:
+        return
+    _logger_initialized = True
+    
+    os.makedirs(log_dir, exist_ok=True)
+    
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
+        level="INFO",
+        colorize=True
+    )
+
+    logger.add(
+        os.path.join(log_dir, 'backup.log'),
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+        level="DEBUG",
+        rotation="10 MB",
+        retention="30 days"
+    )
 
 
 class EncryptionManager:
@@ -409,6 +420,7 @@ class BackupManager:
     """Класс для управления локальными и SFTP бэкапами"""
     
     def __init__(self):
+        _setup_logging()
         self.project_root = project_root
         self.backup_local_dir = os.path.join(self.project_root, 'backups')
         self.sftp_config = SFTP_SERVER_INTO_BACKUP
