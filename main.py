@@ -20,10 +20,25 @@ from modules.backup import create_backup, list_backups, backup_menu
 from modules.backup.backup_manager import BackupManager
 
 neura_statistics = None
+neura_load_error = None
 if platform.system().lower() == 'windows':
     try:
         from modules.statistics.neura_stats import neura_statistics
+    except ImportError as e:
+        error_msg = str(e)
+        if 'DLL load failed' in error_msg or 'pyarmor_runtime' in error_msg:
+            py_version = f"{platform.python_version()}"
+            neura_load_error = (
+                f"Модуль pyarmor_runtime несовместим с Python {py_version}.\n"
+                "   Файл .pyd был скомпилирован для другой версии Python.\n"
+                "   Решение: используйте Python 3.10 или 3.11 для этого модуля."
+            )
+        else:
+            neura_load_error = str(e)
+        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {neura_load_error}")
+        neura_statistics = None
     except Exception as e:
+        neura_load_error = str(e)
         print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {e}")
         neura_statistics = None
 
@@ -815,13 +830,19 @@ def main_menu():
                                     neura_statistics()
                                 else:
                                     print(Fore.RED + "\n⚠️  Модуль Neura Statistics недоступен!")
-                                    print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
-                                    print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}")
+                                    if neura_load_error:
+                                        print(Fore.YELLOW + f"Причина: {neura_load_error}")
+                                    else:
+                                        print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
+                                    print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}, Python: {platform.python_version()}")
                                     input("\nНажмите Enter для продолжения...")
                             case 'neura_stat_unavailable':
                                 print(Fore.RED + "\n⚠️  Модуль Neura Statistics недоступен!")
-                                print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
-                                print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}")
+                                if neura_load_error:
+                                    print(Fore.YELLOW + f"Причина: {neura_load_error}")
+                                else:
+                                    print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
+                                print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}, Python: {platform.python_version()}")
                                 input("\nНажмите Enter для продолжения...")
                             case 'back':
                                 break
