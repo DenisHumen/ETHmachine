@@ -27,16 +27,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
-try:
-    from modules.statistics.astrum_captcha_solver import AstrumSolver
-except ImportError as e:
-    import platform
-    py_version = platform.python_version()
-    raise ImportError(
-        f"DLL load failed while importing pyarmor_runtime: Не найден указанный модуль.\n"
-        f"Версия Python: {py_version}. Файл .pyd несовместим с вашей версией Python.\n"
-        f"Используйте Python 3.10 или 3.11."
-    ) from e
+from modules.statistics.astrum_captcha_solver import AstrumSolver
 
 csv_lock = Lock()
 db_lock = Lock()

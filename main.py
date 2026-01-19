@@ -26,16 +26,8 @@ if platform.system().lower() == 'windows':
         from modules.statistics.neura_stats import neura_statistics
     except ImportError as e:
         error_msg = str(e)
-        if 'DLL load failed' in error_msg or 'pyarmor_runtime' in error_msg:
-            py_version = f"{platform.python_version()}"
-            neura_load_error = (
-                f"Модуль pyarmor_runtime несовместим с Python {py_version}.\n"
-                "   Файл .pyd был скомпилирован для другой версии Python.\n"
-                "   Решение: используйте Python 3.10 или 3.11 для этого модуля."
-            )
-        else:
-            neura_load_error = str(e)
-        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {neura_load_error}")
+        neura_load_error = error_msg
+        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {error_msg}")
         neura_statistics = None
     except Exception as e:
         neura_load_error = str(e)
