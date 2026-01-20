@@ -19,8 +19,7 @@ sys.path.append(project_root)
 
 # Импорты из проекта
 from config.config import SUM_TO_RELAY, GAS, MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
-from config.networks import *
-from config.networks import get_explorer_url
+from config.networks import NETWORKS, get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
 
 # Настройка логирования
@@ -94,12 +93,13 @@ class RelayBridge:
         
         # Настройка RPC для сетей
         self.rpc_pools = {
-            1: L1,  # Ethereum
-            10: optimism,  # Optimism
-            137: Polygon,  # Polygon
-            8453: base,  # Base
-            42161: arbitrum,  # Arbitrum
-            1868: soneium  # Soneium
+            1: NETWORKS['🚀 Ethereum Mainnet']['rpc_urls'],  # Ethereum
+            10: NETWORKS['🚀 Optimism']['rpc_urls'],  # Optimism
+            137: NETWORKS['🚀 Polygon']['rpc_urls'],  # Polygon
+            8453: NETWORKS['🚀 Base']['rpc_urls'],  # Base
+            42161: NETWORKS['🚀 Arbitrum One']['rpc_urls'],  # Arbitrum
+            1868: NETWORKS['🚀 Soneium']['rpc_urls'],  # Soneium
+            2741: NETWORKS['🚀 Abstract']['rpc_urls']  # Abstract
         }
         
         # Маппинг chain_id на названия сетей в explorer_url.py
@@ -109,7 +109,8 @@ class RelayBridge:
             137: '🚀 Polygon',
             8453: '🚀 Base',
             42161: '🚀 Arbitrum One',
-            1868: '🚀 Soneium'
+            1868: '🚀 Soneium',
+            2741: '🚀 Abstract'
         }
         
         # Кеш для Web3 подключений

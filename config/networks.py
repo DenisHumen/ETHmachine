@@ -8,7 +8,7 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Base': {
-        'rpc_urls': ["https://base.llamarpc.com", 'https://base-rpc.publicnode.com'],
+        'rpc_urls': ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.llamarpc.com'],
         'symbol': 'ETH',
         'tx_url': "https://basescan.org/tx/",
         'type': 'mainnet'
@@ -68,9 +68,9 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Abstract': {
-        'rpc_urls': ['https://api.mainnet.abs.xyz'],
+        'rpc_urls': ['https://abstract.drpc.org', 'https://api.mainnet.abs.xyz'],
         'symbol': 'ETH',
-        'tx_url': "https://explorer.testnet.abs.xyz/tx/",
+        'tx_url': "https://explorer.mainnet.abs.xyz/tx/",
         'type': 'mainnet'
     },
     '🚀 Somnia': {
