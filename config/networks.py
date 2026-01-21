@@ -85,6 +85,12 @@ NETWORKS = {
         'tx_url': "https://lineascan.build/tx/",
         'type': 'mainnet'
     },
+    '': {
+        'rpc_urls': ['https://mainnet.era.zksync.io'],
+        'symbol': 'ETH',
+        'tx_url': "https://explorer.zksync.io/tx/",
+        'type': 'mainnet'
+    },
     
     # === TESTNET СЕТИ ===
     '🚀 Sepolia': {
