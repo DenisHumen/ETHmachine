@@ -252,6 +252,80 @@ class RelayBridge:
         log_warning(f"⚠️ Проверка баланса ERC20 токенов пока не реализована")
         return 0.0
     
+    def _calculate_bridge_amount(self, wallet_address: str, from_chain_id: int) -> float:
+        """
+        Вычисление суммы для бриджа на основе SUM_TO_RELAY
+        Поддерживает как фиксированную сумму, так и проценты от баланса
+        
+        Args:
+            wallet_address: Адрес кошелька
+            from_chain_id: ID сети откуда будет бридж
+            
+        Returns:
+            Сумма для бриджа
+        """
+        # Проверяем тип значений в SUM_TO_RELAY
+        # Определяем формат SUM_TO_RELAY: строки -> проценты, числа -> фикс. суммы
+        if isinstance(SUM_TO_RELAY[0], str):
+            # Это процент от баланса
+            min_percent = float(SUM_TO_RELAY[0])
+            max_percent = float(SUM_TO_RELAY[1])
+            
+            # Получаем баланс кошелька
+            balance = self._get_native_balance(from_chain_id, wallet_address, show_log=False)
+            
+            if balance <= 0:
+                log_warning(f"⚠️ Нулевой баланс у кошелька {wallet_address}")
+                return 0.0
+            
+            # Вычисляем случайный процент
+            percent = random.uniform(min_percent, max_percent)
+            
+            # Вычисляем сумму до учёта резерва на газ
+            original_amount = balance * (percent / 100.0)
+            amount = original_amount
+            
+            # Резерв на газ: уменьшаем предыдущую стратегию в 2.5 раза и
+            # добавляем целевой USD-резерв ~ $0.05 (переводим в ETH по курсу)
+            GAS_RESERVE_FACTOR = 2.5
+            TARGET_GAS_USD = 0.05
+            # По умолчанию используем усечённую версию старой формулы
+            fallback_reserve = max(0.0001 / GAS_RESERVE_FACTOR, balance * 0.001 / GAS_RESERVE_FACTOR)
+            gas_reserve = fallback_reserve
+            try:
+                # Попробуем получить цену нативного токена в USDT и вычислить ETH эквивалент TARGET_GAS_USD
+                price_usd = self._get_native_token_price_in_usdt(from_chain_id)
+                if price_usd and price_usd > 0:
+                    dynamic_min = TARGET_GAS_USD / price_usd
+                    # Неизменяем размер меньше минимально возможного эфира
+                    gas_reserve = max(dynamic_min, fallback_reserve, 0.0000001)
+            except Exception:
+                # В случае ошибки используем fallback_reserve
+                gas_reserve = fallback_reserve
+            
+            # Если сумма + газ превышает баланс, уменьшаем до (баланс - резерв газа)
+            adjusted = False
+            if amount + gas_reserve > balance:
+                amount = balance - gas_reserve
+                adjusted = True
+            
+            # Минимальная проверка
+            if amount <= 0:
+                log_warning(f"⚠️ После вычета газа сумма для бриджа <= 0 у кошелька {wallet_address}")
+                return 0.0
+            
+            # Логируем исходную и, при необходимости, скорректированную сумму
+            if adjusted:
+                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {original_amount:.6f} ETH -> скорректировано до {amount:.6f} (резерв газа: {gas_reserve:.6f})")
+            else:
+                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {amount:.6f} ETH (резерв газа: {gas_reserve:.6f})")
+            return amount
+        else:
+            # Это фиксированная сумма
+            min_amount, max_amount = SUM_TO_RELAY
+            amount = random.uniform(min_amount, max_amount)
+            return amount
+    
     def _create_work_plan(self, from_chain_id: int, from_token: str, to_chain_id: int, to_token: str):
         """Создание полного плана работ в базе данных"""
         from_network = CHAIN_ID_TO_NAME[from_chain_id]
@@ -270,9 +344,12 @@ class RelayBridge:
                 account = Web3().eth.account.from_key(private_key)
                 wallet_address = account.address
                 
-                # Генерация случайной суммы для каждого кошелька
-                min_amount, max_amount = SUM_TO_RELAY
-                amount = random.uniform(min_amount, max_amount)
+                # Вычисление суммы для бриджа (с поддержкой процентов)
+                amount = self._calculate_bridge_amount(wallet_address, from_chain_id)
+                
+                if amount <= 0:
+                    log_warning(f"⚠️ Пропускаем кошелек {wallet_address} - недостаточно средств")
+                    continue
                 
                 # Добавление записи в БД (используем пустую строку для private_key_hash, т.к. теперь ищем по wallet_address)
                 cursor.execute('''
@@ -1184,7 +1261,13 @@ class RelayBridge:
                 log_info(f"💎 Токен отправки: {from_token}")
                 log_info(f"🌐 В сеть: {NETWORK_SETTINGS[to_chain_id]['name']}")
                 log_info(f"💎 Токен получения: {to_token}")
-                log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
+                
+                # Определяем тип суммы (фиксированная или процент)
+                if isinstance(SUM_TO_RELAY[0], str):
+                    log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]}% от баланса")
+                else:
+                    log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
+                
                 log_info(f"👛 Кошельков: {len(self.private_keys)}")
                 log_info("="*60 + "\n")
                 

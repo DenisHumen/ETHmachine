@@ -85,10 +85,16 @@ NETWORKS = {
         'tx_url': "https://lineascan.build/tx/",
         'type': 'mainnet'
     },
-    '': {
+    '🚀 zkSync Era': {
         'rpc_urls': ['https://mainnet.era.zksync.io'],
         'symbol': 'ETH',
         'tx_url': "https://explorer.zksync.io/tx/",
+        'type': 'mainnet'
+    },
+    '🚀 MONAD': {
+        'rpc_urls': ['https://infra.originstake.com/monad/evm'],
+        'symbol': 'MON',
+        'tx_url': "https://monad.socialscan.io/tx/",
         'type': 'mainnet'
     },
     
