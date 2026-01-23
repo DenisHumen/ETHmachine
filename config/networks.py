@@ -94,7 +94,13 @@ NETWORKS = {
     '🚀 MONAD': {
         'rpc_urls': ['https://infra.originstake.com/monad/evm'],
         'symbol': 'MON',
-        'tx_url': "https://monad.socialscan.io/tx/",
+        'tx_url': "https://pacific-explorer.manta.network/tx/",
+        'type': 'mainnet'
+    },
+    '🚀 Manta Pacific Mainnet': {
+        'rpc_urls': ['https://pacific-rpc.manta.network/http'],
+        'symbol': 'ETH',
+        'tx_url': "https://explorer.manta.network/tx/",
         'type': 'mainnet'
     },
     
