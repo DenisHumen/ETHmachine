@@ -36,6 +36,9 @@ TOKEN_ADDRESSES = {
     },
     2741: {  # Abstract
         "ETH": "0x0000000000000000000000000000000000000000"
+    },
+    169: {  # Manta Pacific Mainnet
+        "ETH": "0x0000000000000000000000000000000000000000"
     }
 }
 
@@ -93,6 +96,12 @@ NETWORK_SETTINGS = {
     },
     2741: {
         "name": "Abstract",
+        "native_symbol": "ETH",
+        "decimals": 18,
+        "min_native_balance": 0.005
+    },
+    169: {
+        "name": "Manta Pacific Mainnet",
         "native_symbol": "ETH",
         "decimals": 18,
         "min_native_balance": 0.005
