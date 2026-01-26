@@ -19,6 +19,13 @@ NETWORKS = {
         'tx_url': "https://arbiscan.io/tx/",
         'type': 'mainnet'
     },
+    '🚀 Arbitrum Nova': {
+        'rpc_urls': ['https://arbitrum-nova-rpc.publicnode.com'],
+        'symbol': 'ETH',
+        'tx_url': "https://nova-explorer.arbitrum.io/tx/",
+        'chain_id': 42170,
+        'type': 'mainnet'
+    },
     '🚀 Optimism': {
         'rpc_urls': ['https://optimism.drpc.org'],
         'symbol': 'ETH',

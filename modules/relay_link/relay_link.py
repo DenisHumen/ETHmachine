@@ -98,8 +98,10 @@ class RelayBridge:
             137: NETWORKS['🚀 Polygon']['rpc_urls'],  # Polygon
             8453: NETWORKS['🚀 Base']['rpc_urls'],  # Base
             42161: NETWORKS['🚀 Arbitrum One']['rpc_urls'],  # Arbitrum
+            42170: NETWORKS['🚀 Arbitrum Nova']['rpc_urls'],  # Arbitrum Nova
             1868: NETWORKS['🚀 Soneium']['rpc_urls'],  # Soneium
-            2741: NETWORKS['🚀 Abstract']['rpc_urls']  # Abstract
+            2741: NETWORKS['🚀 Abstract']['rpc_urls'],  # Abstract
+            169: NETWORKS['🚀 Manta Pacific Mainnet']['rpc_urls']  # Manta Pacific
         }
         
         # Маппинг chain_id на названия сетей в explorer_url.py
@@ -109,8 +111,10 @@ class RelayBridge:
             137: '🚀 Polygon',
             8453: '🚀 Base',
             42161: '🚀 Arbitrum One',
+            42170: '🚀 Arbitrum Nova',
             1868: '🚀 Soneium',
-            2741: '🚀 Abstract'
+            2741: '🚀 Abstract',
+            169: '🚀 Manta Pacific Mainnet'
         }
         
         # Кеш для Web3 подключений
@@ -863,7 +867,7 @@ class RelayBridge:
                 actual_fee_percentage = (actual_fee / amount_eth) * 100
                 
                 # Конвертируем в USD для проверки лимита
-                eth_price = 4300  # Примерная цена ETH
+                eth_price = 3000  # Примерная цена ETH
                 fee_usd = actual_fee * eth_price
                 
                 # Тихо проверяем комиссии без лишних логов
@@ -1122,7 +1126,9 @@ class RelayBridge:
             10: 'ethereum',     # Optimism - ETH
             137: 'matic-network',  # Polygon - MATIC
             8453: 'ethereum',   # Base - ETH
-            42161: 'ethereum'   # Arbitrum - ETH
+            42161: 'ethereum',   # Arbitrum - ETH
+            169: 'ethereum',   # Manta Pacific - ETH
+            42170: 'ethereum'  # Arbitrum Nova - ETH
         }
         
         coingecko_id = coingecko_ids.get(chain_id, 'ethereum')
@@ -1174,7 +1180,8 @@ class RelayBridge:
             10: 3000.0,   # ETH на Optimism
             137: 0.5,     # MATIC
             8453: 3000.0, # ETH на Base
-            42161: 3000.0 # ETH на Arbitrum
+            42161: 3000.0, # ETH on Arbitrum
+            42170: 3000.0  # ETH on Arbitrum Nova
         }
         return fallback_prices.get(chain_id, 3000.0)
     

@@ -29,6 +29,11 @@ TOKEN_ADDRESSES = {
         "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
         "USDC": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
     },
+    42170: {  # Arbitrum Nova
+        "ETH": "0x0000000000000000000000000000000000000000",
+        "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+        "USDC": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
+    },
     1868: {  # Soneium
         "ETH": "0x0000000000000000000000000000000000000000",
         "USDT": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -49,8 +54,10 @@ NETWORK_MAPPING = {
     'polygon': 137,
     'base': 8453,
     'arbitrum': 42161,
+    'arbitrum_nova': 42170,
     'soneium': 1868,
-    'abstract': 2741
+    'abstract': 2741,
+    'manta_pacific': 169
 }
 
 # Reverse mapping для получения названия по ID
@@ -88,6 +95,12 @@ NETWORK_SETTINGS = {
         "decimals": 18,
         "min_native_balance": 0.005
     },
+    42170: {
+        "name": "Arbitrum Nova",
+        "native_symbol": "ETH",
+        "decimals": 18,
+        "min_native_balance": 0.005
+    },
     1868: {
         "name": "Soneium",
         "native_symbol": "ETH",
@@ -104,13 +117,13 @@ NETWORK_SETTINGS = {
         "name": "Manta Pacific Mainnet",
         "native_symbol": "ETH",
         "decimals": 18,
-        "min_native_balance": 0.005
+        "min_native_balance": 0.00004
     }
 }
 
 # Минимальные суммы для бриджинга
 MINIMUM_BRIDGE_AMOUNTS = {
-    "ETH": 0.005,
+    "ETH": 0.00017,
     "MATIC": 5.0,
     "USDT": 10.0,
     "USDC": 10.0,
@@ -138,9 +151,15 @@ NETWORK_PAIR_MINIMUMS = {
     (137, 10): {"MATIC": 10.0},
     (137, 8453): {"MATIC": 10.0},
     (137, 42161): {"MATIC": 10.0},
+    (137, 42170): {"MATIC": 10.0},
+    (42170, 137): {"ETH": 0.005},
+    (1, 42170): {"ETH": 0.005},
+    (42170, 1): {"ETH": 0.005},
+    (42170, 10): {"ETH": 0.005},
+    (10, 42170): {"ETH": 0.005},
 }
 
 # Настройки времени ожидания
 BALANCE_CHECK_TIMEOUT = 3600  # 1 час в секундах
-BALANCE_CHECK_INTERVAL = 30   # Проверять каждые 30 секунд
+BALANCE_CHECK_INTERVAL = 20   # Проверять каждые 30 секунд
 TRANSACTION_TIMEOUT = 300     # 5 минут на подтверждение транзакции
