@@ -13,7 +13,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
 sys.path.append(project_root)
 
-from config.config import *
+from config.modules.cfg_spot_trade import *
 
 # Импорт селектора аккаунтов
 from modules.cex.exchange_selector import select_okx_account

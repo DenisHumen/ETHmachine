@@ -10,7 +10,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
-from config.config import NICKNAME_GENERATOR
+from config.modules.cfg_generators import NICKNAME_GENERATOR
 from loguru import logger
 
 

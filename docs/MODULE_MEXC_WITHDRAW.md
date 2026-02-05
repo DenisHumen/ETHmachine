@@ -34,12 +34,12 @@ mexc_api_secret = "ваш_секретный_ключ"
 - `data/proxy.csv` - список прокси в формате `login:password@ip:port` (опционально)
 
 ### 3. Конфигурация
-В файле `config/config.py` настройте:
-- `NUM_THREADS` - количество потоков (рекомендуется 3-5)
-- `SLEEP_BETWEEN_ACTIONS` - задержка между запуском потоков в секундах
-- `TYPE_WITHDRAW` - тип вывода (0 - в нативном токене, 1 - в USDT эквиваленте)
-- `VALUES_TO_WITHDRAW` - диапазон сумм для вывода
-- `WAIT_FOR_BALANCE` - ждать ли поступления средств на кошельки
+В файлах `config/modules/` настройте:
+- `NUM_THREADS` (cfg_base.py) - количество потоков (рекомендуется 3-5)
+- `SLEEP_BETWEEN_ACTIONS` (cfg_base.py) - задержка между запуском потоков в секундах
+- `TYPE_WITHDRAW` (cfg_cex.py) - тип вывода (0 - в нативном токене, 1 - в USDT эквиваленте)
+- `VALUES_TO_WITHDRAW` (cfg_cex.py) - диапазон сумм для вывода
+- `WAIT_FOR_BALANCE` (cfg_cex.py) - ждать ли поступления средств на кошельки
 
 ## Использование
 

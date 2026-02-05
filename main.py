@@ -3,16 +3,19 @@ import time
 import json
 import csv
 import platform
+import sys
+
+# Импортируем центральный логгер ПЕРВЫМ - он настраивает все цвета
+from modules.simple_logger import logger
 
 from colorama import Fore, Style, init
+init(autoreset=True)
+
 from questionary import Choice, select
 
-# =============================================================================
-# ИМПОРТЫ КОНФИГУРАЦИИ
-# =============================================================================
-
 from config.networks import get_mainnet_networks, get_testnet_networks
-from config.config import expected_completion_time, DISPLAY_LIST_BACKUPS, USE_INTERMEDIARY
+from config.modules.cfg_backup import DISPLAY_LIST_BACKUPS
+from config.modules.cfg_transfer import USE_INTERMEDIARY, expected_completion_time
 from config.menu_config import (
     MAIN_MENU_CONFIG, MENU_ITEMS, 
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
@@ -25,16 +28,8 @@ from config.menu_config import (
     PROJECT_STATS_SUBMENU, WALLET_COUNT_OPTIONS,
 )
 
-# =============================================================================
-# ИМПОРТЫ МОДУЛЕЙ БЭКАПА
-# =============================================================================
-
 from modules.backup import create_backup, list_backups, backup_menu
 from modules.backup.backup_manager import BackupManager
-
-# =============================================================================
-# ИМПОРТ NEURA STATISTICS (только Windows)
-# =============================================================================
 
 neura_statistics = None
 neura_load_error = None
@@ -94,8 +89,6 @@ from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.neura.menu import neura_menu
 from modules.eth.transfer_wallets_to_wallets import process_wallets_transfer, get_proxy_list
-
-init(autoreset=True)
 
 mainnet_rpc_urls = get_mainnet_networks()
 testnet_rpc_urls = get_testnet_networks()
@@ -931,7 +924,7 @@ if __name__ == "__main__":
     # Запускаем live мониторинг если включен
     backup_manager = None
     try:
-        from config.config import SFTP_LIVE_SYNC_ENABLE, SFTP_SERVER_INTO_BACKUP_ENABLE
+        from config.modules.cfg_backup import SFTP_LIVE_SYNC_ENABLE, SFTP_SERVER_INTO_BACKUP_ENABLE
         
         if SFTP_SERVER_INTO_BACKUP_ENABLE and SFTP_LIVE_SYNC_ENABLE:
             backup_manager = BackupManager()

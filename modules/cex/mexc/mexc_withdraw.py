@@ -31,7 +31,8 @@ def _get_mexc_settings():
         logger.error(f"Ошибка в настройках MEXC: {e}")
         return []
 
-from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
+from config.modules.cfg_cex import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
+from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
 from config import networks as rpc
 from modules.cex.exchange_selector import select_mexc_account
 

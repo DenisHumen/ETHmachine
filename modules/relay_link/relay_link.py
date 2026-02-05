@@ -9,7 +9,6 @@ import platform
 import requests
 from typing import Dict, List, Optional, Tuple
 from web3 import Web3
-from loguru import logger
 from questionary import Choice, select
 
 # Добавляем путь к корневой директории проекта
@@ -17,24 +16,18 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
+from modules.simple_logger import logger
 # Импорты из проекта
-from config.config import SUM_TO_RELAY, GAS, MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
+from config.modules.cfg_relay import SUM_TO_RELAY, GAS
+from config.modules.cfg_base import MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
 from config.networks import NETWORKS, get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
 
-# Настройка логирования
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-    level="INFO",
-    colorize=True
-)
 
 # Функции для цветного логирования
 def log_info(message: str):
-    """Информационное сообщение - синий цвет"""
-    logger.opt(colors=True).info(f"<blue>{message}</blue>")
+    """Информационное сообщение"""
+    logger.info(message)
 
 def log_success(message: str):
     """Успешное сообщение - зеленый цвет"""
@@ -45,20 +38,20 @@ def log_warning(message: str):
     logger.opt(colors=True).warning(f"<yellow>{message}</yellow>")
 
 def log_error(message: str):
-    """Ошибка - красный цвет"""
-    logger.opt(colors=True).error(f"<red>{message}</red>")
+    """Ошибка"""
+    logger.error(message)
 
 def log_transaction(message: str):
-    """Транзакционные сообщения - фиолетовый цвет"""
-    logger.opt(colors=True).info(f"<magenta>{message}</magenta>")
+    """Транзакционные сообщения"""
+    logger.info(message)
 
 def log_balance(message: str):
-    """Балансовые сообщения - голубой цвет"""
-    logger.opt(colors=True).info(f"<cyan>{message}</cyan>")
+    """Балансовые сообщения"""
+    logger.info(message)
 
 def log_progress(message: str):
-    """Прогресс выполнения - белый цвет с выделением"""
-    logger.opt(colors=True).info(f"<bold><white>{message}</white></bold>")
+    """Прогресс выполнения"""
+    logger.info(message)
 
 def log_wallet_summary(wallet_address: str, sent_amount: float, received_amount: float, 
                        bridge_fee: float, from_network: str, to_network: str, 

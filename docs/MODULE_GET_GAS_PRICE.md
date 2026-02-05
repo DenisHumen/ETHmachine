@@ -46,7 +46,7 @@
 ## ⚙️ Настройки
 
 ```python
-# config/config.py
+# config/modules/cfg_base.py
 NUM_THREADS = 5        # Количество потоков для параллельной обработки
 RETRY_COUNT = 3        # Количество повторных попыток при ошибках
 ```

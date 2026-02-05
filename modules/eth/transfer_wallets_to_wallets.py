@@ -18,7 +18,8 @@ from loguru import logger
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT, expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer, MULTI_THREADING, NUM_THREADS
+from config.modules.cfg_base import NUM_THREADS, TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT
+from config.modules.cfg_transfer import expected_completion_time, MIN_FROM_BALANCE, trim_the_number_of_characters_enable, trim_the_number_of_characters, loop_transfer_enable, loop_transfer_count, expected_balance_from_wallet, expected_balance_to_wallet, sleep_time_between_loops, USE_INTERMEDIARY, TYPE_VALUE_TO_WALLET, TELEGRAM_LOG_LEVEL_transfer, MULTI_THREADING
 from config.networks import get_explorer_url
 from modules.notifications import send_telegram_notification, send_telegram_file
 

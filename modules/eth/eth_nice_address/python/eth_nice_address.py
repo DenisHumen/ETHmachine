@@ -7,21 +7,22 @@ from ecdsa.curves import SECP256k1
 from eth_utils import to_checksum_address, keccak as eth_utils_keccak
 import csv
 from itertools import cycle
-from config.config import (
+from config.modules.cfg_nice_address import (
     NICE_ADDRESS_WORDS_ETH, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
     REPEATED_CHAR_COUNT_enable, display_the_address_search_process
 )
 import re
 import sys
+from pathlib import Path
 from colorama import Fore 
 from eth_account import Account  
 import random
 import time
-from loguru import logger
 
-# Настройка loguru
-logger.remove()  # Удаляем стандартный обработчик
-logger.add(sys.stderr, level="INFO")  # Добавляем вывод в stderr
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.append(str(project_root))
+
+from modules.simple_logger import logger
 
 BIP39_PBKDF2_ROUNDS = 2048
 BIP39_SALT_MODIFIER = "mnemonic"

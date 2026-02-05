@@ -21,8 +21,8 @@ from colorama import Fore, Style, init
 from loguru import logger
 
 # Импорт настроек
-from config.config import (
-    NUM_THREADS, SLEEP_BETWEEN_ACTIONS, 
+from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.modules.cfg_email import (
     ENABLE_SEARCH_EMAIL, IMAP_SERVER, MAIN_MAIL, PROXY
 )
 

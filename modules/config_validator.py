@@ -38,11 +38,6 @@ class ConfigValidator:
         """Проверка наличия и корректности конфигурационных файлов"""
         logger.debug("📋 Проверка конфигурационных файлов...")
         
-        config_file = self.config_dir / "config.py"
-        if not config_file.exists():
-            self.errors.append("❌ Отсутствует файл config/config.py")
-        else:
-            self._validate_config_py(config_file)
         
         cex_settings_file = self.config_dir / "cex_settings.py"
         if not cex_settings_file.exists():
@@ -54,28 +49,29 @@ class ConfigValidator:
         """Проверка содержимого config.py"""
         try:
             sys.path.insert(0, str(self.config_dir.parent))
-            from config.config import (
-                TYPE_WITHDRAW, VALUES_TO_WITHDRAW, 
-                SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, 
-                NUM_THREADS
+            from config.modules.cfg_cex import (
+                TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
+            )
+            from config.modules.cfg_base import (
+                SLEEP_BETWEEN_ACTIONS, NUM_THREADS
             )
             
             try:
-                from config.config import NICKNAME_GENERATOR
+                from config.modules.cfg_generators import NICKNAME_GENERATOR
                 nickname_generator_exists = True
             except ImportError:
                 nickname_generator_exists = False
                 self.warnings.append("⚠️ NICKNAME_GENERATOR не найден в конфиге (добавьте настройки для генератора никнеймов)")
             
             try:
-                from config.config import RANDOM_PROXIES_TWITTER
+                from config.modules.cfg_twitter import RANDOM_PROXIES_TWITTER
                 if not isinstance(RANDOM_PROXIES_TWITTER, bool):
                     self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER должен быть True или False")
             except ImportError:
                 self.warnings.append("⚠️ RANDOM_PROXIES_TWITTER не найден в конфиге (добавьте для использования рандомных прокси в Twitter)")
             
             try:
-                from config.config import SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP
+                from config.modules.cfg_backup import SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP
                 self._validate_sftp_config(SFTP_SERVER_INTO_BACKUP_ENABLE, SFTP_SERVER_INTO_BACKUP)
             except ImportError:
                 self.warnings.append("⚠️ Настройки SFTP бэкапа не найдены в конфиге (добавьте SFTP_SERVER_INTO_BACKUP_ENABLE и SFTP_SERVER_INTO_BACKUP)")

@@ -14,14 +14,14 @@ from datetime import datetime
 
 import requests
 from colorama import Fore, Style, init
-from loguru import logger
 
 init()
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import NUM_THREADS, RETRY_COUNT
+from modules.simple_logger import logger
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 from config.networks import SOL_NETWORKS
 from modules.notifications import send_telegram_notification
 
@@ -46,14 +46,7 @@ def _setup_logging():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f'eclipse_balance_check_{timestamp}.log'
     
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        colorize=True,
-        level="INFO"
-    )
-
+    # Только файловый лог, консольный уже настроен в simple_logger
     logger.add(
         log_file,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",

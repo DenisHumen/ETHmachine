@@ -53,7 +53,7 @@ is_valid = validator.validate_all()  # проверяет все настрой�
 ### Проверка только генератора никнеймов
 ```python
 from modules.config_validator import ConfigValidator
-from config.config import NICKNAME_GENERATOR
+from config.modules.cfg_generators import NICKNAME_GENERATOR
 
 validator = ConfigValidator()
 validator._validate_nickname_generator(NICKNAME_GENERATOR)

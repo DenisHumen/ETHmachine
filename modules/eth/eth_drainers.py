@@ -5,7 +5,7 @@ import random
 from web3 import Web3
 from eth_account import Account
 from modules.eth.rpc_return_module import get_network_rpc_selection
-from config.config import EVM_MAIN_WALLET, MAIN_PROXY, NUM_THREADS, RETRY_COUNT
+from config.modules.cfg_base import EVM_MAIN_WALLET, MAIN_PROXY, NUM_THREADS, RETRY_COUNT
 from config.networks import get_explorer_url
 from colorama import Fore, Style, init
 from itertools import cycle

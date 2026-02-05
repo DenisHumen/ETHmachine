@@ -51,7 +51,7 @@
 ## ⚙️ Настройки генерации
 
 ```python
-# config/config.py
+# config/modules/cfg_password.py
 USE_SPECIAL_CHARACTERS = True      # Включить спец. символы (!@#$%^&*)
 EXCLUDE_CHARACTERS = "0O1lI"       # Исключить похожие символы
 USE_OF_SYMBOLS_IS_MANDATORY = "@"  # Обязательные символы в пароле

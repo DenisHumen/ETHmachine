@@ -142,21 +142,6 @@ def update_task_status(
             conn.commit()
 
 
-def increment_task_attempts(wallet_address: str, task_type: str):
-    with db_lock:
-        with sqlite3.connect(str(DB_FILE)) as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE neura_wallet_tasks 
-                SET attempts = attempts + 1, last_attempt = ?, updated_at = ?
-                WHERE wallet_address = ? AND task_type = ?
-            ''', (datetime.now().isoformat(), datetime.now().isoformat(), 
-                  wallet_address, task_type))
-            
-            conn.commit()
-
-
 def get_task_statistics() -> Dict:
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
@@ -200,14 +185,6 @@ def reset_failed_tasks(task_type: Optional[str] = None, max_attempts: Optional[i
             return cursor.rowcount
 
 
-def clear_all_tasks():
-    with db_lock:
-        with sqlite3.connect(str(DB_FILE)) as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM neura_wallet_tasks")
-            conn.commit()
-
-
 def all_tasks_completed(task_types: List[str]) -> bool:
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
@@ -246,18 +223,3 @@ def reset_database_for_new_run(task_types: List[str]):
             conn.commit()
             
             return deleted
-
-
-def get_all_tasks_for_wallet(wallet_address: str) -> List[Dict]:
-    with db_lock:
-        with sqlite3.connect(str(DB_FILE)) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT * FROM neura_wallet_tasks 
-                WHERE wallet_address = ?
-                ORDER BY task_type
-            ''', (wallet_address,))
-            
-            return [dict(row) for row in cursor.fetchall()]

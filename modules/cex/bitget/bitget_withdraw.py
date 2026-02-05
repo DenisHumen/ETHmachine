@@ -17,7 +17,8 @@ from loguru import logger
 from web3 import Web3
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from config.config import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, SLEEP_BETWEEN_ACTIONS, WAIT_FOR_BALANCE, NUM_THREADS
+from config.modules.cfg_cex import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
+from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
 from config import networks as rpc
 
 from modules.cex.exchange_selector import select_bitget_account

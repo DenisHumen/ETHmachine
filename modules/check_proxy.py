@@ -14,7 +14,7 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from config.config import NUM_THREADS, RETRY_COUNT
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 
 def setup_proxy_checker_logging():
     log_dir = Path("log")

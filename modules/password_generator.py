@@ -29,8 +29,8 @@ def setup_password_generator_logging():
     
     logger.info(f"Логирование настроено. Файл: {log_file}")
 
-# Импорт параметров из config/config.py
-from config.config import (
+# Импорт параметров из config/modules/cfg_password.py
+from config.modules.cfg_password import (
     USE_SPECIAL_CHARACTERS,
     EXCLUDE_CHARACTERS,
     USE_OF_SYMBOLS_IS_MANDATORY,

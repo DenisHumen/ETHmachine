@@ -84,7 +84,7 @@ def mexc_withdraw():
 
 ### Критические ошибки (остановят выполнение):
 
-- ❌ Отсутствие файлов `config/config.py` или `config/cex_settings.py`
+- ❌ Отсутствие файлов `config/modules/cfg_*.py` или `config/cex_settings.py`
 - ❌ Неверная структура настроек в конфигурационных файлах
 - ❌ Синтаксические ошибки в Python файлах
 

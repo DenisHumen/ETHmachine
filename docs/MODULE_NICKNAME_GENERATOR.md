@@ -2,7 +2,7 @@
 
 Модуль для создания человечески выглядящих никнеймов с гибкими настройками.
 
-## 📋 Настройки (config/config.py)
+## 📋 Настройки (config/modules/cfg_generators.py)
 
 ```python
 NICKNAME_GENERATOR = {

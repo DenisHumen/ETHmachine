@@ -41,10 +41,12 @@ OKX_EU_TYPE = 0  # 0 - обычный, 1 - EU аккаунт
 
 ## 🔧 Настройки вывода
 ```python
-# config/config.py
+# config/modules/cfg_cex.py
 TYPE_WITHDRAW = 0              # 0 - нативные токены, 1 - USDT
 VALUES_TO_WITHDRAW = [5, 5]    # Диапазон суммы вывода
 WAIT_FOR_BALANCE = True        # Ждать поступления на кошелек
+
+# config/modules/cfg_base.py
 NUM_THREADS = 5                # Количество потоков
 ```
 

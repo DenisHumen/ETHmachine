@@ -13,13 +13,14 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from pathlib import Path
-from loguru import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, Event
 from questionary import Choice, select
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
-from config.config import NUM_THREADS, RETRY_COUNT, astrum_CAPTCHA_API_KEY, SLEEP_BETWEEN_ACTIONS
+from modules.simple_logger import logger
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT, astrum_CAPTCHA_API_KEY, SLEEP_BETWEEN_ACTIONS
 from modules.notifications import send_telegram_notification
 
 import requests
@@ -53,25 +54,18 @@ except ImportError:
     class Style:
         RESET_ALL = ""
 
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="{time:HH:mm:ss} | {level: <8} | {message}",
-    colorize=False,  
-    level="INFO"
-)
 
 def log_success(message: str):
-    logger.opt(colors=False).success(f"{Fore.GREEN}{message}{Style.RESET_ALL}")
+    logger.success(message)
 
 def log_warning(message: str):
-    logger.opt(colors=False).warning(f"{Fore.YELLOW}{message}{Style.RESET_ALL}")
+    logger.warning(message)
 
 def log_error(message: str):
-    logger.opt(colors=False).error(f"{Fore.RED}{message}{Style.RESET_ALL}")
+    logger.error(message)
 
 def log_info(message: str):
-    logger.opt(colors=False).info(message)
+    logger.info(message)
 
 
 def update_progress(success: bool = None):
@@ -277,8 +271,9 @@ def export_all_results_to_csv() -> Optional[str]:
                     'wallet_address', 'status', 'attempts', 'error_message',
                     'created_at', 'updated_at', 'stats_collected_at',
                     'balance', 'neura_points', 'trading_volume_month', 'trading_volume_all_time',
-                    'pulses_count', 'first_pulse_collected', 'last_pulse_collected',
-                    'tasks_completed', 'transactions_count',
+                    'pulses_count', 'pulses_collected', 'first_pulse_collected', 'last_pulse_collected',
+                    'social_accounts',
+                    'tasks_total', 'tasks_completed', 'tasks_points', 'transactions_count',
                     'neurapoints_rank', 'neurapoints_value',
                     'streak_rank', 'streak_value',
                     'ankrWhales_rank', 'ankrWhales_value',
@@ -304,9 +299,13 @@ def export_all_results_to_csv() -> Optional[str]:
                         'trading_volume_month': '',
                         'trading_volume_all_time': '',
                         'pulses_count': '',
+                        'pulses_collected': '',
                         'first_pulse_collected': '',
                         'last_pulse_collected': '',
+                        'social_accounts': '',
+                        'tasks_total': '',
                         'tasks_completed': '',
+                        'tasks_points': '',
                         'transactions_count': '',
                         'neurapoints_rank': '',
                         'neurapoints_value': '',
@@ -339,9 +338,17 @@ def export_all_results_to_csv() -> Optional[str]:
                                     csv_row['last_pulse_collected'] = pulses.get('lastCollectedAt', '')
                                     pulses_data = pulses.get('data', [])
                                     csv_row['pulses_count'] = len(pulses_data) if pulses_data else 0
+                                    csv_row['pulses_collected'] = sum(1 for p in pulses_data if p.get('isCollected', False))
+                                
+                                social_accounts = account_info.get('socialAccounts', [])
+                                if social_accounts:
+                                    csv_row['social_accounts'] = ', '.join([f"{s.get('type', '')}:{s.get('username', '')}" for s in social_accounts])
                             
-                            tasks = stats.get('tasks')
-                            csv_row['tasks_completed'] = len(tasks) if tasks else 0
+                            tasks = stats.get('tasks', [])
+                            if tasks:
+                                csv_row['tasks_total'] = len(tasks)
+                                csv_row['tasks_completed'] = sum(1 for t in tasks if t.get('status') == 'completed')
+                                csv_row['tasks_points'] = sum(t.get('points', 0) for t in tasks)
                             
                             transactions = stats.get('transactions', [])
                             csv_row['transactions_count'] = len(transactions) if transactions else 0
@@ -711,13 +718,14 @@ class NeuraProtocolClient:
             return None
     
     def get_account_info(self) -> Optional[dict]:
-        return self._api_get("/account")
+        """Получить информацию об аккаунте с параметром epoch=base"""
+        return self._api_get("/account", params={"epoch": "base"})
     
     def get_tasks(self) -> Optional[List[dict]]:
-        account = self.get_account_info()
-        if account:
-            tasks = account.get('tasks', [])
-            return tasks
+        """Получить список задач через отдельный endpoint /api/tasks"""
+        result = self._api_get("/tasks")
+        if result:
+            return result.get('tasks', [])
         return None
     
     def get_transactions(self) -> Optional[List[dict]]:
@@ -1072,16 +1080,18 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
         update_status("📊 Сбор данных")
         stats = client.get_full_statistics()
         
+        # DEBUG: показать структуру account_info
         update_status("💾 Сохранение")
         client.save_to_json(stats)
         client.save_to_csv(stats)
         
         mark_wallet_success(wallet_address)
         
-        account_info = stats.get('account_info', {})
-        points = account_info.get('neuraPoints', 0)
-        pulses = len(account_info.get('pulses', {}).get('data', []))
-        balance = stats.get('balance', 0)
+        account_info = stats.get('account_info') or {}
+        points = account_info.get('neuraPoints', 0) if account_info else 0
+        pulses_data = account_info.get('pulses', {}).get('data', []) if account_info else []
+        pulses = len(pulses_data)
+        balance = stats.get('balance', 0) or 0
         
         update_progress(success=True)
         update_status(f"✅ Points: {points} | Pulses: {pulses} | ANKR testnet: {balance:.4f}", "SUCCESS")

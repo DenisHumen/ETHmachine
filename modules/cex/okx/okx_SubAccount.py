@@ -6,17 +6,20 @@ import time
 import requests
 from datetime import datetime
 from colorama import Fore, Style, init
-from loguru import logger
 import sys
 from pathlib import Path
-
-# Импорт селектора аккаунтов
-from modules.cex.exchange_selector import select_okx_account
 
 init()
 
 # Настройка логгера - исправленные пути
 project_root = Path(__file__).parent.parent.parent.parent
+sys.path.append(str(project_root))
+
+from modules.simple_logger import logger
+
+# Импорт селектора аккаунтов
+from modules.cex.exchange_selector import select_okx_account
+
 log_dir = project_root / 'log'
 
 # Флаг инициализации логгера
@@ -31,13 +34,7 @@ def _setup_logging():
     
     log_dir.mkdir(exist_ok=True)
     
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level="INFO"
-    )
-
+    # Только файловый лог, консольный уже настроен в simple_logger
     logger.add(
         log_dir / "okx_subaccount_errors.log",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",

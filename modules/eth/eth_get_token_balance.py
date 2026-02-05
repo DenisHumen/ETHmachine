@@ -23,7 +23,7 @@ init(autoreset=True)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import NUM_THREADS, RETRY_COUNT
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 from config.networks import NETWORKS, get_network_symbol
 from config import token_address_erc20
 from modules.eth.database import (

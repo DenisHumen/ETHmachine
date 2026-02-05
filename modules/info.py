@@ -52,8 +52,8 @@ GUIDES_DICT = {
 }
 
 MODULES_IN_DEVELOPMENT = {
-    "☀️ SOL >> 🪙 Get Balances": "Файл sol_get_balances.py пустой",
-    "☀️ SOL >> 🪙 Get Token Balances": "Файл sol_get_token_balances.py пустой",
+    "☀️ SOL >> 🪙 Get Balances": "В разработке",
+    "☀️ SOL >> 🪙 Get Token Balances": "В разработке",
     
     "📊 Project Stats": "Модуль отключен в main.py, папка stats_modules пуста",
 }

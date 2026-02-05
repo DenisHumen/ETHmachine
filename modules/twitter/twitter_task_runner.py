@@ -20,14 +20,14 @@ project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
 # Импортируем настройки из config
-from config.config import (
+from config.modules.cfg_twitter import (
     TWITTER_TASK_SSL_VERIFICATION,
     TWITTER_TASK_DELAY_BETWEEN_TASKS,
     TWITTER_TASK_DELAY_BETWEEN_ACCOUNTS,
-    NUM_THREADS,
     TWITTER_TASK_RANDOM_ACCOUNT_SELECTION,
     TWITTER_TASK_MAX_ACCOUNT_SWITCHES
 )
+from config.modules.cfg_base import NUM_THREADS
 
 # Импортируем Twitter класс из существующего модуля
 from .tiwtter_task import Twitter

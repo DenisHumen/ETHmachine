@@ -35,7 +35,7 @@
 ## ⚙️ Настройки уведомлений
 
 ```python
-# config/config.py
+# config/modules/cfg_notifications.py
 ENABLE_NOTIFICATIONS = True                    # Включить уведомления
 TELEGRAM_BOT_TOKEN = "your_bot_token"         # Токен Telegram бота
 TELEGRAM_CHAT_ID = ["chat_id1", "chat_id2"]   # ID чатов для отправки
@@ -193,7 +193,7 @@ data = response.json()
 ### 3. Настройка config
 
 ```python
-# config/config.py
+# config/modules/cfg_notifications.py
 ENABLE_NOTIFICATIONS = True
 TELEGRAM_BOT_TOKEN = "1234567890:ABCDEF-your-bot-token"
 TELEGRAM_CHAT_ID = ["123456789", "-987654321"]  # Личные чаты и группы

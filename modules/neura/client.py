@@ -9,20 +9,19 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 
-from loguru import logger
-from colorama import Fore, Style, init as colorama_init
+project_root = Path(__file__).parent.parent.parent
+neura_module_path = Path(__file__).parent
+sys.path.append(str(project_root))
+
+from modules.simple_logger import logger
 from curl_cffi.requests import AsyncSession, BrowserType
 from eth_account import Account as EthAccount
 from eth_account.messages import encode_defunct
 from web3 import Web3
 from web3.contract import AsyncContract
 
-project_root = Path(__file__).parent.parent.parent
-neura_module_path = Path(__file__).parent  # modules/neura
-sys.path.append(str(project_root))
-
-from config.config import (
-    RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, astrum_CAPTCHA_API_KEY,
+from config.modules.cfg_base import RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, astrum_CAPTCHA_API_KEY
+from config.modules.cfg_neura import (
     NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
     NEURA_SWAP_COUNT, NEURA_SWAP_PERCENTAGE, NEURA_SWAP_SLIPPAGE,
     NEURA_SWAP_PAUSE_BETWEEN_SWAPS,
@@ -36,48 +35,6 @@ try:
     from modules.statistics.astrum_captcha_solver import AstrumSolver  # type: ignore
 except ImportError:
     AstrumSolver = None
-
-colorama_init(autoreset=False)
-
-# Функция для получения add_log из menu - используется для интеграции с Rich Live панелью
-_add_log_func = None
-
-def set_log_callback(callback):
-    """Установить callback для логирования в Rich панель"""
-    global _add_log_func
-    _add_log_func = callback
-
-
-def log_success(wallet: str, message: str):
-    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
-    if _add_log_func:
-        _add_log_func(f"[{short_wallet}] ✅ {message}", "SUCCESS")
-    else:
-        logger.opt(colors=False).success(f"{Fore.GREEN}[{wallet}] | {message}{Style.RESET_ALL}")
-
-
-def log_warning(wallet: str, message: str):
-    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
-    if _add_log_func:
-        _add_log_func(f"[{short_wallet}] ⚠️ {message}", "WARNING")
-    else:
-        logger.opt(colors=False).warning(f"{Fore.YELLOW}[{wallet}] | {message}{Style.RESET_ALL}")
-
-
-def log_error(wallet: str, message: str):
-    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
-    if _add_log_func:
-        _add_log_func(f"[{short_wallet}] ❌ {message}", "ERROR")
-    else:
-        logger.opt(colors=False).error(f"{Fore.RED}[{wallet}] | {message}{Style.RESET_ALL}")
-
-
-def log_info(wallet: str, message: str):
-    short_wallet = wallet[:10] if len(wallet) > 10 else wallet
-    if _add_log_func:
-        _add_log_func(f"[{short_wallet}] {message}", "INFO")
-    else:
-        logger.opt(colors=False).info(f"[{wallet}] | {message}")
 
 
 class NeuraClient:
@@ -113,7 +70,7 @@ class NeuraClient:
                     proxy=proxy_url
                 )
             except Exception as e:
-                log_warning(self.wallet_address, f"Failed to init AstrumSolver: {e}")
+                logger.warning(f"[{self.wallet_address}] Failed to init AstrumSolver: {e}")
         
         self.auth_headers = {
             'accept': 'application/json',
@@ -197,12 +154,12 @@ class NeuraClient:
                 return response.text, status
                 
         except Exception as e:
-            log_error(self.wallet_address, f"Request error: {e}")
+            logger.error(f"[{self.wallet_address}] Request error: {e}")
             return None, 0
     
     async def _get_nonce(self) -> Optional[str]:
         if not self._captcha_solver:
-            log_error(self.wallet_address, "Captcha solver not initialized!")
+            logger.error(f"[{self.wallet_address}] Captcha solver not initialized!")
             return None
             
         for attempt in range(RETRY_COUNT):
@@ -215,7 +172,7 @@ class NeuraClient:
                 )
                 
                 if not turnstile_token:
-                    log_warning(self.wallet_address, f"Failed to solve captcha, attempt {attempt + 1}/{RETRY_COUNT}")
+                    logger.warning(f"[{self.wallet_address}] Failed to solve captcha, attempt {attempt + 1}/{RETRY_COUNT}")
                     await asyncio.sleep(random.uniform(3, 7))
                     continue
                 
@@ -236,18 +193,18 @@ class NeuraClient:
                 
                 if status == 429:
                     wait_time = random.uniform(10, 20)
-                    log_warning(self.wallet_address, f"Rate limited (429), waiting {wait_time:.1f}s...")
+                    logger.warning(f"[{self.wallet_address}] Rate limited (429), waiting {wait_time:.1f}s...")
                     await asyncio.sleep(wait_time)
                     continue
                     
-                log_warning(self.wallet_address, f"Failed to get nonce, status: {status}")
+                logger.warning(f"[{self.wallet_address}] Failed to get nonce, status: {status}")
                 
             except Exception as e:
-                log_error(self.wallet_address, f"Error getting nonce: {e}")
+                logger.error(f"[{self.wallet_address}] Error getting nonce: {e}")
             
             await asyncio.sleep(random.uniform(3, 7))
         
-        log_warning(self.wallet_address, f"Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
+        logger.warning(f"[{self.wallet_address}] Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
         return None
     
     async def _send_auth_request(self, message: str, signature: str) -> bool:
@@ -280,7 +237,7 @@ class NeuraClient:
         for attempt in range(RETRY_COUNT):
             nonce = await self._get_nonce()
             if not nonce:
-                log_warning(self.wallet_address, f"Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
+                logger.warning(f"[{self.wallet_address}] Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                 continue
             
@@ -301,13 +258,13 @@ class NeuraClient:
             signature = self._get_signature(msg)
             
             if await self._send_auth_request(msg, signature):
-                log_success(self.wallet_address, "Successfully authorized into Neuraverse!")
+                logger.success(f"[{self.wallet_address}] Successfully authorized into Neuraverse!")
                 return True
             
-            log_warning(self.wallet_address, f"Authorization failed, attempt {attempt + 1}/{RETRY_COUNT}")
+            logger.warning(f"[{self.wallet_address}] Authorization failed, attempt {attempt + 1}/{RETRY_COUNT}")
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
         
-        log_error(self.wallet_address, "Failed to authorize after all attempts")
+        logger.error(f"[{self.wallet_address}] Failed to authorize after all attempts")
         return False
     
     async def _process_action(self, action_type: str) -> bool:
@@ -344,7 +301,7 @@ class NeuraClient:
         )
         
         if status == 200:
-            log_success(self.wallet_address, f"Pulse {pulse_id} has been successfully collected!")
+            logger.success(f"[{self.wallet_address}] Pulse {pulse_id} has been successfully collected!")
             return True
         
         return False
@@ -360,7 +317,7 @@ class NeuraClient:
             if not user:
                 consecutive_failures += 1
                 wait_time = min(5 + consecutive_failures * 3, 30)
-                log_warning(self.wallet_address, f"Failed to get user data, waiting {wait_time}s before retry...")
+                logger.warning(f"[{self.wallet_address}] Failed to get user data, waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 continue
             
@@ -372,10 +329,10 @@ class NeuraClient:
             ]
             
             if not uncollected_pulses:
-                log_success(self.wallet_address, "All pulses have been already collected!")
+                logger.success(f"[{self.wallet_address}] All pulses have been already collected!")
                 return True
             
-            log_info(self.wallet_address, f"Found {len(uncollected_pulses)} uncollected pulses. Collecting...")
+            logger.info(f"[{self.wallet_address}] Found {len(uncollected_pulses)} uncollected pulses. Collecting...")
             
             for pulse_obj in uncollected_pulses:
                 for attempt in range(NEURA_MAX_RETRIES_PER_TASK):
@@ -386,17 +343,14 @@ class NeuraClient:
                             None
                         )
                         if fresh_pulse and fresh_pulse.is_collected:
-                            log_info(self.wallet_address, f"Pulse {pulse_obj.id} already collected, skipping...")
+                            logger.info(f"[{self.wallet_address}] Pulse {pulse_obj.id} already collected, skipping...")
                             break
                     
                     if await self._collect_pulse(pulse_obj.id):
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
                     else:
-                        log_warning(
-                            self.wallet_address, 
-                            f"Failed to collect pulse {pulse_obj.id}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}"
-                        )
+                        logger.warning(f"[{self.wallet_address}] Failed to collect pulse {pulse_obj.id}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
@@ -405,15 +359,12 @@ class NeuraClient:
             if user_after:
                 remaining = [p for p in self.user_data.pulses.data if not p.is_collected]
                 if not remaining:
-                    log_success(self.wallet_address, "Verified: All pulses successfully collected!")
+                    logger.success(f"[{self.wallet_address}] Verified: All pulses successfully collected!")
                     return True
                 else:
-                    log_warning(
-                        self.wallet_address, 
-                        f"Still have {len(remaining)} uncollected pulses, cycle {cycle + 1}/{max_cycles}"
-                    )
+                    logger.warning(f"[{self.wallet_address}] Still have {len(remaining)} uncollected pulses, cycle {cycle + 1}/{max_cycles}")
         
-        log_error(self.wallet_address, "Failed to collect all pulses after max attempts")
+        logger.error(f"[{self.wallet_address}] Failed to collect all pulses after max attempts")
         return False
     
     async def _get_tasks(self) -> Optional[list]:
@@ -436,10 +387,7 @@ class NeuraClient:
         if status == 200 and response_json:
             points = response_json.get('points', 0)
             name = response_json.get('name', 'Unknown')
-            log_success(
-                self.wallet_address, 
-                f"Successfully claimed {name} task and earned {points} points!"
-            )
+            logger.success(f"[{self.wallet_address}] Successfully claimed {name} task and earned {points} points!")
             return True
         
         return False
@@ -455,7 +403,7 @@ class NeuraClient:
             if not all_tasks:
                 consecutive_failures += 1
                 wait_time = min(5 + consecutive_failures * 3, 30)
-                log_warning(self.wallet_address, f"Failed to get tasks, waiting {wait_time}s before retry...")
+                logger.warning(f"[{self.wallet_address}] Failed to get tasks, waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 continue
             
@@ -464,10 +412,10 @@ class NeuraClient:
             claimable_tasks = [task for task in all_tasks if task.get('status') == 'claimable']
             
             if not claimable_tasks:
-                log_success(self.wallet_address, "All tasks have been claimed!")
+                logger.success(f"[{self.wallet_address}] All tasks have been claimed!")
                 return True
             
-            log_info(self.wallet_address, f"Found {len(claimable_tasks)} claimable tasks. Claiming...")
+            logger.info(f"[{self.wallet_address}] Found {len(claimable_tasks)} claimable tasks. Claiming...")
             
             for task in claimable_tasks:
                 task_id = task.get('id')
@@ -478,17 +426,14 @@ class NeuraClient:
                     if fresh_tasks:
                         fresh_task = next((t for t in fresh_tasks if t.get('id') == task_id), None)
                         if fresh_task and fresh_task.get('status') != 'claimable':
-                            log_info(self.wallet_address, f"Task {task_name} already claimed, skipping...")
+                            logger.info(f"[{self.wallet_address}] Task {task_name} already claimed, skipping...")
                             break
                     
                     if await self._claim_task(task_id):
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
                     else:
-                        log_warning(
-                            self.wallet_address, 
-                            f"Failed to claim task {task_name}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}"
-                        )
+                        logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
@@ -497,15 +442,12 @@ class NeuraClient:
             if all_tasks_after:
                 remaining = [t for t in all_tasks_after if t.get('status') == 'claimable']
                 if not remaining:
-                    log_success(self.wallet_address, "Verified: All tasks successfully claimed!")
+                    logger.success(f"[{self.wallet_address}] Verified: All tasks successfully claimed!")
                     return True
                 else:
-                    log_warning(
-                        self.wallet_address, 
-                        f"Still have {len(remaining)} claimable tasks, cycle {cycle + 1}/{max_cycles}"
-                    )
+                    logger.warning(f"[{self.wallet_address}] Still have {len(remaining)} claimable tasks, cycle {cycle + 1}/{max_cycles}")
         
-        log_error(self.wallet_address, "Failed to claim all tasks after max attempts")
+        logger.error(f"[{self.wallet_address}] Failed to claim all tasks after max attempts")
         return False
 
     # ==================== FAUCET METHODS ====================
@@ -527,22 +469,22 @@ class NeuraClient:
             
             match = uuid4_regex.search(html)
             if not match:
-                log_warning(self.wallet_address, "Failed to extract request UUID from faucet page")
+                logger.warning(f"[{self.wallet_address}] Failed to extract request UUID from faucet page")
                 return None
             
             return match.group(0)
         except Exception as e:
-            log_error(self.wallet_address, f"Error extracting faucet UUID: {e}")
+            logger.error(f"[{self.wallet_address}] Error extracting faucet UUID: {e}")
             return None
     
     async def _send_faucet_request(self) -> bool:
         """Отправить запрос на получение токенов из faucet"""
         if not self._captcha_solver:
-            log_error(self.wallet_address, "Captcha solver not initialized!")
+            logger.error(f"[{self.wallet_address}] Captcha solver not initialized!")
             return False
         
-        log_info(self.wallet_address, "Requesting tokens from faucet...")
-        log_info(self.wallet_address, "Solving Turnstile captcha for faucet...")
+        logger.info(f"[{self.wallet_address}] Requesting tokens from faucet...")
+        logger.info(f"[{self.wallet_address}] Solving Turnstile captcha for faucet...")
         
         # Решаем Turnstile капчу (без action, как в рабочем примере)
         try:
@@ -552,23 +494,23 @@ class NeuraClient:
             )
         except Exception as e:
             import traceback
-            log_error(self.wallet_address, f"Captcha solver error: {e}")
+            logger.error(f"[{self.wallet_address}] Captcha solver error: {e}")
             logger.error(f"[{self.wallet_address}] Full captcha error:\n{traceback.format_exc()}")
             return False
         
         if not turnstile_token:
-            log_warning(self.wallet_address, "Failed to solve faucet captcha - no token returned")
+            logger.warning(f"[{self.wallet_address}] Failed to solve faucet captcha - no token returned")
             return False
         
-        log_info(self.wallet_address, "Turnstile solved, extracting UUID...")
+        logger.info(f"[{self.wallet_address}] Turnstile solved, extracting UUID...")
         
         # Получаем UUID
         uuid_request_token = await self._extract_request_uuid()
         if not uuid_request_token:
-            log_warning(self.wallet_address, "Failed to extract UUID from faucet page")
+            logger.warning(f"[{self.wallet_address}] Failed to extract UUID from faucet page")
             return False
         
-        log_info(self.wallet_address, f"UUID extracted: {uuid_request_token[:8]}...")
+        logger.info(f"[{self.wallet_address}] UUID extracted: {uuid_request_token[:8]}...")
         
         # Отправляем запрос
         headers = self.headers.copy()
@@ -588,7 +530,7 @@ class NeuraClient:
                 verify=False
             )
             
-            log_info(self.wallet_address, f"Faucet response status: {response.status_code}")
+            logger.info(f"[{self.wallet_address}] Faucet response status: {response.status_code}")
             
             if response.status_code == 200:
                 response_text = response.text.strip()
@@ -601,28 +543,28 @@ class NeuraClient:
                             status = response_json.get('status', '')
                             
                             if status not in ['error', 'failure']:
-                                log_success(self.wallet_address, "Successfully requested tokens from faucet!")
+                                logger.success(f"[{self.wallet_address}] Successfully requested tokens from faucet!")
                                 return True
                             else:
                                 error_msg = response_json.get('message', 'Unknown error')
-                                log_error(self.wallet_address, f"Faucet failed | Status: {status} | Message: {error_msg}")
-                                log_error(self.wallet_address, f"Full response: {response_json}")
+                                logger.error(f"[{self.wallet_address}] Faucet failed | Status: {status} | Message: {error_msg}")
+                                logger.error(f"[{self.wallet_address}] Full response: {response_json}")
                                 return False
                         except json.JSONDecodeError as e:
-                            log_warning(self.wallet_address, f"Failed to parse response line: {line[:100]}")
+                            logger.warning(f"[{self.wallet_address}] Failed to parse response line: {line[:100]}")
                             continue
                 
                 # Если не нашли формат 1:, логируем полный ответ
-                log_warning(self.wallet_address, f"Unexpected response format. Full response: {response_text[:500]}")
+                logger.warning(f"[{self.wallet_address}] Unexpected response format. Full response: {response_text[:500]}")
                 return False
             else:
-                log_error(self.wallet_address, f"Faucet HTTP error: {response.status_code}")
-                log_error(self.wallet_address, f"Response: {response.text[:500]}")
+                logger.error(f"[{self.wallet_address}] Faucet HTTP error: {response.status_code}")
+                logger.error(f"[{self.wallet_address}] Response: {response.text[:500]}")
                 return False
                 
         except Exception as e:
             import traceback
-            log_error(self.wallet_address, f"Faucet request error: {e}")
+            logger.error(f"[{self.wallet_address}] Faucet request error: {e}")
             logger.error(f"[{self.wallet_address}] Full faucet error:\n{traceback.format_exc()}")
             return False
     
@@ -636,9 +578,9 @@ class NeuraClient:
             balance = web3.eth.get_balance(self.wallet_address)
             balance_ankr = balance / 10**18
             symbol = NETWORKS.get('🚀 Neura Testnet', {}).get('symbol', 'ANKR')
-            log_info(self.wallet_address, f"Текущий баланс: {balance_ankr:.6f} {symbol}")
+            logger.info(f"[{self.wallet_address}] Текущий баланс: {balance_ankr:.6f} {symbol}")
         except Exception as e:
-            log_warning(self.wallet_address, f"Не удалось получить баланс: {e}")
+            logger.warning(f"[{self.wallet_address}] Не удалось получить баланс: {e}")
         
         for attempt in range(max_attempts):
             try:
@@ -656,20 +598,20 @@ class NeuraClient:
                         await asyncio.sleep(2)  # Ждем обновления баланса
                         new_balance = web3.eth.get_balance(self.wallet_address)
                         new_balance_ankr = new_balance / 10**18
-                        log_info(self.wallet_address, f"Новый баланс: {new_balance_ankr:.6f} {symbol}")
+                        logger.info(f"[{self.wallet_address}] Новый баланс: {new_balance_ankr:.6f} {symbol}")
                     except Exception:
                         pass
                     
                     return True
                 
-                log_warning(self.wallet_address, f"Faucet attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                logger.warning(f"[{self.wallet_address}] Faucet attempt {attempt + 1}/{max_attempts} failed, retrying...")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                 
             except Exception as e:
-                log_error(self.wallet_address, f"Faucet error: {e}")
+                logger.error(f"[{self.wallet_address}] Faucet error: {e}")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
         
-        log_error(self.wallet_address, f"Failed to request faucet tokens after {max_attempts} attempts")
+        logger.error(f"[{self.wallet_address}] Failed to request faucet tokens after {max_attempts} attempts")
         return False
 
     # ==================== SWAP METHODS ====================
@@ -681,7 +623,7 @@ class NeuraClient:
             with open(abi_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            log_error(self.wallet_address, f"Failed to load ABI {abi_name}: {e}")
+            logger.error(f"[{self.wallet_address}] Failed to load ABI {abi_name}: {e}")
             return []
     
     def _get_web3(self) -> Web3:
@@ -716,7 +658,7 @@ class NeuraClient:
                 balance = contract.functions.balanceOf(self.wallet_address).call()
                 return balance
         except Exception as e:
-            log_error(self.wallet_address, f"Failed to get balance: {e}")
+            logger.error(f"[{self.wallet_address}] Failed to get balance: {e}")
             return 0
     
     async def _get_min_amount_out(self, web3: Web3, from_token_address: str, to_token_address: str, amount: int) -> int:
@@ -733,14 +675,14 @@ class NeuraClient:
             result = quoter.functions.quoteExactInput(path, amount).call()
             min_amount_out = result[0][0] if isinstance(result[0], (list, tuple)) else result[0]
             
-            log_info(self.wallet_address, f"Quote received: {min_amount_out / 10**18:.6f}")
+            logger.info(f"[{self.wallet_address}] Quote received: {min_amount_out / 10**18:.6f}")
             
             # Применяем slippage (уменьшаем ожидаемую сумму)
             slippage_amount = int(min_amount_out * (100 - NEURA_SWAP_SLIPPAGE) / 100)
             return slippage_amount
             
         except Exception as e:
-            log_warning(self.wallet_address, f"Quoter call failed: {e}")
+            logger.warning(f"[{self.wallet_address}] Quoter call failed: {e}")
             # Fallback для тестнета - принимаем любой результат > 0
             # Установим 0 чтобы swap прошел с любым выходом
             return 0
@@ -761,7 +703,7 @@ class NeuraClient:
             ).call()
             
             if current_allowance >= amount:
-                log_info(self.wallet_address, "Token already approved")
+                logger.info(f"[{self.wallet_address}] Token already approved")
                 return True
             
             # Создаем транзакцию approve
@@ -783,14 +725,14 @@ class NeuraClient:
             receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             if receipt.status == 1:
-                log_success(self.wallet_address, f"Token approved! TX: {tx_hash.hex()}")
+                logger.success(f"[{self.wallet_address}] Token approved! TX: {tx_hash.hex()}")
                 return True
             else:
-                log_error(self.wallet_address, "Token approval failed")
+                logger.error(f"[{self.wallet_address}] Token approval failed")
                 return False
                 
         except Exception as e:
-            log_error(self.wallet_address, f"Approve error: {e}")
+            logger.error(f"[{self.wallet_address}] Approve error: {e}")
             return False
     
     async def swap(self, from_token: str = None, to_token: str = None) -> Tuple[bool, Optional[str]]:
@@ -804,7 +746,7 @@ class NeuraClient:
             else:
                 from_token, to_token = NEURA_SWAP_PAIRS[0]
         
-        log_info(self.wallet_address, f"Starting swap: {from_token} -> {to_token}")
+        logger.info(f"[{self.wallet_address}] Starting swap: {from_token} -> {to_token}")
         
         try:
             await self._process_action(action_type='game:visitFountain')
@@ -815,10 +757,10 @@ class NeuraClient:
             to_token_address = NEURA_TOKENS.get(to_token if to_token != 'ANKR' else 'WANKR')
             
             if not from_token_address and not is_native:
-                log_error(self.wallet_address, f"Unknown from token: {from_token}")
+                logger.error(f"[{self.wallet_address}] Unknown from token: {from_token}")
                 return False, None
             if not to_token_address:
-                log_error(self.wallet_address, f"Unknown to token: {to_token}")
+                logger.error(f"[{self.wallet_address}] Unknown to token: {to_token}")
                 return False, None
             
             # Получаем баланс
@@ -826,7 +768,7 @@ class NeuraClient:
             balance = await self._get_wallet_balance(web3, is_native=is_native, token_address=token_addr_for_balance)
             
             if balance == 0:
-                log_warning(self.wallet_address, f"Zero balance for {from_token}")
+                logger.warning(f"[{self.wallet_address}] Zero balance for {from_token}")
                 return False, None
             
             # Определяем сумму для свапа
@@ -834,10 +776,10 @@ class NeuraClient:
             amount = int(balance * swap_percentage)
             
             if amount == 0:
-                log_warning(self.wallet_address, "Calculated swap amount is 0")
+                logger.warning(f"[{self.wallet_address}] Calculated swap amount is 0")
                 return False, None
             
-            log_info(self.wallet_address, f"Swapping {amount / 10**18:.6f} {from_token} ({swap_percentage*100:.1f}% of balance)")
+            logger.info(f"[{self.wallet_address}] Swapping {amount / 10**18:.6f} {from_token} ({swap_percentage*100:.1f}% of balance)")
             
             # Approve если не нативный токен
             if not is_native:
@@ -896,7 +838,7 @@ class NeuraClient:
                 })
                 gas_limit = int(gas_estimate * 1.15)
             except Exception as e:
-                log_warning(self.wallet_address, f"Gas estimation failed, using default: {e}")
+                logger.warning(f"[{self.wallet_address}] Gas estimation failed, using default: {e}")
                 gas_limit = 300000
             
             # Строим транзакцию
@@ -912,7 +854,7 @@ class NeuraClient:
             signed_tx = web3.eth.account.sign_transaction(tx, self.private_key)
             tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            log_info(self.wallet_address, f"Swap TX sent: {tx_hash.hex()}")
+            logger.info(f"[{self.wallet_address}] Swap TX sent: {tx_hash.hex()}")
             
             # Ждем подтверждения
             receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -920,43 +862,30 @@ class NeuraClient:
             if receipt.status == 1:
                 tx_hash_hex = tx_hash.hex()
                 explorer_url = NETWORKS.get('🚀 Neura Testnet', {}).get('tx_url', 'https://testnet-blockscout.infra.neuraprotocol.io/tx/')
-                log_success(
-                    self.wallet_address,
-                    f"Successfully swapped {from_token} -> {to_token} | TX: {explorer_url}{tx_hash_hex}"
-                )
+                logger.success(f"[{self.wallet_address}] Successfully swapped {from_token} -> {to_token} | TX: {explorer_url}{tx_hash_hex}")
                 return True, tx_hash_hex
             else:
-                log_error(self.wallet_address, f"Swap transaction failed")
+                logger.error(f"[{self.wallet_address}] Swap transaction failed")
                 return False, None
                 
         except Exception as e:
             import traceback
-            log_error(self.wallet_address, f"Swap error: {e}")
+            logger.error(f"[{self.wallet_address}] Swap error: {e}")
             logger.error(f"[{self.wallet_address}] Full swap error:\n{traceback.format_exc()}")
             return False, None
     
-    async def execute_swap(self, progress_callback=None) -> Tuple[bool, List[str]]:
-        """Выполнить swap с retry логикой (для использования в pipeline). Возвращает (success, list_of_tx_hashes)
-        
-        Args:
-            progress_callback: Optional callback function(swap_num, total_swaps, tx_hash, status)
-                              status: "start", "success", "failed"
-        """
+    async def execute_swap(self) -> Tuple[bool, List[str]]:
+        """Выполнить swap с retry логикой. Возвращает (success, list_of_tx_hashes)"""
         max_attempts = NEURA_MAX_RETRIES_PER_TASK
         
-        # Определяем количество swap транзакций
         swap_count = random.randint(NEURA_SWAP_COUNT[0], NEURA_SWAP_COUNT[1])
-        log_info(self.wallet_address, f"Запланировано {swap_count} swap транзакций")
+        logger.info(f"[{self.wallet_address}] Запланировано {swap_count} swap транзакций")
         
         successful_swaps = 0
         tx_hashes = []
         
         for swap_num in range(swap_count):
-            log_info(self.wallet_address, f"Swap {swap_num + 1}/{swap_count}")
-            
-            # Уведомляем о старте свапа
-            if progress_callback:
-                progress_callback(swap_num + 1, swap_count, None, "start")
+            logger.info(f"[{self.wallet_address}] Swap {swap_num + 1}/{swap_count}")
             
             for attempt in range(max_attempts):
                 try:
@@ -965,27 +894,23 @@ class NeuraClient:
                         successful_swaps += 1
                         if tx_hash:
                             tx_hashes.append(tx_hash)
-                            # Уведомляем об успешном свапе
-                            if progress_callback:
-                                progress_callback(swap_num + 1, swap_count, tx_hash, "success")
                         break
                     
-                    log_warning(self.wallet_address, f"Swap {swap_num + 1} attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                    logger.warning(f"[{self.wallet_address}] Swap {swap_num + 1} attempt {attempt + 1}/{max_attempts} failed, retrying...")
                     await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                     
                 except Exception as e:
-                    log_error(self.wallet_address, f"Swap error: {e}")
+                    logger.error(f"[{self.wallet_address}] Swap error: {e}")
                     await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
-            # Задержка между свапами
             if swap_num < swap_count - 1:
                 pause = random.uniform(*NEURA_SWAP_PAUSE_BETWEEN_SWAPS)
-                log_info(self.wallet_address, f"Пауза {pause:.1f}с перед следующим свапом...")
+                logger.info(f"[{self.wallet_address}] Пауза {pause:.1f}с перед следующим свапом...")
                 await asyncio.sleep(pause)
         
         if successful_swaps > 0:
-            log_success(self.wallet_address, f"Выполнено {successful_swaps}/{swap_count} свапов")
+            logger.success(f"[{self.wallet_address}] Выполнено {successful_swaps}/{swap_count} свапов")
             return True, tx_hashes
         
-        log_error(self.wallet_address, f"Failed to execute any swaps after all attempts")
+        logger.error(f"[{self.wallet_address}] Failed to execute any swaps after all attempts")
         return False, tx_hashes

@@ -3,16 +3,17 @@ import csv
 from itertools import cycle
 from colorama import Fore, Style
 import sys
-from loguru import logger
+from pathlib import Path
 from .eth_wallet_generator import (
     mnemonic_to_private_key,
     PublicKey,
     ETH_DERIVATION_PATH,
 )
 
-# Настройка loguru
-logger.remove()  # Удаляем стандартный обработчик
-logger.add(sys.stderr, level="INFO")  # Добавляем вывод в stderr
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from modules.simple_logger import logger
 
 def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result.csv"):
     # Чтение мнемоник

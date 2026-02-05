@@ -110,6 +110,12 @@ NETWORKS = {
         'tx_url': "https://explorer.manta.network/tx/",
         'type': 'mainnet'
     },
+    '🚀 ApeChain': {
+        'rpc_urls': ['https://apechain.drpc.org'],
+        'symbol': 'APE',
+        'tx_url': "https://apescan.io/tx/",
+        'type': 'mainnet'
+    },
     
     # === TESTNET СЕТИ ===
     '🚀 Sepolia': {

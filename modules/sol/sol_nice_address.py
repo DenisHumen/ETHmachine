@@ -12,7 +12,7 @@ from bip_utils import (
 )
 from solders.keypair import Keypair
 import base58
-from config.config import (
+from config.modules.cfg_nice_address import (
     NICE_ADDRESS_WORDS_SOL, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
     REPEATED_CHAR_COUNT_enable, display_the_address_search_process
 )

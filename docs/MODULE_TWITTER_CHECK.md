@@ -69,7 +69,7 @@
 ## ⚙️ Настройки
 
 ```python
-# config/config.py
+# config/modules/cfg_twitter.py
 
 # === Токены Twitter ===
 MAIN_AUTH_TOKEN = ['token1', 'token2', 'token3']  # Массив auth токенов для ротации
@@ -310,7 +310,7 @@ asyncio.run(process_twitter_accounts())
 Автоматическая ротация токенов для обхода rate limits:
 
 ```python
-# config/config.py
+# config/modules/cfg_twitter.py
 MAIN_AUTH_TOKEN = [
     'token_from_account_1',
     'token_from_account_2',
@@ -344,7 +344,7 @@ COUNT_REPLACE_TWITTER_AUTH_TOKEN = 10  # Каждый токен использ�
 Автоматическая ротация прокси из файла:
 
 ```python
-# config/config.py
+# config/modules/cfg_twitter.py
 RANDOM_PROXIES_TWITTER = True  # Включить случайные прокси
 MAIN_PROXY_TWITTER = "user:pass@backup.proxy:8080"  # Fallback прокси
 
@@ -390,7 +390,7 @@ Proxy: user:pass@proxy.com:8080
 Случайные паузы между запросами:
 
 ```python
-# config/config.py
+# config/modules/cfg_base.py
 SLEEP_BETWEEN_ACTIONS = (2, 5)  # От 2 до 5 секунд
 
 # В коде:
@@ -595,7 +595,7 @@ async def check_with_notifications(nickname):
 ### Рекомендуемая конфигурация
 
 ```python
-# config/config.py
+# config/modules/cfg_twitter.py & cfg_base.py
 
 # Для малой нагрузки (до 20 аккаунтов)
 MAIN_AUTH_TOKEN = ['token1', 'token2']
@@ -684,7 +684,7 @@ def get_cached_result(nickname, timestamp):
 
 1. Проверьте логи в `log/twitter_check_*.log`
 2. Убедитесь что токены актуальны
-3. Проверьте конфигурацию в `config/config.py`
+3. Проверьте конфигурацию в `config/modules/cfg_twitter.py`
 4. Создайте issue в репозитории
 
 ---

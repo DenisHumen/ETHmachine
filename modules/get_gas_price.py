@@ -17,7 +17,7 @@ init()
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from config.config import NUM_THREADS, RETRY_COUNT
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 
 # Настройка логирования для модуля get_gas_price
 def setup_gas_price_logging():

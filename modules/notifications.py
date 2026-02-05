@@ -1,16 +1,14 @@
 import sys
 import os
 
-# Исправленный импорт config для корректного поиска модуля
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, ".."))
 sys.path.append(project_root)
 
-from config.config import ENABLE_NOTIFICATIONS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config.modules.cfg_notifications import ENABLE_NOTIFICATIONS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 import requests
 
-# Эмодзи для разных типов уведомлений
 TYPE_EMOJI = {
     "info": "ℹ️",
     "success": "✅",

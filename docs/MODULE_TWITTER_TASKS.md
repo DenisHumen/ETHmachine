@@ -220,7 +220,7 @@ Remove-Item db\twitter_tasks_progress.db
 
 **Настройка потоков:**
 ```python
-# config/config.py
+# config/modules/cfg_base.py
 NUM_THREADS = 50  # Количество одновременных операций
 ```
 
@@ -403,7 +403,7 @@ https://x.com/news/status/9876543210,comment,Интересная новость
 
 ## ⚙️ Настройки (опционально)
 
-Откройте файл: **`config/config.py`**
+Откройте файл: **`config/modules/cfg_twitter.py`**
 
 Найдите секцию `TWITTER TASK RUNNER`:
 

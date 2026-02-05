@@ -3,7 +3,6 @@ import csv
 import sys
 import random
 from datetime import datetime
-from loguru import logger
 from curl_cffi.requests import AsyncSession
 from pathlib import Path
 from colorama import Fore, Style, init
@@ -13,7 +12,9 @@ init()
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
+from modules.simple_logger import logger
+from config.modules.cfg_twitter import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
+from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
 
 # Настройка логирования для модуля twitter_check
 _logging_configured = False
@@ -23,17 +24,6 @@ def setup_twitter_logging():
     global _logging_configured
     
     if not _logging_configured:
-        # Удаляем стандартный обработчик и добавляем свой с colorize
-        logger.remove()
-        
-        # Добавляем цветной вывод в консоль
-        logger.add(
-            sys.stderr,
-            format="\033[32m{time:HH:mm:ss}\033[0m | <level>{level: <8}</level> | <level>{message}</level>",
-            level="INFO",
-            colorize=True
-        )
-        
         _logging_configured = True
     
     log_dir = Path("log")
@@ -53,7 +43,7 @@ def setup_twitter_logging():
         colorize=False
     )
     
-    logger.info(f"\033[32m📝 Логирование настроено. Файл:\033[0m \033[36m{log_file}\033[0m")
+    logger.info(f"📝 Логирование настроено. Файл: {log_file}")
 
 class Constants:
     BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"

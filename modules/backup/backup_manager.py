@@ -15,7 +15,6 @@ import getpass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
-from loguru import logger
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -25,8 +24,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
-# Импорт настроек
-from config.config import (
+from modules.simple_logger import logger
+from config.modules.cfg_backup import (
     SFTP_SERVER_INTO_BACKUP_ENABLE,
     SFTP_LIVE_SYNC_ENABLE,
     SFTP_SERVER_INTO_BACKUP,
@@ -45,11 +44,11 @@ except ImportError:
 # Путь для логов
 log_dir = os.path.join(project_root, 'log')
 
-# Флаг инициализации логгера
+# Флаг инициализации логгера (больше не нужен, но оставим для совместимости)
 _logger_initialized = False
 
 def _setup_logging():
-    """Настройка логирования - вызывается при запуске модуля"""
+    """Настройка логирования - теперь используем simple_logger"""
     global _logger_initialized
     if _logger_initialized:
         return
@@ -57,14 +56,7 @@ def _setup_logging():
     
     os.makedirs(log_dir, exist_ok=True)
     
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-        level="INFO",
-        colorize=True
-    )
-
+    # Добавляем только файловый лог, консольный уже настроен в simple_logger
     logger.add(
         os.path.join(log_dir, 'backup.log'),
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",

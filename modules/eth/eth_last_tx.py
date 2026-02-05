@@ -8,7 +8,8 @@ from pathlib import Path
 import time
 
 from loguru import logger
-from config.config import ETHER_SCAN_API_KEY_v2, RETRY_COUNT, NUM_THREADS
+from config.modules.cfg_etherscan import ETHER_SCAN_API_KEY_v2
+from config.modules.cfg_base import RETRY_COUNT, NUM_THREADS
 from modules.eth.rpc_return_module import get_network_rpc_selection
 
 def get_network_info():

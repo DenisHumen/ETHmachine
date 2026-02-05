@@ -15,7 +15,7 @@
 
 ## ⚙️ Настройка
 
-### 1. Конфигурация в `config/config.py`
+### 1. Конфигурация в `config/modules/cfg_backup.py`
 
 ```python
 # Включить/выключить live синхронизацию
@@ -388,7 +388,7 @@ class BackupManager:
 
 - `MODULE_AUTO_BACKUP.md` - Регулярные бэкапы по расписанию
 - `MODULE_SFTP.md` - Базовая загрузка на SFTP
-- `config/config.py` - Все настройки
+- `config/modules/cfg_backup.py` - Настройки бэкапов
 
 ## 🆘 FAQ
 

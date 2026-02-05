@@ -242,7 +242,7 @@ def generate_fullnames_menu():
     
     try:
         # Импортируем настройки
-        from config.config import FULLNAME_GENERATOR
+        from config.modules.cfg_generators import FULLNAME_GENERATOR
         quantity = FULLNAME_GENERATOR.get('QUANTITY', 100)
     except ImportError:
         logger.warning("Не удалось импортировать настройки из config.py, используются значения по умолчанию")

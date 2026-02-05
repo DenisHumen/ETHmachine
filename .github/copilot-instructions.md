@@ -29,8 +29,8 @@ db/               # Прогресс и состояние (JSON)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-# 2. Импорты из config/config.py
-from config.config import NUM_THREADS, RETRY_COUNT, ...
+# 2. Импорты из config/modules/
+from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS
 from config.networks import get_network_symbol, get_explorer_url
 
 # 3. Настройка логирования через loguru
@@ -44,7 +44,13 @@ def check_wallet_balances_menu():
 ## Key Conventions
 
 ### Configuration
-- **Все настройки в `config/config.py`** — параметры сгруппированы по модулям с разделителями `# ===`
+- **Настройки в `config/modules/`** — разделены по модулям:
+  - `cfg_base.py` — базовые настройки (NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS)
+  - `cfg_cex.py` — настройки CEX бирж
+  - `cfg_twitter.py` — настройки Twitter
+  - `cfg_transfer.py` — настройки переводов
+  - `cfg_backup.py` — настройки бэкапов
+  - и другие cfg_*.py файлы
 - **Диапазоны как списки**: `SLEEP_BETWEEN_ACTIONS = [1, 3]` означает случайную задержку 1-3 сек
 - **CEX аккаунты**: список dict'ов с `enabled: bool` флагом в `config/cex_settings.py`
 - **Сети**: dict в `config/networks.py` с ключами `rpc_urls`, `symbol`, `tx_url`, `type` (mainnet/testnet)
@@ -63,7 +69,7 @@ def check_wallet_balances_menu():
 
 ### Error Handling & Retries
 ```python
-from config.config import RETRY_COUNT  # обычно 3
+from config.modules.cfg_base import RETRY_COUNT  # обычно 3
 for attempt in range(RETRY_COUNT):
     try:
         # операция

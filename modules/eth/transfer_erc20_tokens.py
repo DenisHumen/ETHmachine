@@ -36,8 +36,8 @@ from loguru import logger
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.config import (
-    TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT,
+from config.modules.cfg_base import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT
+from config.modules.cfg_transfer_erc20 import (
     expected_completion_time_token, MIN_FROM_BALANCE_TOKEN, trim_the_number_of_characters_enable_token,
     trim_the_number_of_characters_token, loop_transfer_enable_token, loop_transfer_count_token,
     expected_balance_from_wallet_token, expected_balance_to_wallet_token, sleep_time_between_loops_token,
@@ -1304,7 +1304,7 @@ def run_transfer_erc20_tokens():
         from colorama import Fore
         import csv
         from modules.eth.transfer_wallets_to_wallets import get_proxy_list
-        from config.config import USE_INTERMEDIARY_TOKEN, expected_completion_time_token
+        from config.modules.cfg_transfer_erc20 import USE_INTERMEDIARY_TOKEN, expected_completion_time_token
         
         print(Fore.GREEN + f"\n\n💎 МОДУЛЬ ПЕРЕВОДОВ ТОКЕНОВ ERC-20")
         print(Fore.GREEN + f"Формат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
