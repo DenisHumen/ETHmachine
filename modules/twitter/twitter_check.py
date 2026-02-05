@@ -12,7 +12,8 @@ init()
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from modules.simple_logger import logger
+from modules.simple_logger import logger, setup_file_logging
+from modules.proxy_manager import get_random_proxy, get_proxy_dict, mask_proxy
 from config.modules.cfg_twitter import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
 from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
 
@@ -115,28 +116,10 @@ def initialize_token_manager():
     return token_manager
 
 def load_random_proxy():
-    """Загружает случайный прокси из файла data/proxy.csv"""
-    proxy_file = Path("data/proxy.csv")
-    
-    if not proxy_file.exists():
-        logger.warning(f"\033[33mФайл прокси не найден:\033[0m \033[37m{proxy_file}\033[0m")
-        return None
-    
-    try:
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            proxies = [line.strip() for line in f if line.strip()]
-        
-        if not proxies:
-            logger.warning("\033[33mФайл прокси пустой\033[0m")
-            return None
-        
-        selected_proxy = random.choice(proxies)
-        logger.info(f"\033[32m🌐 Выбран случайный прокси из\033[0m \033[36m{len(proxies)}\033[0m \033[37mдоступных\033[0m")
-        return selected_proxy
-    
-    except Exception as e:
-        logger.error(f"\033[31mОшибка при загрузке прокси из файла:\033[0m \033[33m{e}\033[0m")
-        return None
+    proxy = get_random_proxy()
+    if proxy:
+        logger.info(f"🌐 Выбран случайный прокси")
+    return proxy
 
 async def create_twitter_client():
     """Создает Twitter клиент"""
@@ -161,21 +144,18 @@ async def create_twitter_client():
     if RANDOM_PROXIES_TWITTER:
         proxy_to_use = load_random_proxy()
         if not proxy_to_use:
-            logger.warning("\033[33mНе удалось загрузить случайный прокси, используем MAIN_PROXY_TWITTER\033[0m")
+            logger.warning("Не удалось загрузить случайный прокси, используем MAIN_PROXY_TWITTER")
             proxy_to_use = MAIN_PROXY_TWITTER
     else:
         proxy_to_use = MAIN_PROXY_TWITTER
     
     if proxy_to_use:
-        session.proxies = {
-            'http': f'http://{proxy_to_use}',
-            'https': f'http://{proxy_to_use}'
-        }
-        # Маскируем часть прокси для безопасности в логах
-        proxy_display = proxy_to_use.split('@')[1] if '@' in proxy_to_use else proxy_to_use
-        logger.info(f"\033[32m🌐 Использую прокси:\033[0m \033[36m{proxy_display}\033[0m")
+        proxy_dict = get_proxy_dict(proxy_to_use)
+        if proxy_dict:
+            session.proxies = proxy_dict
+        logger.info(f"🌐 Использую прокси: {mask_proxy(proxy_to_use)}")
     else:
-        logger.info("\033[37m🌐 Прокси не настроен\033[0m")
+        logger.info("🌐 Прокси не настроен")
     
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

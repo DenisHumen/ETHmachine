@@ -14,13 +14,17 @@ neura_module_path = Path(__file__).parent
 sys.path.append(str(project_root))
 
 from modules.simple_logger import logger
+from modules.proxy_manager import parse_proxy, get_proxy_dict
 from curl_cffi.requests import AsyncSession, BrowserType
 from eth_account import Account as EthAccount
 from eth_account.messages import encode_defunct
 from web3 import Web3
 from web3.contract import AsyncContract
 
-from config.modules.cfg_base import RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, astrum_CAPTCHA_API_KEY
+from config.modules.cfg_base import (
+    RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
+    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE
+)
 from config.modules.cfg_neura import (
     NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
     NEURA_SWAP_COUNT, NEURA_SWAP_PERCENTAGE, NEURA_SWAP_SLIPPAGE,
@@ -32,9 +36,22 @@ from config.networks import NETWORKS
 from modules.neura.types import UserData
 
 try:
-    from modules.statistics.astrum_captcha_solver import AstrumSolver  # type: ignore
+    from modules.statistics.astrum_captcha_solver import AstrumSolver
 except ImportError:
     AstrumSolver = None
+
+try:
+    from modules.statistics.capsolver_solver import CapsolverSolver
+except ImportError:
+    CapsolverSolver = None
+
+
+def get_captcha_solver(proxy_url=None):
+    if CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY and CapsolverSolver:
+        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=proxy_url)
+    elif astrum_CAPTCHA_API_KEY and AstrumSolver:
+        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=proxy_url)
+    return None
 
 
 class NeuraClient:
@@ -48,14 +65,8 @@ class NeuraClient:
         self.account = EthAccount.from_key(private_key)
         self.wallet_address = self.account.address
         
-        proxy_url = None
-        proxy_dict = None
-        if proxy:
-            if not proxy.startswith('http'):
-                proxy_url = f"http://{proxy}"
-            else:
-                proxy_url = proxy
-            proxy_dict = {'http': proxy_url, 'https': proxy_url}
+        proxy_url = parse_proxy(proxy) if proxy else None
+        proxy_dict = get_proxy_dict(proxy) if proxy else None
         
         self.session = AsyncSession(
             proxies=proxy_dict,  # type: ignore
@@ -63,14 +74,10 @@ class NeuraClient:
         )
         
         self._captcha_solver = None
-        if astrum_CAPTCHA_API_KEY and AstrumSolver:
-            try:
-                self._captcha_solver = AstrumSolver(
-                    api_key=astrum_CAPTCHA_API_KEY,
-                    proxy=proxy_url
-                )
-            except Exception as e:
-                logger.warning(f"[{self.wallet_address}] Failed to init AstrumSolver: {e}")
+        try:
+            self._captcha_solver = get_captcha_solver(proxy_url)
+        except Exception as e:
+            logger.warning(f"[{self.wallet_address}] Failed to init captcha solver: {e}")
         
         self.auth_headers = {
             'accept': 'application/json',

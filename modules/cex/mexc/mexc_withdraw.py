@@ -14,10 +14,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 sys.__stdout__ = sys.stdout
 from questionary import Choice, select
-from loguru import logger
 from web3 import Web3
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+from modules.simple_logger import logger
+from modules.proxy_manager import get_random_proxy_dict
 
 def _get_mexc_settings():
     """Получить настройки MEXC с обработкой ошибок"""
@@ -69,55 +71,6 @@ def _setup_logging():
 db_lock = threading.Lock()
 csv_lock = threading.Lock()
 
-def load_proxies():
-    """Загрузить список прокси из файла data/proxy.csv"""
-    proxy_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'proxy.csv')
-    proxies = []
-    
-    try:
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and ':' in line:
-                    parts = line.split('@')
-                    if len(parts) == 2:
-                        auth_part = parts[0] 
-                        ip_port = parts[1]   
-                        proxies.append({
-                            'auth': auth_part,
-                            'ip_port': ip_port,
-                            'full': line
-                        })
-        
-        random.shuffle(proxies)
-        return proxies
-    except FileNotFoundError:
-        logger.warning(f"Файл прокси не найден: {proxy_file}")
-        return []
-    except Exception as ex:
-        logger.error(f"Ошибка при загрузке прокси: {ex}")
-        return []
-
-def get_random_proxy(proxies):
-    """Получить случайный прокси из списка в формате для requests"""
-    if not proxies:
-        return None
-    
-    proxy_info = random.choice(proxies)
-    auth_parts = proxy_info['auth'].split(':')
-    
-    if len(auth_parts) >= 2:
-        login = auth_parts[0]
-        password = ':'.join(auth_parts[1:])  
-        ip_port = proxy_info['ip_port']
-        
-        proxy_url = f"http://{login}:{password}@{ip_port}"
-        return {
-            'http': proxy_url,
-            'https': proxy_url
-        }
-    
-    return None
 
 class BeautifulProgressBar:
     """Красивый прогресс-бар"""
@@ -280,8 +233,7 @@ def get_account_balances(mexc_api_key, mexc_api_secret):
             logger.error("Failed to create MEXC headers")
             return {}
         
-        proxies = load_proxies()
-        proxy = get_random_proxy(proxies)
+        proxy = get_random_proxy_dict()
         
         response = requests.get(f"{base_url}{request_path}", params=params, timeout=10, headers=headers, proxies=proxy)
         data = response.json()
@@ -335,8 +287,7 @@ def pick_chain(token, mexc_api_key, mexc_api_secret):
             logger.error("Failed to create MEXC headers")
             return None
             
-        proxies = load_proxies()
-        proxy = get_random_proxy(proxies)
+        proxy = get_random_proxy_dict()
         
         response = requests.get(base_url + request_path, headers=headers, params=params, proxies=proxy, timeout=10)
         
@@ -473,8 +424,7 @@ def get_withdraw_fee(token, chain, mexc_api_key, mexc_api_secret):
             logger.error("Failed to create MEXC headers")
             return 0
             
-        proxies = load_proxies()
-        proxy = get_random_proxy(proxies)
+        proxy = get_random_proxy_dict()
         
         response = requests.get(base_url + request_path, headers=headers, params=params, proxies=proxy, timeout=10)
         
@@ -524,8 +474,7 @@ def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float,
         logger.debug(f"{wallet_prefix}Request headers: {headers}")
         logger.debug(f"{wallet_prefix}Request params: {params}")
         
-        proxies = load_proxies()
-        proxy = get_random_proxy(proxies)
+        proxy = get_random_proxy_dict()
         
         response = requests.post(f"{base_url}{request_path}", 
                                 params=params, timeout=10, headers=headers, proxies=proxy)
@@ -626,23 +575,21 @@ def get_chain_rpc_list(chain):
 def get_working_web3_connection(chain):
     """Получить рабочее подключение Web3 для конкретной сети через прокси"""
     rpc_list = get_chain_rpc_list(chain)
-    proxies_list = load_proxies()
+    proxy = get_random_proxy_dict()
     
-    if proxies_list:
-        proxy = get_random_proxy(proxies_list)
-        if proxy:
-            for rpc_url in rpc_list:
-                try:
-                    session = requests.Session()
-                    session.proxies.update(proxy)
-                    
-                    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}, session=session))
-                    if w3.is_connected():
-                        logger.debug(f"Подключился к {chain} через {rpc_url} с прокси")
-                        return w3
-                except Exception as ex:
-                    logger.debug(f"Не удалось подключиться к {rpc_url} с прокси: {ex}")
-                    continue
+    if proxy:
+        for rpc_url in rpc_list:
+            try:
+                session = requests.Session()
+                session.proxies.update(proxy)
+                
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}, session=session))
+                if w3.is_connected():
+                    logger.debug(f"Подключился к {chain} через {rpc_url} с прокси")
+                    return w3
+            except Exception as ex:
+                logger.debug(f"Не удалось подключиться к {rpc_url} с прокси: {ex}")
+                continue
     
     logger.info(f"Подключение к {chain} без прокси (fallback)")
     for rpc_url in rpc_list:

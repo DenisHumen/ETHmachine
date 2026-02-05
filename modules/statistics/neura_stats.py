@@ -19,8 +19,11 @@ from questionary import Choice, select
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from modules.simple_logger import logger
-sys.path.append(str(Path(__file__).parent.parent.parent))
-from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT, astrum_CAPTCHA_API_KEY, SLEEP_BETWEEN_ACTIONS
+from modules.proxy_manager import get_random_proxy, get_proxy_dict, load_proxies, parse_proxy
+from config.modules.cfg_base import (
+    NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
+    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE
+)
 from modules.notifications import send_telegram_notification
 
 import requests
@@ -29,6 +32,21 @@ from eth_account.messages import encode_defunct
 from web3 import Web3
 
 from modules.statistics.astrum_captcha_solver import AstrumSolver
+from modules.statistics.capsolver_solver import CapsolverSolver
+
+
+def get_captcha_solver(proxy_url: Optional[str] = None):
+    if CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY:
+        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=proxy_url)
+    elif astrum_CAPTCHA_API_KEY:
+        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=proxy_url)
+    return None
+
+
+def get_captcha_api_key() -> Optional[str]:
+    if CAPTCHA_SERVICE == 'capsolver':
+        return CAPSOLVER_API_KEY
+    return astrum_CAPTCHA_API_KEY
 
 csv_lock = Lock()
 db_lock = Lock()
@@ -512,9 +530,9 @@ class NeuraProtocolClient:
         self.captcha_solver = None
         if self.captcha_api_key:
             try:
-                self.captcha_solver = AstrumSolver(api_key=self.captcha_api_key, proxy=proxy_url)
+                self.captcha_solver = get_captcha_solver(proxy_url)
             except Exception as e:
-                log_warning(f"⚠️ Ошибка инициализации AstrumSolver: {e}")
+                log_warning(f"⚠️ Ошибка инициализации captcha solver: {e}")
         else:
             log_warning("⚠️ API ключ капчи не найден")
     
@@ -533,18 +551,7 @@ class NeuraProtocolClient:
             self.session.proxies.clear()
     
     def _load_captcha_key(self) -> Optional[str]:
-        if astrum_CAPTCHA_API_KEY and len(astrum_CAPTCHA_API_KEY) > 0:
-            return astrum_CAPTCHA_API_KEY
-        
-        try:
-            with open('data/captcha_api_key.txt', 'r') as f:
-                lines = f.readlines()
-                if len(lines) >= 1:
-                    return lines[0].strip()
-        except Exception:
-            pass
-        
-        return None
+        return get_captcha_api_key()
     
     def _solve_turnstile(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
         if not self.captcha_solver:
@@ -990,13 +997,7 @@ def get_proxy_for_wallet(wallet_index: int, proxies: List[str]) -> Optional[str]
     if not proxies:
         return None
     proxy_index = wallet_index % len(proxies)
-    return f"http://{proxies[proxy_index]}"
-
-
-def get_random_proxy(proxies: List[str]) -> Optional[str]:
-    if not proxies:
-        return None
-    return f"http://{random.choice(proxies)}"
+    return parse_proxy(proxies[proxy_index])
 
 
 def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:

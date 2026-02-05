@@ -9,93 +9,23 @@ from pathlib import Path
 
 import requests
 from web3 import Web3
-from loguru import logger
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
+from modules.simple_logger import logger, setup_file_logging
+from modules.proxy_manager import load_proxies, get_proxy_dict, mask_proxy
 from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
+
 
 def setup_proxy_checker_logging():
     log_dir = Path("log")
     log_dir.mkdir(exist_ok=True)
-    
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f'proxy_checker_{timestamp}.log'
-    
-    logger.add(
-        log_file,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
-        encoding="utf-8"
-    )
-    
+    setup_file_logging(str(log_file))
     logger.info(f"Логирование настроено. Файл: {log_file}")
 
-def load_proxies():
-    try:
-        proxy_file = project_root / 'data' / 'proxy.csv'
-        proxies = []
-        
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                
-                if not line or line.lower().startswith('proxy') or line.lower().startswith('login'):
-                    continue
-                
-                if '@' in line and ':' in line:
-                    try:
-                        auth_part, address_part = line.split('@', 1)
-                        login, password = auth_part.split(':', 1)
-                        ip, port = address_part.split(':', 1)
-                        
-                        if login and password and ip and port:
-                            proxies.append(line)
-                        else:
-                            logger.warning(f"⚠️ Строка {line_num}: неполные данные в прокси: {line}")
-                    except ValueError:
-                        logger.warning(f"⚠️ Строка {line_num}: неверный формат прокси (ожидается login:password@ip:port): {line}")
-                else:
-                    logger.warning(f"⚠️ Строка {line_num}: неверный формат прокси (нет @ или :): {line}")
-        
-        logger.info(f"Загружено {len(proxies)} валидных прокси из файла")
-        return proxies
-        
-    except FileNotFoundError:
-        logger.error("❌ Файл data/proxy.csv не найден!")
-        return []
-    except Exception as e:
-        logger.error(f"❌ Ошибка загрузки прокси: {e}")
-        return []
-
-def get_proxy_dict(proxy_string):
-    if not proxy_string:
-        return None
-    
-    try:
-        if proxy_string.startswith('http://'):
-            proxy_string = proxy_string[7:]
-        
-        if '@' in proxy_string:
-            auth_part, address_part = proxy_string.split('@', 1)
-            login, password = auth_part.split(':', 1)
-            ip, port = address_part.split(':', 1)
-            
-            proxy_url = f"http://{login}:{password}@{ip}:{port}"
-        else:
-            ip, port = proxy_string.split(':', 1)
-            proxy_url = f"http://{ip}:{port}"
-        
-        return {
-            'http': proxy_url,
-            'https': proxy_url
-        }
-    except Exception as e:
-        logger.error(f"❌ Ошибка парсинга прокси {proxy_string}: {e}")
-        return None
 
 def get_proxy_location(proxy_dict):
     session = None
