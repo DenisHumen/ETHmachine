@@ -1,6 +1,13 @@
 import time
 import requests
-from typing import Optional
+from typing import Optional, Dict
+import sys
+from pathlib import Path
+
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from modules.proxy_manager import parse_proxy, get_proxy_dict
 
 
 class CapsolverSolver:
@@ -9,6 +16,21 @@ class CapsolverSolver:
         self.api_key = api_key
         self.proxy_url = proxy
         self.base_url = "https://api.capsolver.com"
+        
+        # Настраиваем прокси для requests если задан
+        self._request_proxies: Optional[Dict[str, str]] = None
+        if proxy:
+            self._request_proxies = get_proxy_dict(proxy)
+    
+    def _make_request(self, endpoint: str, payload: dict, timeout: int = 30) -> dict:
+        """Отправка запроса к API capsolver с учетом прокси"""
+        resp = requests.post(
+            f"{self.base_url}/{endpoint}",
+            json=payload,
+            proxies=self._request_proxies,
+            timeout=timeout
+        )
+        return resp.json()
     
     def solve_turnstile(
         self,
@@ -30,8 +52,7 @@ class CapsolverSolver:
             task_payload["task"]["metadata"] = {"action": action}
         
         try:
-            resp = requests.post(f"{self.base_url}/createTask", json=task_payload, timeout=30)
-            data = resp.json()
+            data = self._make_request("createTask", task_payload)
             
             if data.get("errorId") != 0:
                 raise Exception(f"CAPSOLVER error: {data.get('errorDescription', 'Unknown')}")
@@ -42,12 +63,10 @@ class CapsolverSolver:
             
             for _ in range(120):
                 time.sleep(3)
-                result_resp = requests.post(
-                    f"{self.base_url}/getTaskResult",
-                    json={"clientKey": self.api_key, "taskId": task_id},
-                    timeout=30
+                result = self._make_request(
+                    "getTaskResult",
+                    {"clientKey": self.api_key, "taskId": task_id}
                 )
-                result = result_resp.json()
                 
                 if result.get("status") == "ready":
                     token = result.get("solution", {}).get("token")

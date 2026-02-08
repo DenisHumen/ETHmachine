@@ -11,12 +11,12 @@ RETRY_COUNT = 5  # Количество попыток в случае ошиб�
 # ========================================================================================
 # CAPTCHA SETTINGS
 # ========================================================================================
-astrum_CAPTCHA_API_KEY = ''  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
-CAPSOLVER_API_KEY = ''  # API ключ для CapSolver (альтернативный сервис) - https://www.capsolver.com/
+astrum_CAPTCHA_API_KEY = '13c904aa-ec6d-4fac-a84c-e3b9cf5959b5'  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
+CAPSOLVER_API_KEY = 'CAP-EA149ED49DC75F511E78FA5153E54388'  # API ключ для CapSolver (альтернативный сервис) - https://www.capsolver.com/
 
 # Выбор сервиса решения капчи: 'astrum' или 'capsolver'
 # Если 'astrum' не работает, попробуйте 'capsolver'
-CAPTCHA_SERVICE = 'capsolver'  # 'astrum' или 'capsolver'
+CAPTCHA_SERVICE = 'astrum'  # 'astrum' или 'capsolver'
 
 # ========================================================================================
 # ПРОВЕРКА СТАТУСА ТРАНЗАКЦИЙ

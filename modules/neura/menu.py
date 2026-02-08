@@ -338,6 +338,11 @@ def run_module_pipeline(task_types: List[str]):
                 idx + 1, len(wallets_with_pending)
             )
             futures_dict[future] = wallet_address
+            
+            # Задержка между запусками потоков (кроме первого)
+            if idx < len(wallets_with_pending) - 1:
+                delay = random.uniform(*SLEEP_BETWEEN_ACTIONS)
+                time.sleep(delay)
         
         # Собираем результаты
         for future in futures_dict:

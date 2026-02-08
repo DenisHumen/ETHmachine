@@ -23,7 +23,7 @@ from web3.contract import AsyncContract
 
 from config.modules.cfg_base import (
     RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
-    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE
+    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE, MAIN_PROXY
 )
 from config.modules.cfg_neura import (
     NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
@@ -47,10 +47,17 @@ except ImportError:
 
 
 def get_captcha_solver(proxy_url=None):
+    """
+    Получить solver капчи с поддержкой прокси.
+    Приоритет прокси: proxy_url (переданный) -> MAIN_PROXY (из конфига) -> без прокси
+    """
+    # Определяем прокси для отправки запросов к сервису капчи
+    captcha_proxy = proxy_url or (MAIN_PROXY if MAIN_PROXY else None)
+    
     if CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY and CapsolverSolver:
-        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=proxy_url)
+        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=captcha_proxy)
     elif astrum_CAPTCHA_API_KEY and AstrumSolver:
-        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=proxy_url)
+        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=captcha_proxy)
     return None
 
 
@@ -74,6 +81,7 @@ class NeuraClient:
         )
         
         self._captcha_solver = None
+        self._last_error = ""  # Последняя ошибка для вывода в лог
         try:
             self._captcha_solver = get_captcha_solver(proxy_url)
         except Exception as e:
@@ -161,6 +169,7 @@ class NeuraClient:
                 return response.text, status
                 
         except Exception as e:
+            self._last_error = str(e)
             logger.error(f"[{self.wallet_address}] Request error: {e}")
             return None, 0
     
@@ -179,7 +188,8 @@ class NeuraClient:
                 )
                 
                 if not turnstile_token:
-                    logger.warning(f"[{self.wallet_address}] Failed to solve captcha, attempt {attempt + 1}/{RETRY_COUNT}")
+                    self._last_error = "Captcha solver returned empty token"
+                    logger.warning(f"[{self.wallet_address}] Failed to solve captcha: {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
                     await asyncio.sleep(random.uniform(3, 7))
                     continue
                 
@@ -200,18 +210,21 @@ class NeuraClient:
                 
                 if status == 429:
                     wait_time = random.uniform(10, 20)
+                    self._last_error = f"Rate limited (429)"
                     logger.warning(f"[{self.wallet_address}] Rate limited (429), waiting {wait_time:.1f}s...")
                     await asyncio.sleep(wait_time)
                     continue
                     
-                logger.warning(f"[{self.wallet_address}] Failed to get nonce, status: {status}")
+                self._last_error = f"nonce request failed, status={status}, response={response_json}"
+                logger.warning(f"[{self.wallet_address}] Failed to get nonce: {self._last_error}")
                 
             except Exception as e:
+                self._last_error = str(e)
                 logger.error(f"[{self.wallet_address}] Error getting nonce: {e}")
             
             await asyncio.sleep(random.uniform(3, 7))
         
-        logger.warning(f"[{self.wallet_address}] Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
+        logger.warning(f"[{self.wallet_address}] Failed to get nonce after all attempts: {self._last_error}")
         return None
     
     async def _send_auth_request(self, message: str, signature: str) -> bool:
@@ -237,6 +250,9 @@ class NeuraClient:
                 self.jwt_token = token
                 self.headers['authorization'] = f'Bearer {token}'
                 return True
+            self._last_error = f"No identity_token in response: {response_json}"
+        else:
+            self._last_error = f"auth request failed, status={status}, response={response_json}"
         
         return False
     
@@ -244,7 +260,7 @@ class NeuraClient:
         for attempt in range(RETRY_COUNT):
             nonce = await self._get_nonce()
             if not nonce:
-                logger.warning(f"[{self.wallet_address}] Failed to get nonce, attempt {attempt + 1}/{RETRY_COUNT}")
+                logger.warning(f"[{self.wallet_address}] Failed to get nonce: {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                 continue
             
@@ -268,10 +284,10 @@ class NeuraClient:
                 logger.success(f"[{self.wallet_address}] Successfully authorized into Neuraverse!")
                 return True
             
-            logger.warning(f"[{self.wallet_address}] Authorization failed, attempt {attempt + 1}/{RETRY_COUNT}")
+            logger.warning(f"[{self.wallet_address}] Authorization failed: {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
         
-        logger.error(f"[{self.wallet_address}] Failed to authorize after all attempts")
+        logger.error(f"[{self.wallet_address}] Failed to authorize after all attempts: {self._last_error}")
         return False
     
     async def _process_action(self, action_type: str) -> bool:
@@ -293,6 +309,7 @@ class NeuraClient:
             self.user_data = UserData.from_dict(response_json)
             return self.user_data
         
+        self._last_error = f"status={status}, response={response_json}"
         return None
     
     async def _collect_pulse(self, pulse_id: str) -> bool:
@@ -311,6 +328,7 @@ class NeuraClient:
             logger.success(f"[{self.wallet_address}] Pulse {pulse_id} has been successfully collected!")
             return True
         
+        self._last_error = f"collect_pulse failed, status={status}, response={response_json}"
         return False
     
     async def collect_pulses(self) -> bool:
@@ -324,7 +342,7 @@ class NeuraClient:
             if not user:
                 consecutive_failures += 1
                 wait_time = min(5 + consecutive_failures * 3, 30)
-                logger.warning(f"[{self.wallet_address}] Failed to get user data, waiting {wait_time}s before retry...")
+                logger.warning(f"[{self.wallet_address}] Failed to get user data: {self._last_error}, waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 continue
             
@@ -357,7 +375,7 @@ class NeuraClient:
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
                     else:
-                        logger.warning(f"[{self.wallet_address}] Failed to collect pulse {pulse_obj.id}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
+                        logger.warning(f"[{self.wallet_address}] Failed to collect pulse {pulse_obj.id}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
@@ -371,7 +389,7 @@ class NeuraClient:
                 else:
                     logger.warning(f"[{self.wallet_address}] Still have {len(remaining)} uncollected pulses, cycle {cycle + 1}/{max_cycles}")
         
-        logger.error(f"[{self.wallet_address}] Failed to collect all pulses after max attempts")
+        logger.error(f"[{self.wallet_address}] Failed to collect all pulses after max attempts: {self._last_error}")
         return False
     
     async def _get_tasks(self) -> Optional[list]:
@@ -383,6 +401,7 @@ class NeuraClient:
         if status == 200 and response_json:
             return response_json.get('tasks', [])
         
+        self._last_error = f"get_tasks status={status}, response={response_json}"
         return None
     
     async def _claim_task(self, task_id: str) -> bool:
@@ -397,6 +416,7 @@ class NeuraClient:
             logger.success(f"[{self.wallet_address}] Successfully claimed {name} task and earned {points} points!")
             return True
         
+        self._last_error = f"claim_task failed, status={status}, response={response_json}"
         return False
     
     async def claim_tasks(self) -> bool:
@@ -410,7 +430,7 @@ class NeuraClient:
             if not all_tasks:
                 consecutive_failures += 1
                 wait_time = min(5 + consecutive_failures * 3, 30)
-                logger.warning(f"[{self.wallet_address}] Failed to get tasks, waiting {wait_time}s before retry...")
+                logger.warning(f"[{self.wallet_address}] Failed to get tasks: {self._last_error}, waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 continue
             
@@ -440,7 +460,7 @@ class NeuraClient:
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
                     else:
-                        logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
+                        logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
             await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
@@ -454,7 +474,7 @@ class NeuraClient:
                 else:
                     logger.warning(f"[{self.wallet_address}] Still have {len(remaining)} claimable tasks, cycle {cycle + 1}/{max_cycles}")
         
-        logger.error(f"[{self.wallet_address}] Failed to claim all tasks after max attempts")
+        logger.error(f"[{self.wallet_address}] Failed to claim all tasks after max attempts: {self._last_error}")
         return False
 
     # ==================== FAUCET METHODS ====================
@@ -501,11 +521,13 @@ class NeuraClient:
             )
         except Exception as e:
             import traceback
+            self._last_error = f"Captcha solver error: {e}"
             logger.error(f"[{self.wallet_address}] Captcha solver error: {e}")
             logger.error(f"[{self.wallet_address}] Full captcha error:\n{traceback.format_exc()}")
             return False
         
         if not turnstile_token:
+            self._last_error = "Faucet captcha solver returned empty token"
             logger.warning(f"[{self.wallet_address}] Failed to solve faucet captcha - no token returned")
             return False
         
@@ -514,6 +536,7 @@ class NeuraClient:
         # Получаем UUID
         uuid_request_token = await self._extract_request_uuid()
         if not uuid_request_token:
+            self._last_error = "Failed to extract UUID from faucet page"
             logger.warning(f"[{self.wallet_address}] Failed to extract UUID from faucet page")
             return False
         
@@ -554,6 +577,7 @@ class NeuraClient:
                                 return True
                             else:
                                 error_msg = response_json.get('message', 'Unknown error')
+                                self._last_error = f"Faucet status={status}, message={error_msg}"
                                 logger.error(f"[{self.wallet_address}] Faucet failed | Status: {status} | Message: {error_msg}")
                                 logger.error(f"[{self.wallet_address}] Full response: {response_json}")
                                 return False
@@ -562,15 +586,18 @@ class NeuraClient:
                             continue
                 
                 # Если не нашли формат 1:, логируем полный ответ
+                self._last_error = f"Unexpected response format: {response_text[:200]}"
                 logger.warning(f"[{self.wallet_address}] Unexpected response format. Full response: {response_text[:500]}")
                 return False
             else:
+                self._last_error = f"Faucet HTTP error: {response.status_code}, response={response.text[:200]}"
                 logger.error(f"[{self.wallet_address}] Faucet HTTP error: {response.status_code}")
                 logger.error(f"[{self.wallet_address}] Response: {response.text[:500]}")
                 return False
                 
         except Exception as e:
             import traceback
+            self._last_error = str(e)
             logger.error(f"[{self.wallet_address}] Faucet request error: {e}")
             logger.error(f"[{self.wallet_address}] Full faucet error:\n{traceback.format_exc()}")
             return False
@@ -611,14 +638,15 @@ class NeuraClient:
                     
                     return True
                 
-                logger.warning(f"[{self.wallet_address}] Faucet attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                logger.warning(f"[{self.wallet_address}] Faucet attempt {attempt + 1}/{max_attempts} failed: {self._last_error}, retrying...")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                 
             except Exception as e:
+                self._last_error = str(e)
                 logger.error(f"[{self.wallet_address}] Faucet error: {e}")
                 await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
         
-        logger.error(f"[{self.wallet_address}] Failed to request faucet tokens after {max_attempts} attempts")
+        logger.error(f"[{self.wallet_address}] Failed to request faucet tokens after {max_attempts} attempts: {self._last_error}")
         return False
 
     # ==================== SWAP METHODS ====================
@@ -872,11 +900,13 @@ class NeuraClient:
                 logger.success(f"[{self.wallet_address}] Successfully swapped {from_token} -> {to_token} | TX: {explorer_url}{tx_hash_hex}")
                 return True, tx_hash_hex
             else:
+                self._last_error = f"Swap transaction failed, receipt status={receipt.status}"
                 logger.error(f"[{self.wallet_address}] Swap transaction failed")
                 return False, None
                 
         except Exception as e:
             import traceback
+            self._last_error = str(e)
             logger.error(f"[{self.wallet_address}] Swap error: {e}")
             logger.error(f"[{self.wallet_address}] Full swap error:\n{traceback.format_exc()}")
             return False, None
@@ -903,10 +933,11 @@ class NeuraClient:
                             tx_hashes.append(tx_hash)
                         break
                     
-                    logger.warning(f"[{self.wallet_address}] Swap {swap_num + 1} attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                    logger.warning(f"[{self.wallet_address}] Swap {swap_num + 1} attempt {attempt + 1}/{max_attempts} failed: {self._last_error}, retrying...")
                     await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                     
                 except Exception as e:
+                    self._last_error = str(e)
                     logger.error(f"[{self.wallet_address}] Swap error: {e}")
                     await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             
@@ -919,5 +950,5 @@ class NeuraClient:
             logger.success(f"[{self.wallet_address}] Выполнено {successful_swaps}/{swap_count} свапов")
             return True, tx_hashes
         
-        logger.error(f"[{self.wallet_address}] Failed to execute any swaps after all attempts")
+        logger.error(f"[{self.wallet_address}] Failed to execute any swaps after all attempts: {self._last_error}")
         return False, tx_hashes
