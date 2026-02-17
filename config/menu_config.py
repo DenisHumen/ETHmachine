@@ -264,6 +264,7 @@ PROJECTS_SUBMENU = SubMenu(
     qmark='🎮',
     items=[
         MenuItem(key='neura', label='Neura Protocol', description='Сбор пульсов и клейм задач', icon='🔮', enabled=True),
+        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты', icon='🔮', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

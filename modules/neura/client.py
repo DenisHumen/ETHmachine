@@ -95,7 +95,7 @@ class NeuraClient:
             'priority': 'u=1, i',
             'privy-app-id': 'cmbpempz2011ll10l7iucga14',
             'privy-ca-id': str(uuid.uuid4()),
-            'privy-client': 'react-auth:2.25.0',
+            'privy-client': 'react-auth:3.12.0',
             'referer': 'https://neuraverse.neuraprotocol.io/',
             'sec-ch-ua': '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
             'sec-ch-ua-mobile': '?0',
@@ -136,7 +136,8 @@ class NeuraClient:
             encode_defunct(text=message), 
             private_key=self.private_key
         )
-        return '0x' + signed_message.signature.hex()
+        sig_hex = signed_message.signature.hex()
+        return sig_hex if sig_hex.startswith('0x') else '0x' + sig_hex
     
     async def _make_request(
         self, 

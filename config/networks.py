@@ -1,8 +1,7 @@
 NETWORKS = {
     # === MAINNET СЕТИ ===
     '🚀 Ethereum Mainnet': {
-        'rpc_urls': ["https://eth.merkle.io", 'https://eth.llamarpc.com', 'https://rpc.mevblocker.io', 
-                     'https://eth.drpc.org', 'https://rpc.payload.de', 'https://eth.blockrazor.xyz'],
+        'rpc_urls': ["https://rpc.flashbots.net"],
         'symbol': 'ETH',
         'tx_url': "https://etherscan.io/tx/",
         'type': 'mainnet'

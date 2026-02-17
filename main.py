@@ -88,6 +88,7 @@ from modules.sol.eclipse_get_balances import eclipse_balance_checker
 from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.neura.menu import neura_menu
+from modules.pharos.menu import pharos_menu
 from modules.eth.transfer_wallets_to_wallets import process_wallets_transfer, get_proxy_list
 
 mainnet_rpc_urls = get_mainnet_networks()
@@ -513,6 +514,8 @@ class MenuHandlers:
         
         if choice == 'neura':
             neura_menu()
+        elif choice == 'pharos':
+            pharos_menu()
     
     @staticmethod
     def handle_project_stats():

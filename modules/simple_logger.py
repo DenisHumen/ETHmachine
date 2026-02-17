@@ -9,16 +9,26 @@ logger.level("WARNING", color="<yellow>")
 logger.level("ERROR", color="<red>")
 logger.level("DEBUG", color="<white>")
 
+LOG_FORMAT = (
+    "<level>{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+    "{name}:{function}:{line} - {message}</level>"
+)
+
+LOG_FORMAT_FILE = (
+    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+    "{name}:{function}:{line} - {message}"
+)
+
 _handler_id = logger.add(
     sys.stderr,
-    format="<level>{time:HH:mm:ss} | {level: <8}| {message}</level>",
+    format=LOG_FORMAT,
     level="DEBUG",
     colorize=True
 )
 
 
 def log_wallet_task(wallet: str, index: int, total: int, message: str, status: str = "info"):
-    full_msg = f"[{wallet}] [{index}/{total}] - {message}"
+    full_msg = f"[{wallet}] [{index}/{total}] | {message}"
     
     if status == "success":
         logger.success(full_msg)
@@ -31,7 +41,7 @@ def log_wallet_task(wallet: str, index: int, total: int, message: str, status: s
 
 
 def log_task(index: int, total: int, message: str, status: str = "info"):
-    full_msg = f"[{index}/{total}] - {message}"
+    full_msg = f"[{index}/{total}] | {message}"
     
     if status == "success":
         logger.success(full_msg)
@@ -59,7 +69,7 @@ def log_simple(message: str, status: str = "info"):
 def setup_file_logging(log_file: str):
     logger.add(
         log_file,
-        format="{time:HH:mm:ss} | {level: <8} | {message}",
+        format=LOG_FORMAT_FILE,
         level="DEBUG",
         rotation="10 MB"
     )
