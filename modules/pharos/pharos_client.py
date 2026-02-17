@@ -17,8 +17,8 @@ from config.modules.cfg_pharos import (
     FAROSWAP_CAPTCHA_URL, FAROSWAP_WEBSITE_KEY,
     EXPLORER_URL,
 )
-from config.modules.cfg_base import DELAY_BETWEEN_ACTIONS
 from config.modules.cfg_base import RETRY_COUNT
+from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS as DELAY_BETWEEN_ACTIONS
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.captcha_solver import solve_turnstile
 from modules.pharos import pharos_logger as logger
