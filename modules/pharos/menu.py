@@ -8,8 +8,8 @@ from eth_account import Account
 
 from config.modules.cfg_pharos import (
     DELAY_BETWEEN_CYCLES, DELAY_BETWEEN_CYCLES_CHECKIN,
-    MAX_CONCURRENT_WALLETS,
 )
+from config.modules.cfg_base import NUM_THREADS
 from modules.pharos import database as db
 from modules.pharos import pharos_logger as logger
 from modules.pharos.worker import run_parallel, run_loop
@@ -61,11 +61,11 @@ def _ask_workers() -> int:
     """Запросить кол-во потоков."""
     try:
         raw = input(
-            f"  {Fore.WHITE}Макс. параллельных кошельков [{MAX_CONCURRENT_WALLETS}]: {Style.RESET_ALL}"
+            f"  {Fore.WHITE}Макс. параллельных кошельков [{NUM_THREADS}]: {Style.RESET_ALL}"
         ).strip()
-        return int(raw) if raw else MAX_CONCURRENT_WALLETS
+        return int(raw) if raw else NUM_THREADS
     except ValueError:
-        return MAX_CONCURRENT_WALLETS
+        return NUM_THREADS
 
 
 def _ask_cycle_params() -> tuple[tuple, int]:

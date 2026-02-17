@@ -11,7 +11,7 @@ CHAIN_ID = 688688
 EXPLORER_URL = "https://testnet.pharosscan.xyz/tx/"
 
 # Реферальный код
-REF_CODE = "8G8MJ3zGE5B7tJgP"
+REF_CODE = ""
 
 # FaroSwap Faucet (DODO API)
 FAROSWAP_FAUCET_URL = "https://api.dodoex.io/gas-faucet-server/faucet/claim"
@@ -52,17 +52,7 @@ HISTORICAL_TASK_IDS = [
 # Все ID для учёта в статистике (включая исторические)
 ALL_TASK_IDS = VERIFIABLE_TASK_IDS + FOLLOW_SUB_TASK_IDS + HISTORICAL_TASK_IDS
 
-# ========================================================================================
-# ЗАДЕРЖКИ (секунды)
-# ========================================================================================
-DELAY_BETWEEN_ACCOUNTS = (3, 8)                    # задержка между стартом аккаунтов
-DELAY_BETWEEN_ACTIONS = (2, 5)                      # задержка между действиями внутри аккаунта
 DELAY_BETWEEN_CYCLES = (43200, 44000)               # задержка между циклами (12ч по умолчанию)
 DELAY_BETWEEN_CYCLES_CHECKIN = (86400, 90000)       # задержка между циклами Check-in (24-25ч)
 REQUEST_TIMEOUT = 30
-
-# ========================================================================================
-# МНОГОПОТОЧНОСТЬ
-# ========================================================================================
-MAX_CONCURRENT_WALLETS = 20                          # макс. параллельных кошельков
 SHUFFLE_WALLETS = True                               # перемешивать порядок кошельков каждый цикл

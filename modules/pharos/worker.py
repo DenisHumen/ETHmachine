@@ -4,9 +4,10 @@ import random
 from datetime import datetime
 
 from config.modules.cfg_pharos import (
-    DELAY_BETWEEN_ACCOUNTS, DELAY_BETWEEN_CYCLES, DELAY_BETWEEN_CYCLES_CHECKIN,
-    MAX_CONCURRENT_WALLETS, SHUFFLE_WALLETS,
+    DELAY_BETWEEN_CYCLES, DELAY_BETWEEN_CYCLES_CHECKIN,
+    SHUFFLE_WALLETS,
 )
+from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.pharos.pharos_client import PharosClient
 from modules.pharos import database as db
@@ -65,7 +66,7 @@ async def run_parallel(mode: str, max_workers: int = None):
         random.shuffle(indexed_wallets)
         logger.log("Порядок кошельков перемешан", "info")
 
-    workers = max_workers or MAX_CONCURRENT_WALLETS
+    workers = max_workers or NUM_THREADS
     semaphore = asyncio.Semaphore(workers)
     proxy_mgr = PharosProxyManager()
 

@@ -13,9 +13,10 @@ from eth_account.messages import encode_defunct
 from fake_useragent import FakeUserAgent
 
 from config.modules.cfg_pharos import (
-    BASE_URL, DEFAULT_HEADERS, REQUEST_TIMEOUT, MAX_CONCURRENT_WALLETS, REF_CODE,
+    BASE_URL, DEFAULT_HEADERS, REQUEST_TIMEOUT, REF_CODE,
     ALL_TASK_IDS,
 )
+from config.modules.cfg_base import NUM_THREADS
 from config.modules.cfg_base import RETRY_COUNT
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.pharos import pharos_logger as logger
@@ -232,7 +233,7 @@ async def get_wallet_stats(
             return None
 
 
-async def collect_stats(wallets: list[dict], max_workers: int = MAX_CONCURRENT_WALLETS) -> list[dict]:
+async def collect_stats(wallets: list[dict], max_workers: int = NUM_THREADS) -> list[dict]:
     """Собрать статистику по всем кошелькам параллельно."""
     proxy_manager = PharosProxyManager()
     semaphore = asyncio.Semaphore(max_workers)

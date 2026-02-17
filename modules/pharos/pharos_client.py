@@ -14,9 +14,10 @@ from config.modules.cfg_pharos import (
     BASE_URL, DEFAULT_HEADERS, REF_CODE, REQUEST_TIMEOUT,
     VERIFIABLE_TASK_IDS, ALL_TASK_IDS, FOLLOW_SUB_TASK_IDS,
     FAROSWAP_FAUCET_URL, FAROSWAP_CHAIN_ID,
-    FAROSWAP_CAPTCHA_URL, FAROSWAP_WEBSITE_KEY, DELAY_BETWEEN_ACTIONS,
+    FAROSWAP_CAPTCHA_URL, FAROSWAP_WEBSITE_KEY,
     EXPLORER_URL,
 )
+from config.modules.cfg_base import DELAY_BETWEEN_ACTIONS
 from config.modules.cfg_base import RETRY_COUNT
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.captcha_solver import solve_turnstile
