@@ -176,13 +176,92 @@ def get_account_balances(bitget_api_key, bitget_api_secret, bitget_passphrase):
         
         response = requests.get(f"{base_url}{request_path}", timeout=10, headers=headers)
         data = response.json()
-        
+
         balances = {}
-        if data['code'] == '00000':
-            for item in data['data']:
-                if float(item['available']) > 0:
-                    balances[item['coinName']] = float(item['available'])
-        
+
+        # Flexible handling: Bitget responses may change structure/field names
+        if not data:
+            logger.debug("Empty response from Bitget balances API")
+            return {}
+
+        raw = data.get('data') if isinstance(data, dict) else None
+
+        # Try to normalize raw items into a list
+        items = []
+        if isinstance(raw, list):
+            items = raw
+        elif isinstance(raw, dict):
+            # Common wrappers
+            for k in ('list', 'assets', 'rows', 'coins'):
+                if k in raw and isinstance(raw[k], list):
+                    items = raw[k]
+                    break
+            else:
+                # Single-item dict -> wrap
+                items = [raw]
+        else:
+            # Fallback: try to use data directly if it's a list
+            if isinstance(data, list):
+                items = data
+
+        # Parse each item with tolerant field names
+        for item in items:
+            try:
+                # token name may be under several keys
+                token = None
+                for tkey in ('coinName', 'coin', 'currency', 'symbol'):
+                    token = item.get(tkey) if isinstance(item, dict) else None
+                    if token:
+                        break
+
+                # amount may be under several keys
+                amount = None
+                if isinstance(item, dict):
+                    for akey in ('available', 'availableAmt', 'availableAmount', 'free', 'balance', 'availableQty'):
+                        if akey in item and item[akey] not in (None, ''):
+                            try:
+                                amount = float(item[akey])
+                                break
+                            except Exception:
+                                # sometimes amount is nested or string with commas
+                                try:
+                                    amount = float(str(item[akey]).replace(',', ''))
+                                    break
+                                except Exception:
+                                    continue
+
+                if token and amount and amount > 0:
+                    balances[str(token)] = float(amount)
+            except Exception as ex:
+                logger.debug(f"Error parsing balance item: {ex} | item={item}")
+
+        if not balances:
+            logger.debug(f"No positive balances parsed from Bitget response: {data}")
+            # Fallback: try ccxt if available (API v1 deprecated on some accounts)
+            try:
+                import ccxt
+                logger.info("Falling back to ccxt.fetch_balance() for Bitget")
+                ex = getattr(ccxt, 'bitget')({
+                    'apiKey': bitget_api_key,
+                    'secret': bitget_api_secret,
+                    'password': bitget_passphrase
+                })
+                ex.enableRateLimit = True
+                bal = ex.fetch_balance()
+                free = bal.get('free') or bal.get('available') or {}
+                for tkn, amt in (free.items() if isinstance(free, dict) else []):
+                    try:
+                        a = float(amt)
+                        if a > 0:
+                            balances[str(tkn)] = a
+                    except Exception:
+                        continue
+                if balances:
+                    logger.info(f"Parsed balances via ccxt: {list(balances.keys())}")
+                    return balances
+            except Exception as ex_ccxt:
+                logger.debug(f"ccxt fallback failed: {ex_ccxt}")
+
         return balances
     except Exception as ex:
         logger.error(f'Error getting balances: {ex}')
@@ -390,18 +469,49 @@ def execute_bitget_withdraw(wallet: str, token: str, chain: str, amount: float,
         
         response = requests.post(f"{base_url}{request_path}", json=body, timeout=10, headers=headers)
         result = response.json()
-        
-        if result['code'] == '00000':
+        if isinstance(result, dict) and result.get('code') == '00000':
             logger.success(f"{wallet_prefix}Bitget withdraw success => {wallet} | {amount} {token}")
             return amount
-        else:
-            error = result.get('msg', 'Unknown error')
-            logger.error(f"{wallet_prefix}Bitget withdraw failed => {wallet} | error: {error}")
-            if retry < 3:
-                time.sleep(10)
-                return execute_bitget_withdraw(wallet, token, chain, amount, 
-                                              bitget_api_key, bitget_api_secret, bitget_passphrase, 
-                                              wallet_number, total_wallets, retry + 1)
+
+        # If API v1 is decommissioned or other error, try ccxt.withdraw() as fallback
+        error_msg = None
+        try:
+            if isinstance(result, dict):
+                error_msg = result.get('msg') or result.get('message') or str(result)
+            else:
+                error_msg = str(result)
+
+            logger.error(f"{wallet_prefix}Bitget withdraw failed => {wallet} | error: {error_msg}")
+
+            if 'V1 API' in (error_msg or '') or 'decommissioned' in (error_msg or ''):
+                try:
+                    import ccxt
+                    logger.info(f"{wallet_prefix}Falling back to ccxt.withdraw() for {token}")
+                    ex = getattr(ccxt, 'bitget')({
+                        'apiKey': bitget_api_key,
+                        'secret': bitget_api_secret,
+                        'password': bitget_passphrase
+                    })
+                    ex.enableRateLimit = True
+
+                    params = {'network': chain, 'chain': chain}
+                    withdraw_result = ex.withdraw(token, float(amount), wallet, None, params)
+                    logger.info(f"{wallet_prefix}ccxt.withdraw result: {withdraw_result}")
+                    # ccxt returns a dict with 'id' or similar on success
+                    if isinstance(withdraw_result, dict) and (withdraw_result.get('id') or withdraw_result.get('info')):
+                        logger.success(f"{wallet_prefix}Bitget withdraw success via ccxt => {wallet} | {amount} {token}")
+                        return amount
+                except Exception as ex_ccxt:
+                    logger.error(f"{wallet_prefix}ccxt withdraw fallback failed: {ex_ccxt}")
+
+        except Exception:
+            logger.exception("Error handling Bitget withdraw response")
+
+        if retry < 3:
+            time.sleep(10)
+            return execute_bitget_withdraw(wallet, token, chain, amount, 
+                                          bitget_api_key, bitget_api_secret, bitget_passphrase, 
+                                          wallet_number, total_wallets, retry + 1)
             
     except Exception as error:
         logger.error(f"{wallet_prefix}Bitget withdraw error => {wallet} | {error}")

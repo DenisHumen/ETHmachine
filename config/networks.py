@@ -26,7 +26,7 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Optimism': {
-        'rpc_urls': ['https://optimism.drpc.org'],
+        'rpc_urls': ['https://public-op-mainnet.fastnode.io'],
         'symbol': 'ETH',
         'tx_url': "https://optimistic.etherscan.io/tx/",
         'type': 'mainnet'
@@ -225,19 +225,23 @@ def is_mainnet_network(network_name):
 # Для совместимости со старым кодом создаем переменные
 
 # Старые переменные из rpc.py (для обратной совместимости)
-# L1 = NETWORKS['🚀 Ethereum Mainnet']['rpc_urls']
-# base = NETWORKS['🚀 Base']['rpc_urls']
-# arbitrum = NETWORKS['🚀 Arbitrum One']['rpc_urls']
-# optimism = NETWORKS['🚀 Optimism']['rpc_urls']
-# soneium = NETWORKS['🚀 Soneium']['rpc_urls']
-# Polygon = NETWORKS['🚀 Polygon']['rpc_urls']
-# Binance_Smart_Chain = NETWORKS['🚀 Binance Smart Chain']['rpc_urls']
-# Avalanche = NETWORKS['🚀 Avalanche']['rpc_urls']
-# Fantom = NETWORKS['🚀 Fantom']['rpc_urls']
-# Gravity_Alpha_Mainnet = NETWORKS['🚀 Gravity Alpha Mainnet (сеть Gravity )']['rpc_urls']
-# zora = NETWORKS['🚀 Zora']['rpc_urls']
-# Abstract = NETWORKS['🚀 Abstract']['rpc_urls']
-# somnia = NETWORKS['🚀 Somnia']['rpc_urls']
+# Backwards-compatible RPC variables (used by older modules)
+L1 = NETWORKS['🚀 Ethereum Mainnet']['rpc_urls']
+base = NETWORKS['🚀 Base']['rpc_urls']
+arbitrum = NETWORKS['🚀 Arbitrum One']['rpc_urls']
+optimism = NETWORKS['🚀 Optimism']['rpc_urls']
+soneium = NETWORKS['🚀 Soneium']['rpc_urls']
+Polygon = NETWORKS['🚀 Polygon']['rpc_urls']
+Binance_Smart_Chain = NETWORKS['🚀 Binance Smart Chain']['rpc_urls']
+Avalanche = NETWORKS['🚀 Avalanche']['rpc_urls']
+Fantom = NETWORKS['🚀 Fantom']['rpc_urls']
+Gravity_Alpha_Mainnet = NETWORKS['🚀 Gravity Alpha Mainnet (сеть Gravity )']['rpc_urls']
+zora = NETWORKS['🚀 Zora']['rpc_urls']
+Abstract = NETWORKS['🚀 Abstract']['rpc_urls']
+somnia = NETWORKS['🚀 Somnia']['rpc_urls']
+
+# Provide uppercase alias for Base
+BASE = base
 
 # sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
 # pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']

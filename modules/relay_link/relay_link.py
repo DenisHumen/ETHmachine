@@ -94,7 +94,8 @@ class RelayBridge:
             42170: NETWORKS['🚀 Arbitrum Nova']['rpc_urls'],  # Arbitrum Nova
             1868: NETWORKS['🚀 Soneium']['rpc_urls'],  # Soneium
             2741: NETWORKS['🚀 Abstract']['rpc_urls'],  # Abstract
-            169: NETWORKS['🚀 Manta Pacific Mainnet']['rpc_urls']  # Manta Pacific
+            169: NETWORKS['🚀 Manta Pacific Mainnet']['rpc_urls'],  # Manta Pacific
+            59144: NETWORKS['🚀 Linea']['rpc_urls']  # Linea
         }
         
         # Маппинг chain_id на названия сетей в explorer_url.py
@@ -107,7 +108,8 @@ class RelayBridge:
             42170: '🚀 Arbitrum Nova',
             1868: '🚀 Soneium',
             2741: '🚀 Abstract',
-            169: '🚀 Manta Pacific Mainnet'
+            169: '🚀 Manta Pacific Mainnet',
+            59144: '🚀 Linea'
         }
         
         # Кеш для Web3 подключений
@@ -1121,7 +1123,8 @@ class RelayBridge:
             8453: 'ethereum',   # Base - ETH
             42161: 'ethereum',   # Arbitrum - ETH
             169: 'ethereum',   # Manta Pacific - ETH
-            42170: 'ethereum'  # Arbitrum Nova - ETH
+            42170: 'ethereum',  # Arbitrum Nova - ETH
+            59144: 'ethereum'  # Linea - ETH
         }
         
         coingecko_id = coingecko_ids.get(chain_id, 'ethereum')
@@ -1174,7 +1177,8 @@ class RelayBridge:
             137: 0.5,     # MATIC
             8453: 3000.0, # ETH на Base
             42161: 3000.0, # ETH on Arbitrum
-            42170: 3000.0  # ETH on Arbitrum Nova
+            42170: 3000.0,  # ETH on Arbitrum Nova
+            59144: 3000.0  # ETH on Linea
         }
         return fallback_prices.get(chain_id, 3000.0)
     

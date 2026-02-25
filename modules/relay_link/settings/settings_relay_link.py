@@ -44,6 +44,11 @@ TOKEN_ADDRESSES = {
     },
     169: {  # Manta Pacific Mainnet
         "ETH": "0x0000000000000000000000000000000000000000"
+    },
+    59144: {  # Linea
+        "ETH": "0x0000000000000000000000000000000000000000",
+        "USDT": "0xA219439258ca9da29E9Cc4cE5596924745e12B93",
+        "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff"
     }
 }
 
@@ -57,7 +62,8 @@ NETWORK_MAPPING = {
     'arbitrum_nova': 42170,
     'soneium': 1868,
     'abstract': 2741,
-    'manta_pacific': 169
+    'manta_pacific': 169,
+    'linea': 59144
 }
 
 # Reverse mapping для получения названия по ID
@@ -118,6 +124,12 @@ NETWORK_SETTINGS = {
         "native_symbol": "ETH",
         "decimals": 18,
         "min_native_balance": 0.00004
+    },
+    59144: {
+        "name": "Linea",
+        "native_symbol": "ETH",
+        "decimals": 18,
+        "min_native_balance": 0.005
     }
 }
 
@@ -157,6 +169,14 @@ NETWORK_PAIR_MINIMUMS = {
     (42170, 1): {"ETH": 0.005},
     (42170, 10): {"ETH": 0.005},
     (10, 42170): {"ETH": 0.005},
+    (59144, 1): {"ETH": 0.005},
+    (1, 59144): {"ETH": 0.01},
+    (59144, 10): {"ETH": 0.005},
+    (10, 59144): {"ETH": 0.005},
+    (59144, 8453): {"ETH": 0.000005},
+    (8453, 59144): {"ETH": 0.000005},
+    (59144, 42161): {"ETH": 0.005},
+    (42161, 59144): {"ETH": 0.005},
 }
 
 # Настройки времени ожидания
