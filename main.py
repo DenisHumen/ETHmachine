@@ -15,7 +15,6 @@ from questionary import Choice, select
 
 from config.networks import get_mainnet_networks, get_testnet_networks
 from config.modules.cfg_backup import DISPLAY_LIST_BACKUPS
-from config.modules.cfg_transfer import USE_INTERMEDIARY, expected_completion_time
 from config.menu_config import (
     MAIN_MENU_CONFIG, MENU_ITEMS, 
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
@@ -89,7 +88,7 @@ from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.neura.menu import neura_menu
 from modules.pharos.menu import pharos_menu
-from modules.eth.transfer_wallets_to_wallets import process_wallets_transfer, get_proxy_list
+from modules.eth.transfer_wallets_to_wallets import run_transfer
 
 mainnet_rpc_urls = get_mainnet_networks()
 testnet_rpc_urls = get_testnet_networks()
@@ -120,8 +119,6 @@ def check_and_create_files():
         'config/cex_settings.py',
         'data/transfer_token.csv',
         'data/mnemonic.txt',
-        'db/transfer_progress.json',
-        'data/one_time_intermediary.csv',
         'data/private_keys.txt',
         'data/twitter/twitters.csv',
         'data/twitter/twitter_task.csv',
@@ -162,9 +159,7 @@ def _write_default_file_content(f, file_path: str):
     elif 'cex_settings.py' in file_path:
         f.write(_get_default_cex_settings())
     elif 'transfer_token.csv' in file_path:
-        f.write('from_wallet,to_wallet,intermediary,amount\n')
-    elif 'one_time_intermediary.csv' in file_path:
-        f.write('mnemonic,wallet_address,private_key,status\n')
+        f.write('from_wallet,to_wallet,amount\n')
     elif 'data/twitter/twitters.csv' in file_path:
         f.write('nickname,auth_token,ct0,proxy\n')
     elif 'data/twitter/twitter_task.csv' in file_path:
@@ -364,10 +359,11 @@ class MenuHandlers:
     @staticmethod
     def _handle_transfer_wallets():
         """Обработчик перевода между кошельками"""
-        print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
-        print(Fore.YELLOW + f"Пример: Приватник откуда, Приватник конечный получатель, Приватник посредник, количество в процентах от баланса (например 10-15 для рандомного выбора между 10% и 15% от баланса)\n")
-        print(Fore.YELLOW + "C посредника будет отправленно 100% от баланса")
-        
+        print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,amount")
+        print(Fore.YELLOW + f"from_wallet — приватный ключ отправителя")
+        print(Fore.YELLOW + f"to_wallet — адрес или приватный ключ получателя (определяется автоматически)")
+        print(Fore.YELLOW + f"amount — '90-100' или '90-100%' для процентов, 0.1-0.2 для суммы в нативном токене\n")
+
         network_type = show_menu(
             "Select network type:",
             [
@@ -376,24 +372,24 @@ class MenuHandlers:
                 Choice('🔙 Back', 'back')
             ]
         )
-        
+
         if network_type == 'back':
             return
-        
+
         network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
         network = show_menu(
             "Which network do you want to use for transfer?",
             [Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')]
         )
-        
+
         if network == 'back':
             return
-        
+
         transfer_data = MenuHandlers._load_transfer_data()
         if not transfer_data:
             return
-        
-        MenuHandlers._execute_transfer(transfer_data, network)
+
+        run_transfer(transfer_data, network)
     
     @staticmethod
     def _load_transfer_data() -> list:
@@ -403,81 +399,16 @@ class MenuHandlers:
             with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if USE_INTERMEDIARY:
-                        if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
-                            transfer_data.append(row)
-                    else:
-                        if row['from_wallet'] and row['to_wallet'] and row['amount']:
-                            if 'intermediary' not in row:
-                                row['intermediary'] = ''
-                            transfer_data.append(row)
+                    if row.get('from_wallet') and row.get('to_wallet') and row.get('amount'):
+                        transfer_data.append(row)
         except Exception as e:
             print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
             return []
-        
+
         if not transfer_data:
-            if USE_INTERMEDIARY:
-                print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv или не заполнено поле посредника (intermediary).")
-            else:
-                print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv.")
-        
+            print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv.")
+
         return transfer_data
-    
-    @staticmethod
-    def _execute_transfer(transfer_data: list, network: str):
-        """Выполняет перевод"""
-        db_dir = "db"
-        if not os.path.exists(db_dir):
-            os.makedirs(db_dir)
-        progress_file = os.path.join(db_dir, "transfer_progress.json")
-        
-        start_idx, completed_txs = MenuHandlers._load_progress(progress_file)
-        
-        if os.path.exists(progress_file) and start_idx > 0:
-            resume = show_menu(
-                "Обнаружен файл прогресса. Продолжить с места остановки или начать сначала?",
-                [
-                    Choice("▶️ Продолжить", "resume"),
-                    Choice("🔄 Начать сначала", "restart"),
-                    Choice("❌ Отмена", "cancel")
-                ]
-            )
-            
-            if resume == "cancel":
-                return
-            elif resume == "restart":
-                start_idx, completed_txs = 0, 0
-                try:
-                    os.remove(progress_file)
-                except Exception:
-                    pass
-        else:
-            with open(progress_file, "w", encoding="utf-8") as pf:
-                json.dump({"last_idx": 0, "completed_txs": 0}, pf)
-        
-        proxies = get_proxy_list()
-        total_tx = len(transfer_data) * 2
-        total_seconds = expected_completion_time
-        delay_between = total_seconds / (total_tx - 1) if total_tx > 1 else 0
-        
-        process_wallets_transfer(
-            transfer_data, proxies, network, delay_between, total_tx,
-            progress_file=progress_file, start_idx=start_idx, completed_txs=completed_txs
-        )
-    
-    @staticmethod
-    def _load_progress(progress_file: str) -> tuple:
-        """Загружает прогресс из файла"""
-        start_idx, completed_txs = 0, 0
-        if os.path.exists(progress_file):
-            try:
-                with open(progress_file, "r", encoding="utf-8") as pf:
-                    progress_data = json.load(pf)
-                    start_idx = progress_data.get("last_idx", 0)
-                    completed_txs = progress_data.get("completed_txs", 0)
-            except Exception:
-                pass
-        return start_idx, completed_txs
     
     # -------------------------------------------------------------------------
     # TWITTER

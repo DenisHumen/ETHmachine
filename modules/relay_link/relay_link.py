@@ -284,23 +284,20 @@ class RelayBridge:
             original_amount = balance * (percent / 100.0)
             amount = original_amount
             
-            # Резерв на газ: уменьшаем предыдущую стратегию в 2.5 раза и
-            # добавляем целевой USD-резерв ~ $0.05 (переводим в ETH по курсу)
-            GAS_RESERVE_FACTOR = 2.5
-            TARGET_GAS_USD = 0.05
-            # По умолчанию используем усечённую версию старой формулы
-            fallback_reserve = max(0.0001 / GAS_RESERVE_FACTOR, balance * 0.001 / GAS_RESERVE_FACTOR)
-            gas_reserve = fallback_reserve
+            # Резерв на газ: получаем реальную стоимость через RPC
+            gas_reserve = 0.0
             try:
-                # Попробуем получить цену нативного токена в USDT и вычислить ETH эквивалент TARGET_GAS_USD
-                price_usd = self._get_native_token_price_in_usdt(from_chain_id)
-                if price_usd and price_usd > 0:
-                    dynamic_min = TARGET_GAS_USD / price_usd
-                    # Неизменяем размер меньше минимально возможного эфира
-                    gas_reserve = max(dynamic_min, fallback_reserve, 0.0000001)
+                web3_temp = self._get_web3_connection(from_chain_id)
+                if web3_temp:
+                    current_gas_price = web3_temp.eth.gas_price
+                    # Bridge tx ~150k gas, * gas_price * 1.5 для запаса
+                    gas_reserve_wei = 150000 * int(current_gas_price * 1.5)
+                    gas_reserve = gas_reserve_wei / 10**18
             except Exception:
-                # В случае ошибки используем fallback_reserve
-                gas_reserve = fallback_reserve
+                pass
+            # Fallback если не удалось
+            if gas_reserve < 0.0000001:
+                gas_reserve = max(0.00001, balance * 0.001)
             
             # Если сумма + газ превышает баланс, уменьшаем до (баланс - резерв газа)
             adjusted = False
@@ -706,15 +703,20 @@ class RelayBridge:
             # Финальная транзакция
             if supports_eip1559:
                 # EIP-1559 транзакция (Type 2)
-                
-                # Получаем базовую комиссию
+
+                # Получаем актуальный gas_price от ноды (уже включает base + priority)
+                current_gas_price = web3.eth.gas_price
                 latest_block = web3.eth.get_block('latest')
                 base_fee = latest_block.baseFeePerGas
-                
-                # Устанавливаем разумные значения для Optimism
-                max_priority_fee_per_gas = web3.to_wei('0.001', 'gwei')  # 0.001 gwei tip для L2
-                max_fee_per_gas = base_fee + max_priority_fee_per_gas
-                
+
+                # maxPriorityFee: разница между рекомендуемым gas_price и base_fee, минимум 0.001 gwei
+                max_priority_fee_per_gas = max(
+                    current_gas_price - base_fee,
+                    web3.to_wei('0.001', 'gwei')
+                )
+                # maxFeePerGas: gas_price + priority для запаса на рост base_fee
+                max_fee_per_gas = current_gas_price + max_priority_fee_per_gas
+
                 final_transaction = {
                     'to': Web3.to_checksum_address(tx_data['to']),
                     'data': tx_data.get('data', '0x'),

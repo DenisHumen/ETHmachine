@@ -3,11 +3,11 @@ from loguru import logger
 
 logger.remove()
 
-logger.level("INFO", color="<cyan>")
+logger.level("INFO", color="<white>")
 logger.level("SUCCESS", color="<green>")
 logger.level("WARNING", color="<yellow>")
 logger.level("ERROR", color="<red>")
-logger.level("DEBUG", color="<white>")
+logger.level("DEBUG", color="<cyan>")
 
 LOG_FORMAT = (
     "<level>{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
