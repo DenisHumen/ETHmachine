@@ -425,7 +425,9 @@ def _process_single_transfer(
             balance_eth = float(w3.from_wei(balance, "ether"))
 
             if balance == 0:
-                raise ValueError(f"Нулевой баланс на {_short_addr(from_address)}")
+                logger.warning(f"{prefix} ⚠️ Нулевой баланс на {_short_addr(from_address)} — пропускаем")
+                _update_task(task_id, status="insufficient_balance", error_message="Нулевой баланс")
+                return False
 
             # --- Parse amount ---
             amount_type, lo, hi = _parse_amount(amount_raw)
@@ -484,10 +486,13 @@ def _process_single_transfer(
             if send_value + total_reserved > balance:
                 send_value = balance - total_reserved
                 if send_value <= 0:
-                    raise ValueError(
+                    err = (
                         f"Недостаточно средств: баланс {balance_eth:.8f} {symbol}, "
                         f"комиссия ~{float(w3.from_wei(gas_cost, 'ether')):.8f} {symbol}"
                     )
+                    logger.warning(f"{prefix} ⚠️ {err} — пропускаем")
+                    _update_task(task_id, status="insufficient_balance", error_message=err)
+                    return False
                 logger.warning(
                     f"{prefix} ⚠️ Сумма скорректирована с учётом газа: "
                     f"{float(w3.from_wei(send_value, 'ether')):.8f} {symbol}"
@@ -713,6 +718,15 @@ def run_transfer(transfer_data: List[Dict], network: str):
     print(Fore.CYAN + f"  📋 Задач к выполнению: {total} из {all_tasks_total}")
     print(Fore.CYAN + f"  🧵 Потоков: {min(NUM_THREADS, total)}")
     print(Fore.CYAN + f"  ⏱️  Задержка между потоками: {DELAY_BETWEEN_ACCOUNTS[0]}-{DELAY_BETWEEN_ACCOUNTS[1]}с")
+    min_time_sec = total * DELAY_BETWEEN_ACCOUNTS[0]
+    max_time_sec = total * DELAY_BETWEEN_ACCOUNTS[1]
+    def _fmt_time(sec):
+        h, rem = divmod(int(sec), 3600)
+        m, s = divmod(rem, 60)
+        if h > 0:
+            return f"{h}ч {m}мин"
+        return f"{m}мин {s}с"
+    print(Fore.CYAN + f"  🕐 Примерное время: {_fmt_time(min_time_sec)} — {_fmt_time(max_time_sec)}")
     print(Fore.CYAN + "═" * 60)
     print()
 

@@ -474,29 +474,26 @@ class ConfigValidator:
                     self.warnings.append("⚠️ Пустой файл data/transfer_token.csv")
                     return
                 
-                start_idx = 1 if lines and lines[0] == ['from_wallet', 'to_wallet', 'intermediary', 'amount'] else 0
-                
+                start_idx = 1 if lines and lines[0] == ['from_wallet', 'to_wallet', 'amount'] else 0
+
                 data_lines = 0
                 for i, row in enumerate(lines[start_idx:], start_idx + 1):
                     if not row or not any(cell.strip() for cell in row):
                         continue
-                        
+
                     data_lines += 1
-                    if len(row) != 4:
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: ожидается 4 колонки (from_wallet,to_wallet,intermediary,amount), найдено {len(row)}")
+                    if len(row) != 3:
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: ожидается 3 колонки (from_wallet,to_wallet,amount), найдено {len(row)}")
                         continue
-                    
-                    from_wallet, to_wallet, intermediary, amount = [cell.strip() for cell in row]
-                    
+
+                    from_wallet, to_wallet, amount = [cell.strip() for cell in row]
+
                     if not self._is_valid_private_key(from_wallet):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: from_wallet должен быть приватным ключом")
-                    
-                    if not self._is_valid_eth_address(to_wallet):
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: to_wallet должен быть публичным ETH адресом")
-                    
-                    if intermediary and not self._is_valid_private_key(intermediary):
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: intermediary должен быть приватным ключом или пустым")
-                    
+
+                    if not self._is_valid_private_key(to_wallet) and not self._is_valid_eth_address(to_wallet):
+                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: to_wallet должен быть приватным ключом или публичным ETH адресом")
+
                     if not self._is_valid_amount_format(amount):
                         self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: некорректный формат amount (ожидается: 1-2, 1-2eth, или 1-2%)")
                 
