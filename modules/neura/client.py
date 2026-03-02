@@ -329,6 +329,11 @@ class NeuraClient:
             logger.success(f"[{self.wallet_address}] Pulse {pulse_id} has been successfully collected!")
             return True
         
+        if status == 429:
+            # Rate limit — сигнал для экспоненциального backoff
+            self._last_error = f"collect_pulse failed, status=429, response={response_json}"
+            return None  # type: ignore
+        
         self._last_error = f"collect_pulse failed, status={status}, response={response_json}"
         return False
     
@@ -372,9 +377,15 @@ class NeuraClient:
                             logger.info(f"[{self.wallet_address}] Pulse {pulse_obj.id} already collected, skipping...")
                             break
                     
-                    if await self._collect_pulse(pulse_obj.id):
+                    result = await self._collect_pulse(pulse_obj.id)
+                    if result is True:
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
+                    elif result is None:
+                        # 429 Rate limit — экспоненциальный backoff: 5s, 10s, 20s, ...
+                        wait_time = 5 * (2 ** attempt) + random.uniform(0, 3)
+                        logger.warning(f"[{self.wallet_address}] Failed to collect pulse {pulse_obj.id}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}, waiting {wait_time:.1f}s (rate limit backoff)")
+                        await asyncio.sleep(wait_time)
                     else:
                         logger.warning(f"[{self.wallet_address}] Failed to collect pulse {pulse_obj.id}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
@@ -417,6 +428,16 @@ class NeuraClient:
             logger.success(f"[{self.wallet_address}] Successfully claimed {name} task and earned {points} points!")
             return True
         
+        if status == 409:
+            # Задача уже обрабатывается сервером — нужно подождать дольше
+            self._last_error = f"claim_task conflict (409): task is being processed"
+            return None  # type: ignore  # специальный сигнал: нужна длинная пауза
+        
+        if status in (502, 503, 504):
+            # Временная недоступность сервера
+            self._last_error = f"claim_task server error (status={status})"
+            return None  # type: ignore  # специальный сигнал: нужна длинная пауза
+        
         self._last_error = f"claim_task failed, status={status}, response={response_json}"
         return False
     
@@ -457,9 +478,15 @@ class NeuraClient:
                             logger.info(f"[{self.wallet_address}] Task {task_name} already claimed, skipping...")
                             break
                     
-                    if await self._claim_task(task_id):
+                    result = await self._claim_task(task_id)
+                    if result is True:
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
                         break
+                    elif result is None:
+                        # 409 или 5xx — ждём дольше и повторяем
+                        wait_time = random.uniform(10, 20)
+                        logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, waiting {wait_time:.1f}s before attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
+                        await asyncio.sleep(wait_time)
                     else:
                         logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))

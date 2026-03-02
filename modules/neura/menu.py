@@ -128,6 +128,15 @@ async def process_wallet_task(
                 
                 if task_type == 'collect_pulses':
                     user_data = await client.get_user()
+                    
+                    if user_data is None:
+                        last_error = client._last_error or "Failed to get user data"
+                        logger.warning(f"[{wallet_address}] Не удалось получить данные пользователя: {last_error}, retry {attempt + 1}/{RETRY_COUNT}...")
+                        if all_proxies and len(all_proxies) > 1:
+                            current_proxy = random.choice([p for p in all_proxies if p != current_proxy] or all_proxies)
+                        await asyncio.sleep(random.uniform(5, 10))
+                        continue
+                    
                     uncollected_count = 0
                     if client.user_data and client.user_data.pulses:
                         uncollected_count = len([p for p in client.user_data.pulses.data if not p.is_collected])
