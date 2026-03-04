@@ -180,6 +180,7 @@ BALANCES_SUBMENU = SubMenu(
         MenuItem(key='ETH', label='ETH', description='Ethereum и EVM сети', icon='💲', enabled=True),
         MenuItem(key='SOL', label='SOL', description='Solana', icon='💲', enabled=True),
         MenuItem(key='Eclipse', label='Eclipse', description='Eclipse Network', icon='💲', enabled=True),
+        MenuItem(key='debank_checker', label='DeBank Checker', description='Проверка всех балансов через DeBank', icon='🏦', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )
