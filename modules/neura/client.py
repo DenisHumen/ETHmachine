@@ -484,9 +484,15 @@ class NeuraClient:
                         break
                     elif result is None:
                         # 409 или 5xx — ждём дольше и повторяем
-                        wait_time = random.uniform(10, 20)
-                        logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, waiting {wait_time:.1f}s before attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
-                        await asyncio.sleep(wait_time)
+                        # Если таск связан с пульсами — пробуем сначала собрать пульсы
+                        if 'pulse' in task_name.lower():
+                            logger.info(f"[{self.wallet_address}] Task '{task_name}' requires all pulses collected. Attempting to collect pulses first...")
+                            await self.collect_pulses()
+                            await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+                        else:
+                            wait_time = random.uniform(10, 20)
+                            logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, waiting {wait_time:.1f}s before attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
+                            await asyncio.sleep(wait_time)
                     else:
                         logger.warning(f"[{self.wallet_address}] Failed to claim task {task_name}: {self._last_error}, attempt {attempt + 1}/{NEURA_MAX_RETRIES_PER_TASK}")
                         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))

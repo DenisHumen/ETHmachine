@@ -22,6 +22,8 @@ log/*
 data/discord_token.txt
 db/*
 data/email.csv
+.claude
+.playwright-mcp
 
 # PyArmor backup files (original unencrypted versions)
 *.backup

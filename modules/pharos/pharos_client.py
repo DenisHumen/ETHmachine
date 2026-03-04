@@ -362,6 +362,12 @@ class PharosClient:
         local_completed = db.get_completed_quests(self.address)
         all_completed = completed_ids.union(set(local_completed))
 
+        # API никогда не возвращает 205 в completed — считаем выполненным,
+        # если все суб-квесты (301-304) уже завершены
+        all_subs_done = all(tid in all_completed for tid in FOLLOW_SUB_TASK_IDS)
+        if all_subs_done:
+            all_completed.add(205)
+
         # --- Шаг 1: Follow (проклацать) суб-квесты ---
         follow_ids = [201] + FOLLOW_SUB_TASK_IDS
         follow_needed = [tid for tid in follow_ids if tid not in all_completed]
