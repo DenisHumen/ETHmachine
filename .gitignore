@@ -24,6 +24,9 @@ db/*
 data/email.csv
 .claude
 .playwright-mcp
+.venv
+__pycache__
+.github
 
 # PyArmor backup files (original unencrypted versions)
 *.backup

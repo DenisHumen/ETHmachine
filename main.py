@@ -5,6 +5,12 @@ import csv
 import platform
 import sys
 
+# Проверка зависимостей (только stdlib — работает на чистом Python)
+from modules.requirements_checker import check_requirements
+if not check_requirements():
+    input("\nНажмите Enter для выхода...")
+    sys.exit(1)
+
 # Импортируем центральный логгер ПЕРВЫМ - он настраивает все цвета
 from modules.simple_logger import logger
 
@@ -257,8 +263,6 @@ def print_welcome_message():
         + Fore.MAGENTA + "https://github.com/DenisHumen"
         + Fore.GREEN + "\n Steam  🌟 - "
         + Fore.MAGENTA + "https://steamcommunity.com/id/Krokosha/"
-        + Fore.GREEN + "\n Web    🌟 - "
-        + Fore.MAGENTA + "https://krokosha.xyz/"
         + Fore.GREEN + "\n\n"
     )
 
