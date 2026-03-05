@@ -1,7 +1,7 @@
 """
 DeBank Protocol Checker
 Проверка DeFi-позиций (стейкинг, лендинг, locked, LP и т.д.) через DeBank
-Использует Playwright для перехвата complex_protocol_list API
+Использует Playwright для перехвата portfolio/project_list API
 """
 
 import csv
@@ -42,7 +42,7 @@ MAX_CONCURRENT = NUM_THREADS
 
 
 def parse_protocol_data(data) -> list:
-    """Парсинг DeFi-позиций из API ответа complex_protocol_list"""
+    """Парсинг DeFi-позиций из API ответа portfolio/project_list"""
     positions = []
 
     if isinstance(data, dict) and 'data' in data:
@@ -60,7 +60,7 @@ def parse_protocol_data(data) -> list:
             continue
 
         protocol_name = protocol.get('name', 'Unknown')
-        protocol_id = protocol.get('id', '')
+        protocol_id = protocol.get('id', protocol.get('dao_id', ''))
         chain = protocol.get('chain', '')
 
         portfolio_items = protocol.get('portfolio_item_list', [])
@@ -76,6 +76,9 @@ def parse_protocol_data(data) -> list:
             detail = item.get('detail', {}) or {}
             net_usd = stats.get('net_usd_value', 0) or 0
             asset_usd = stats.get('asset_usd_value', 0) or 0
+
+            # Description (veSONUS#373014, UB-WETH и т.д.)
+            description = detail.get('description', '') or ''
 
             # Unlock time (для locked позиций)
             unlock_time = ''
@@ -99,7 +102,13 @@ def parse_protocol_data(data) -> list:
             if 'health_rate' in detail:
                 hr = detail['health_rate']
                 if hr is not None:
-                    health_rate = f">{hr}" if isinstance(hr, (int, float)) and hr > 0 else str(hr)
+                    # Очень большие значения (>1e10) показываем как ">10"
+                    if isinstance(hr, (int, float)) and hr > 1e10:
+                        health_rate = '>10'
+                    elif isinstance(hr, (int, float)) and hr > 0:
+                        health_rate = f">{hr:.2f}"
+                    else:
+                        health_rate = str(hr)
 
             # Supply tokens
             supply_tokens = detail.get('supply_token_list', []) or []
@@ -120,7 +129,17 @@ def parse_protocol_data(data) -> list:
                 price = token.get('price', 0) or 0
                 value_usd = float(amount) * float(price)
 
-                balance_token = f"{float(amount):.4f} {symbol}"
+                # Адаптивное форматирование: больше знаков для малых сумм
+                amt = float(amount)
+                if amt >= 1:
+                    balance_token = f"{amt:.4f} {symbol}"
+                elif amt >= 0.0001:
+                    balance_token = f"{amt:.8f} {symbol}"
+                else:
+                    balance_token = f"{amt:.12f} {symbol}"
+
+                # Pool name: description если есть (veSONUS#373014), иначе symbol
+                pool_name = description if description else symbol
 
                 # Extra data: rewards, debt
                 extra = {}
@@ -142,7 +161,7 @@ def parse_protocol_data(data) -> list:
                     'protocol_id': protocol_id,
                     'chain': chain,
                     'position_type': position_type,
-                    'pool_name': symbol,
+                    'pool_name': pool_name,
                     'balance': float(amount),
                     'balance_token': balance_token,
                     'value_usd': value_usd,
@@ -168,12 +187,12 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                 try:
                     page = await browser.new_page()
 
-                    # Перехват API ответа complex_protocol_list
+                    # Перехват API ответа portfolio/project_list
                     protocol_data = {}
 
                     async def handle_response(response):
                         url = response.url
-                        if 'api.debank.com' in url and 'complex_protocol_list' in url:
+                        if 'api.debank.com' in url and 'portfolio/project_list' in url:
                             try:
                                 body = await response.json()
                                 protocol_data['protocols'] = body
@@ -305,7 +324,7 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     if not proxies:
-        console.print("[yellow]⚠️ Прокси не найдены, запросы пойдут напрямую[/yellow]")
+        console.print("[yellow][!] Прокси не найдены, запросы пойдут напрямую[/yellow]")
 
     delay_min, delay_max = DELAY_BETWEEN_ACCOUNTS
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно)", "INFO"))
@@ -385,50 +404,116 @@ def process_wallets_protocols(wallets: list) -> dict:
     return asyncio.run(process_wallets_protocols_async(wallets))
 
 
+def _fmt_balance(val: float) -> str:
+    """Форматирование баланса без научной нотации"""
+    if val == 0:
+        return '0'
+    if val >= 1:
+        return f"{val:.4f}"
+    elif val >= 0.0001:
+        return f"{val:.8f}"
+    else:
+        return f"{val:.12f}"
+
+
+def _fmt_usd(val: float) -> str:
+    """Форматирование USD с адаптивной точностью"""
+    if val == 0:
+        return '0.00'
+    if val >= 0.01:
+        return f"{val:.2f}"
+    elif val >= 0.0001:
+        return f"{val:.6f}"
+    else:
+        return f"{val:.10f}"
+
+
+def _format_cell(p: dict) -> str:
+    """Форматирование ячейки позиции — вся ключевая инфа в одной строке"""
+    parts = []
+    parts.append(p['balance_token'])
+    parts.append(f"${_fmt_usd(p['value_usd'])}")
+
+    if p.get('unlock_time'):
+        parts.append(f"unlock:{p['unlock_time']}")
+    if p.get('health_rate'):
+        parts.append(f"health:{p['health_rate']}")
+
+    extra = p.get('extra_data')
+    if extra:
+        try:
+            data = json.loads(extra) if isinstance(extra, str) else extra
+            if isinstance(data, dict):
+                for key in ('rewards', 'borrows'):
+                    items = data.get(key, [])
+                    for item in items:
+                        sym = item.get('symbol', '?')
+                        amt = item.get('amount', 0)
+                        val = item.get('value_usd', 0)
+                        parts.append(f"{key[:-1]}:{_fmt_balance(amt)} {sym} (${_fmt_usd(val)})")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return ' | '.join(parts)
+
+
+def _make_column_key(p: dict) -> str:
+    """Создаёт уникальный ключ колонки из позиции"""
+    return f"{p['protocol_name']}|{p['chain']}|{p['position_type']}|{p['pool_name']}"
+
+
+def _make_column_header(key: str) -> str:
+    """Преобразует ключ в читаемый заголовок"""
+    parts = key.split('|')
+    return f"{parts[0]} [{parts[1]}] {parts[2]}: {parts[3]}"
+
+
 def save_protocols_csv(wallets: list):
-    """Экспорт DeFi-позиций в CSV"""
+    """Экспорт DeFi-позиций в CSV (wide format: один кошелёк — одна строка)"""
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
 
     all_protocols = get_all_protocols()
     if not all_protocols:
-        console.print("[yellow]⚠️ Нет данных о протоколах для экспорта[/yellow]")
+        console.print("[yellow][!] Нет данных о протоколах для экспорта[/yellow]")
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = result_dir / f"debank_protocols_{timestamp}.csv"
 
+    wallet_positions = {}
+    all_columns = []
+    seen_columns = set()
+
+    for p in all_protocols:
+        w = p['wallet_address']
+        col_key = _make_column_key(p)
+
+        if col_key not in seen_columns:
+            seen_columns.add(col_key)
+            all_columns.append(col_key)
+
+        wallet_positions.setdefault(w, {})[col_key] = _format_cell(p)
+
+    all_wallets = list(dict.fromkeys(
+        [w for w in wallets if w in wallet_positions] +
+        [w for w in wallet_positions if w not in wallets]
+    ))
+
+    headers = ['wallet'] + [_make_column_header(c) for c in all_columns]
+
     with open(filepath, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow([
-            'wallet', 'protocol', 'chain', 'position_type', 'pool',
-            'balance', 'balance_token', 'value_usd', 'unlock_time', 'health_rate', 'extra_data'
-        ])
+        writer.writerow(headers)
 
-        # Порядок из wallets, потом остальные
-        written_wallets = set()
-        for wallet in wallets:
-            rows = [p for p in all_protocols if p['wallet_address'] == wallet]
-            for p in rows:
-                writer.writerow([
-                    p['wallet_address'], p['protocol_name'], p['chain'],
-                    p['position_type'], p['pool_name'], p['balance'],
-                    p['balance_token'], f"{p['value_usd']:.2f}",
-                    p['unlock_time'], p['health_rate'], p['extra_data']
-                ])
-            if rows:
-                written_wallets.add(wallet)
+        for wallet in all_wallets:
+            positions = wallet_positions.get(wallet, {})
+            row = [wallet]
+            for col_key in all_columns:
+                row.append(positions.get(col_key, '0'))
+            writer.writerow(row)
 
-        for p in all_protocols:
-            if p['wallet_address'] not in written_wallets:
-                writer.writerow([
-                    p['wallet_address'], p['protocol_name'], p['chain'],
-                    p['position_type'], p['pool_name'], p['balance'],
-                    p['balance_token'], f"{p['value_usd']:.2f}",
-                    p['unlock_time'], p['health_rate'], p['extra_data']
-                ])
-
-    console.print(f"[green]💾 Протоколы сохранены: {filepath}[/green]")
+    console.print(f"[green][v] Протоколы сохранены: {filepath}[/green]")
     return filepath
 
 
@@ -546,7 +631,7 @@ def debank_protocol_menu():
 
     pending_tasks = get_pending_protocol_tasks()
     if not pending_tasks:
-        console.print("[yellow]⚠️ Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
+        console.print("[yellow][!] Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
         save_protocols_csv(wallets)
         return
 
