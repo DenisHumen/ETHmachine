@@ -16,154 +16,93 @@
 
 ## 📋 О проекте
 
-**ETHmachine** — мощный комплексный инструмент для автоматизации работы с криптовалютными кошельками, биржами, социальными сетями и утилитами для крипто-проектов. Поддерживает 50+ блокчейн-сетей, интеграцию с CEX, Twitter-автоматизацию, генерацию кошельков, управление балансами и многое другое.
-
-## ⚡ Ключевые возможности
-
-- 🔐 Генерация кошельков ETH/SOL с поддержкой "красивых" адресов
-- 💰 Проверка балансов (нативные токены и ERC20/SPL)
-- 🔄 Транзакции между кошельками и bridging через Relay
-- 🏦 Интеграция с CEX: OKX, Binance, Bitget, MEXC (вывод, субаккаунты, торговля)
-- 🐦 Twitter-автоматизация: проверка, сбор данных, выполнение заданий с базой данных
-- 💾 Автоматическое резервное копирование (локальное + SFTP)
-- 🛠️ Утилиты: проверка прокси, генераторы паролей/никнеймов/имён, проверка email через IMAP
-- 📊 Детальное логирование всех операций
+**ETHmachine** — комплексный инструмент для автоматизации работы с криптовалютными кошельками, биржами, социальными сетями и утилитами для крипто-проектов. Поддерживает 50+ блокчейн-сетей, интеграцию с CEX, Twitter-автоматизацию, генерацию кошельков, управление балансами и многое другое.
 
 ## 🚀 Установка
 
 ### Требования
-- Python 3.10 или выше
+- Python 3.10+
 - Git
 
-### Шаги установки
+```bash
+git clone https://github.com/DenisHumen/ETHmachine
+cd ETHmachine
+python main.py
+```
 
-1. **Клонируйте репозиторий:**
-   ```bash
-   git clone https://github.com/DenisHumen/ETHmachine
-   cd ETHmachine
-   ```
-
-2. **Установите зависимости:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Запустите программу:**
-   ```bash
-   python main.py
-   ```
+Зависимости установятся автоматически при первом запуске.
 
 ## 📚 Доступные модули
 
-### 🐦 Twitter Automation
-- **Twitter Check** — Проверка валидности аккаунтов Twitter
-- **Twitter Info** — Получение детальной информации о Twitter-аккаунтах
-- **Twitter Tasks** — Автоматическое выполнение заданий (лайки, репосты, комментарии) с сохранением прогресса в БД
+### 💲 Balances
+- **ETH Balances** — проверка балансов нативных токенов и ERC20 в EVM-сетях
+- **SOL Balances** — проверка балансов SOL и SPL токенов
+- **Eclipse Balances** — проверка балансов в сети Eclipse
+- **DeBank Checker** — мультичейн проверка всех токенов через DeBank (Playwright + API перехват)
+- **DeBank Protocols** — сбор DeFi-позиций: стейкинг, лендинг, locked, LP через DeBank
 
-### 💼 Wallet Management
-- **ETH Wallet Generator** — Генерация Ethereum кошельков с мнемоникой и приватными ключами
-- **SOL Wallet Generator** — Генерация Solana кошельков
-- **Nice Wallet Generator** — Генерация "красивых" адресов (с заданным префиксом/суффиксом)
-- **ETH/SOL Convert Tool** — Конвертация мнемоника ↔ приватный ключ ↔ адрес кошелька
+### 🚀 Transactions
+- **Drainers** — сборщик всех балансов с кошельков на main-кошелек (ETH/SOL)
+- **Transfer Wallets to Wallets** — перевод нативных токенов между кошельками
+- **Transfer ERC20 Tokens** — перевод ERC20 токенов между кошельками
+- **Relay Bridge** — мост между сетями через Relay Link с сохранением прогресса в БД
 
-### 💰 Balance Checker
-- **Check ETH Balances** — Проверка балансов нативных токенов и ERC20 в EVM-сетях
-- **Check SOL Balances** — Проверка балансов SOL и SPL токенов
-- **Check Eclipse Balances** — Проверка балансов в сети Eclipse
+### 🐦 Twitter
+- **Twitter Check** — проверка валидности аккаунтов Twitter
+- **Twitter Info** — получение детальной информации о Twitter-аккаунтах
+- **Twitter Tasks** — автоматическое выполнение заданий (лайки, репосты, комментарии) с БД прогресса
 
-### 🔄 Transactions
-- **Drainers** — Сборщик всех балансов с кошельков на главный кошелек (ETH/SOL)
-- **Transfer Wallets to Wallets** — Перевод нативных токенов между кошельками
-- **Transfer ERC20 Tokens** — Перевод ERC20 токенов между кошельками
-- **Relay Bridge** — Мост между сетями через Relay Link с сохранением прогресса
+### 📊 Project Stats
+- **Neura Statistics** — статистика по проекту Neura
 
-### 🏦 CEX Integration
+### 🎮 Projects
+- **Neura Protocol** — сбор пульсов и клейм задач Neura
+- **Pharos Testnet** — faucet, check-in, квесты Pharos
 
-#### OKX
-- **OKX Withdraw** — Вывод средств с OKX на кошельки с поддержкой возобновления
-- **OKX Get Balances** — Получение балансов на OKX аккаунтах
-- **OKX Subaccount Collector** — Сборщик средств с субаккаунтов на главный аккаунт
-- **OKX Spot Trade** — Автоматическая спотовая торговля на бирже
+### 🏦 CEX
+- **OKX** — вывод, балансы, сбор субаккаунтов, спотовая торговля
+- **Binance** — вывод, балансы, сбор субаккаунтов
+- **Bitget** — вывод, сбор субаккаунтов
+- **MEXC** — вывод средств
 
-#### Binance
-- **Binance Withdraw** — Вывод средств с Binance с возможностью возобновления
-- **Binance Get Balances** — Проверка балансов на Binance аккаунтах
-- **Binance Subaccount Collector** — Сборщик средств с субаккаунтов Binance
+### 🧰 Tools
+- **Check Gas Price** — проверка текущей цены газа в выбранной сети
+- **Generate Wallets** — генерация ETH/SOL кошельков (обычные + vanity-адреса, Rust-ускорение)
+- **ETH/SOL Convert Tool** — конвертация мнемоника ↔ приватный ключ ↔ адрес
+- **Password Generator** — генерация криптостойких паролей
+- **Nickname Generator** — генерация реалистичных никнеймов
+- **Fullname Generator** — генерация имён и фамилий (RU/UA/ENG)
+- **Check Proxy** — массовая проверка работоспособности прокси
+- **Last Transactions** — проверка последних транзакций кошельков
+- **Check Age Discord** — проверка возраста Discord-аккаунтов (Win/Mac/Linux)
+- **Email IMAP Checker** — валидация почтовых аккаунтов через IMAP
 
-#### Bitget
-- **Bitget Withdraw** — Вывод средств с Bitget на кошельки
-
-#### MEXC
-- **MEXC Withdraw** — Вывод средств с MEXC на кошельки
-
-### 💾 Backup & Sync
-- **Auto Backup** — Автоматическое создание локальных резервных копий с ротацией старых бэкапов
-- **Live Backup Sync** — Синхронизация бэкапов через SFTP на удаленный сервер
-
-### 🛠️ Utilities
-- **Check Gas Price** — Проверка текущей цены газа в выбранной сети
-- **Check Proxy** — Массовая проверка работоспособности прокси-серверов
-- **Password Generator** — Генерация криптостойких паролей по заданным параметрам
-- **Nickname Generator** — Генерация реалистичных никнеймов для профилей
-- **Fullname Generator** — Генерация имен и фамилий (RU/UA/ENG)
-- **Last Transactions** — Проверка последних транзакций кошельков
-- **Check Age Discord** — Проверка возраста Discord аккаунтов
-- **Email IMAP Checker** — Валидация почтовых аккаунтов через IMAP подключение
-- **Notifications** — Отправка уведомлений в Discord при завершении операций
-- **Config Validator** — Проверка корректности конфигурационных файлов
-- **Git Update** — Автоматическое обновление проекта через Git
+### 💾 Backup
+- **Local Backup** — создание/восстановление/ротация локальных бэкапов
+- **SFTP Backup** — синхронизация бэкапов на удалённый сервер
+- **Live Sync** — автоматическая live-синхронизация с шифрованием
 
 ## 🌐 Поддерживаемые блокчейны
 
-**EVM-совместимые сети:**
-- Ethereum (Mainnet, Sepolia, Holesky, Goerli)
-- Arbitrum (Mainnet, Sepolia, Nova)
-- Optimism (Mainnet, Sepolia)
-- Base (Mainnet, Sepolia)
-- Polygon (Mainnet, Amoy)
-- Avalanche, Fantom, BSC
-- Polygon zkEVM, zkSync Era
-- Linea, Scroll, Mantle
-- Blast, Taiko, Mode
-- Zircuit, Ink, Morph
-- Alienx, Lumia, Lisk
-- Metal L2, Sei, XLayer
-- Unichain, Swellchain, Treasure
-- И многие другие...
+**EVM:** Ethereum, Arbitrum, Optimism, Base, Polygon, Avalanche, Fantom, BSC, zkSync Era, Linea, Scroll, Mantle, Blast, Taiko, Mode, Zircuit, Ink, Morph, Alienx, Lumia, Lisk, Metal L2, Sei, XLayer, Unichain, Swellchain, Treasure и другие (50+ сетей с тестнетами)
 
-**Solana и совместимые:**
-- Solana (Mainnet, Devnet)
-- Eclipse
-
-## 📖 Документация
-
-Детальная документация по каждому модулю доступна в папке `docs/`:
-- [Модуль Twitter Tasks](docs/MODULE_TWITTER_TASKS.md) — работа с Twitter, база данных прогресса
-- [Модуль OKX Withdraw](docs/MODULE_OKX_WITHDRAW.md) — настройка вывода с OKX
-- [Модуль Binance Withdraw](docs/MODULE_BINANCE_WITHDRAW.md) — настройка вывода с Binance
-- [Модуль Auto Backup](docs/MODULE_AUTO_BACKUP.md) — автоматическое резервное копирование
-- [Полный список документации](docs/README.md)
+**Solana:** Solana (Mainnet/Devnet), Eclipse
 
 ## ⚙️ Конфигурация
 
-Основные настройки находятся в папке `config/`:
-- `config.py` — основные параметры (задержки, потоки, режимы работы)
-- `cex_settings.py` — настройки бирж (API ключи, параметры вывода)
-- `rpc.py` — RPC endpoints для блокчейн-сетей
-- `token_address_erc20.py` — адреса токенов для работы
+Основные настройки в `config/`:
+- `config.py` — параметры (задержки, потоки, режимы)
+- `cex_settings.py` — API ключи бирж
+- `rpc.py` — RPC endpoints
+- `token_address_erc20.py` — адреса токенов
 
-## 📝 Использование
+## 📖 Документация
 
-После запуска `python main.py` вы увидите интерактивное меню с основными разделами:
-- 💲 **BALANCES** — Проверка балансов
-- 🚀 **TRANSACTIONS** — Транзакции между кошельками
-- 🐦 **Twitter** — Работа с Twitter
-- 🏦 **CEX** — Функционал централизованных бирж
-- 🧰 **Tools** — Утилиты и генераторы
-- 💾 **Backup** — Резервное копирование
-- 📖 **INFO** — Справочная информация
-
-Навигация осуществляется стрелками ↑↓ и клавишей Enter.
+- [Twitter Tasks](docs/MODULE_TWITTER_TASKS.md) — работа с Twitter и БД прогресса
+- [OKX Withdraw](docs/MODULE_OKX_WITHDRAW.md) — настройка вывода с OKX
+- [Binance Withdraw](docs/MODULE_BINANCE_WITHDRAW.md) — настройка вывода с Binance
+- [Auto Backup](docs/MODULE_AUTO_BACKUP.md) — автоматическое резервное копирование
+- [Полный список](docs/README.md)
 
 ## 🔒 Безопасность
 

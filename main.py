@@ -93,6 +93,7 @@ from modules.sol.eclipse_get_balances import eclipse_balance_checker
 from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.debank.debank_checker import debank_checker_menu
+from modules.debank.debank_protocol_checker import debank_protocol_menu
 from modules.neura.menu import neura_menu
 from modules.pharos.menu import pharos_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
@@ -297,6 +298,8 @@ class MenuHandlers:
             eclipse_balance_checker()
         elif blockchain == 'debank_checker':
             debank_checker_menu()
+        elif blockchain == 'debank_protocols':
+            debank_protocol_menu()
     
     @staticmethod
     def _handle_eth_balances():
