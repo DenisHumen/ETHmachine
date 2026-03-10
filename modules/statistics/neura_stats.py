@@ -553,20 +553,24 @@ class NeuraProtocolClient:
     def _load_captcha_key(self) -> Optional[str]:
         return get_captcha_api_key()
     
-    def _solve_turnstile(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
+    def _solve_captcha(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
+        """Решение hCaptcha для авторизации через Privy"""
         if not self.captcha_solver:
             return None
-        
+
         max_retries = RETRY_COUNT
-        
+        hcaptcha_sitekey = 'b9fc5a50-2e5c-457a-9582-80ce342c2534'
+
         for retry in range(attempt, max_retries + 1):
             try:
-                token = self.captcha_solver.solve_turnstile(
-                    sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
-                    pageurl='https://neuraverse.neuraprotocol.io/',
-                    action='cmbpempz2011ll10l7iucga14',
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-                )
+                if hasattr(self.captcha_solver, 'solve_hcaptcha'):
+                    token = self.captcha_solver.solve_hcaptcha(
+                        sitekey=hcaptcha_sitekey,
+                        pageurl='https://neuraverse.neuraprotocol.io/',
+                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                    )
+                else:
+                    return None
                 
                 if token:
                     return token
@@ -599,13 +603,13 @@ class NeuraProtocolClient:
     
     def _get_nonce(self, wallet_index: int = None, total: int = None) -> Optional[str]:
         try:
-            turnstile_token = self._solve_turnstile(attempt=1, proxies_list=self.proxies_list, wallet_index=wallet_index, total=total)
-            if not turnstile_token:
+            captcha_token = self._solve_captcha(attempt=1, proxies_list=self.proxies_list, wallet_index=wallet_index, total=total)
+            if not captcha_token:
                 return None
-            
+
             json_data = {
                 'address': self.address,
-                'token': turnstile_token
+                'token': captcha_token
             }
             
             response = self.session.post(

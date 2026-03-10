@@ -78,6 +78,56 @@ class CapsolverSolver:
                     raise Exception(f"CAPTCHA_UNSOLVABLE: {result.get('errorDescription')}")
             
             raise Exception("Timeout waiting for captcha solution")
-            
+
+        except requests.RequestException as e:
+            raise Exception(f"Network error: {e}")
+
+    def solve_hcaptcha(
+        self,
+        sitekey: str,
+        pageurl: str,
+        user_agent: Optional[str] = None
+    ) -> Optional[str]:
+        """Решение hCaptcha через CapSolver API"""
+        task_payload = {
+            "clientKey": self.api_key,
+            "task": {
+                "type": "HCaptchaTaskProxyLess",
+                "websiteURL": pageurl,
+                "websiteKey": sitekey,
+            }
+        }
+
+        if user_agent:
+            task_payload["task"]["userAgent"] = user_agent
+
+        try:
+            data = self._make_request("createTask", task_payload)
+
+            if data.get("errorId") != 0:
+                raise Exception(f"CAPSOLVER error: {data.get('errorDescription', 'Unknown')}")
+
+            task_id = data.get("taskId")
+            if not task_id:
+                raise Exception("No taskId returned")
+
+            for _ in range(120):
+                time.sleep(3)
+                result = self._make_request(
+                    "getTaskResult",
+                    {"clientKey": self.api_key, "taskId": task_id}
+                )
+
+                if result.get("status") == "ready":
+                    token = result.get("solution", {}).get("gRecaptchaResponse")
+                    if token:
+                        return token
+                    raise Exception("No token in solution")
+
+                if result.get("errorId") != 0:
+                    raise Exception(f"CAPTCHA_UNSOLVABLE: {result.get('errorDescription')}")
+
+            raise Exception("Timeout waiting for hCaptcha solution")
+
         except requests.RequestException as e:
             raise Exception(f"Network error: {e}")

@@ -4,9 +4,10 @@ DeBank Protocol Checker
 Использует Playwright для перехвата portfolio/project_list API
 """
 
-import csv
+import re
 import sys
 import json
+import math
 import asyncio
 import time
 import random
@@ -27,6 +28,9 @@ sys.path.append(str(project_root))
 from config.modules.cfg_base import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
 )
+from config.modules.cfg_debank_protocol import (
+    MIN_VALUE_USD, GRADIENT_MIN_USD, GRADIENT_MAX_USD
+)
 from modules.debank.database import (
     init_database, create_protocol_tasks, get_pending_protocol_tasks,
     update_protocol_task_status, save_protocol_positions_batch,
@@ -39,6 +43,65 @@ from modules.debank.debank_checker import (
 
 console = Console()
 MAX_CONCURRENT = NUM_THREADS
+
+
+_ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def _sanitize_for_xlsx(text: str) -> str:
+    """Удаляет символы запрещённые в xlsx ячейках"""
+    return _ILLEGAL_CHARS_RE.sub('', text) if text else ''
+
+
+def _safe_float(val, default=0.0) -> float:
+    """Безопасная конвертация в float"""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _fmt_balance(val: float) -> str:
+    """Форматирование баланса без научной нотации"""
+    if val == 0:
+        return '0'
+    if val >= 1:
+        return f"{val:.4f}"
+    elif val >= 0.0001:
+        return f"{val:.8f}"
+    else:
+        return f"{val:.12f}"
+
+
+def _fmt_usd(val: float) -> str:
+    """Форматирование USD"""
+    if val == 0:
+        return '$0.00'
+    if val >= 0.01:
+        return f"${val:.2f}"
+    elif val >= 0.0001:
+        return f"${val:.6f}"
+    else:
+        return f"${val:.10f}"
+
+
+def _parse_token_info(token: dict) -> dict | None:
+    """Парсинг одного токена из API — возвращает чистые данные или None"""
+    if not isinstance(token, dict):
+        return None
+    amount = _safe_float(token.get('amount', 0))
+    if amount <= 0:
+        return None
+    symbol = token.get('symbol') or token.get('optimized_symbol') or 'UNKNOWN'
+    price = _safe_float(token.get('price', 0))
+    return {
+        'symbol': symbol,
+        'amount': amount,
+        'price': price,
+        'value_usd': amount * price,
+    }
 
 
 def parse_protocol_data(data) -> list:
@@ -59,11 +122,11 @@ def parse_protocol_data(data) -> list:
         if not isinstance(protocol, dict):
             continue
 
-        protocol_name = protocol.get('name', 'Unknown')
-        protocol_id = protocol.get('id', protocol.get('dao_id', ''))
-        chain = protocol.get('chain', '')
+        protocol_name = protocol.get('name') or 'Unknown'
+        protocol_id = protocol.get('id') or protocol.get('dao_id') or ''
+        chain = protocol.get('chain') or ''
 
-        portfolio_items = protocol.get('portfolio_item_list', [])
+        portfolio_items = protocol.get('portfolio_item_list') or []
         if not isinstance(portfolio_items, list):
             continue
 
@@ -71,90 +134,64 @@ def parse_protocol_data(data) -> list:
             if not isinstance(item, dict):
                 continue
 
-            position_type = item.get('name', 'Unknown')
-            stats = item.get('stats', {}) or {}
-            detail = item.get('detail', {}) or {}
-            net_usd = stats.get('net_usd_value', 0) or 0
-            asset_usd = stats.get('asset_usd_value', 0) or 0
+            position_type = item.get('name') or 'Unknown'
+            stats = item.get('stats') or {}
+            detail = item.get('detail') or {}
+            net_usd = _safe_float(stats.get('net_usd_value', 0))
+            asset_usd = _safe_float(stats.get('asset_usd_value', 0))
 
-            # Description (veSONUS#373014, UB-WETH и т.д.)
-            description = detail.get('description', '') or ''
+            description = detail.get('description') or ''
 
-            # Unlock time (для locked позиций)
+            # Unlock time
             unlock_time = ''
-            if 'unlock_at' in detail:
-                try:
-                    ts = detail['unlock_at']
-                    if ts:
-                        unlock_time = datetime.fromtimestamp(ts).strftime('%Y/%m/%d %H:%M')
-                except Exception:
-                    pass
-            elif 'end_at' in detail:
-                try:
-                    ts = detail['end_at']
-                    if ts:
-                        unlock_time = datetime.fromtimestamp(ts).strftime('%Y/%m/%d %H:%M')
-                except Exception:
-                    pass
+            for ts_key in ('unlock_at', 'end_at'):
+                if ts_key in detail and detail[ts_key]:
+                    try:
+                        unlock_time = datetime.fromtimestamp(detail[ts_key]).strftime('%Y/%m/%d %H:%M')
+                    except Exception:
+                        pass
+                    break
 
-            # Health rate (для lending)
+            # Health rate
             health_rate = ''
-            if 'health_rate' in detail:
-                hr = detail['health_rate']
-                if hr is not None:
-                    # Очень большие значения (>1e10) показываем как ">10"
-                    if isinstance(hr, (int, float)) and hr > 1e10:
-                        health_rate = '>10'
-                    elif isinstance(hr, (int, float)) and hr > 0:
-                        health_rate = f">{hr:.2f}"
-                    else:
-                        health_rate = str(hr)
+            hr = detail.get('health_rate')
+            if hr is not None and isinstance(hr, (int, float)):
+                if hr > 1e10:
+                    health_rate = '>10'
+                elif hr > 0:
+                    health_rate = f"{hr:.2f}"
 
-            # Supply tokens
-            supply_tokens = detail.get('supply_token_list', []) or []
-            # Reward tokens
-            reward_tokens = detail.get('reward_token_list', []) or []
-            # Borrow tokens (для lending)
-            borrow_tokens = detail.get('borrow_token_list', []) or []
+            # Токены
+            supply_tokens = detail.get('supply_token_list') or []
+            reward_tokens = detail.get('reward_token_list') or []
+            borrow_tokens = detail.get('borrow_token_list') or []
 
-            # Собираем позиции из supply_token_list
+            # Парсим reward/borrow в читаемый текст
+            rewards_text = ''
+            parsed_rewards = [_parse_token_info(r) for r in reward_tokens]
+            parsed_rewards = [r for r in parsed_rewards if r]
+            if parsed_rewards:
+                parts = [f"{_fmt_balance(r['amount'])} {r['symbol']} ({_fmt_usd(r['value_usd'])})"
+                         for r in parsed_rewards]
+                rewards_text = 'Rewards: ' + ', '.join(parts)
+
+            borrows_text = ''
+            parsed_borrows = [_parse_token_info(r) for r in borrow_tokens]
+            parsed_borrows = [r for r in parsed_borrows if r]
+            if parsed_borrows:
+                parts = [f"{_fmt_balance(r['amount'])} {r['symbol']} ({_fmt_usd(r['value_usd'])})"
+                         for r in parsed_borrows]
+                borrows_text = 'Borrows: ' + ', '.join(parts)
+
+            extra_text = ' | '.join(filter(None, [rewards_text, borrows_text]))
+
             for token in supply_tokens:
-                if not isinstance(token, dict):
-                    continue
-                amount = token.get('amount', 0)
-                if not amount or float(amount) <= 0:
+                info = _parse_token_info(token)
+                if not info:
                     continue
 
-                symbol = token.get('symbol', token.get('optimized_symbol', 'UNKNOWN'))
-                price = token.get('price', 0) or 0
-                value_usd = float(amount) * float(price)
-
-                # Адаптивное форматирование: больше знаков для малых сумм
-                amt = float(amount)
-                if amt >= 1:
-                    balance_token = f"{amt:.4f} {symbol}"
-                elif amt >= 0.0001:
-                    balance_token = f"{amt:.8f} {symbol}"
-                else:
-                    balance_token = f"{amt:.12f} {symbol}"
-
-                # Pool name: description если есть (veSONUS#373014), иначе symbol
-                pool_name = description if description else symbol
-
-                # Extra data: rewards, debt
-                extra = {}
-                if reward_tokens:
-                    extra['rewards'] = [
-                        {'symbol': r.get('symbol', ''), 'amount': r.get('amount', 0),
-                         'value_usd': (r.get('amount', 0) or 0) * (r.get('price', 0) or 0)}
-                        for r in reward_tokens if isinstance(r, dict) and (r.get('amount', 0) or 0) > 0
-                    ]
-                if borrow_tokens:
-                    extra['borrows'] = [
-                        {'symbol': r.get('symbol', ''), 'amount': r.get('amount', 0),
-                         'value_usd': (r.get('amount', 0) or 0) * (r.get('price', 0) or 0)}
-                        for r in borrow_tokens if isinstance(r, dict) and (r.get('amount', 0) or 0) > 0
-                    ]
+                balance_token = f"{_fmt_balance(info['amount'])} {info['symbol']}"
+                pool_name = description if description else info['symbol']
 
                 positions.append({
                     'protocol_name': protocol_name,
@@ -162,12 +199,12 @@ def parse_protocol_data(data) -> list:
                     'chain': chain,
                     'position_type': position_type,
                     'pool_name': pool_name,
-                    'balance': float(amount),
+                    'balance': info['amount'],
                     'balance_token': balance_token,
-                    'value_usd': value_usd,
+                    'value_usd': info['value_usd'],
                     'unlock_time': unlock_time,
                     'health_rate': health_rate,
-                    'extra_data': json.dumps(extra, ensure_ascii=False) if extra else '',
+                    'extra_data': extra_text,
                 })
 
     return positions
@@ -187,7 +224,6 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                 try:
                     page = await browser.new_page()
 
-                    # Перехват API ответа portfolio/project_list
                     protocol_data = {}
 
                     async def handle_response(response):
@@ -207,7 +243,6 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                         timeout=30000
                     )
 
-                    # Ждём загрузки данных (протоколы грузятся чуть дольше балансов)
                     await asyncio.sleep(random.uniform(3, 6))
 
                     if 'protocols' in protocol_data:
@@ -326,7 +361,6 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
     if not proxies:
         console.print("[yellow][!] Прокси не найдены, запросы пойдут напрямую[/yellow]")
 
-    delay_min, delay_max = DELAY_BETWEEN_ACCOUNTS
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно)", "INFO"))
     if proxies:
         logs.append((time.strftime("%H:%M:%S"), f"Загружено {len(proxies)} прокси (round-robin)", "INFO"))
@@ -404,72 +438,91 @@ def process_wallets_protocols(wallets: list) -> dict:
     return asyncio.run(process_wallets_protocols_async(wallets))
 
 
-def _fmt_balance(val: float) -> str:
-    """Форматирование баланса без научной нотации"""
-    if val == 0:
-        return '0'
-    if val >= 1:
-        return f"{val:.4f}"
-    elif val >= 0.0001:
-        return f"{val:.8f}"
+# ─── XLSX Export ─────────────────────────────────────────────────────────────
+
+
+def _gradient_color(value_usd: float) -> str | None:
+    """Возвращает hex-цвет градиента от белого к зелёному в зависимости от суммы.
+    None — без заливки (ниже порога GRADIENT_MIN_USD).
+    """
+    if value_usd < GRADIENT_MIN_USD:
+        return None
+
+    # Логарифмический градиент для лучшего распределения цветов
+    if value_usd >= GRADIENT_MAX_USD:
+        t = 1.0
     else:
-        return f"{val:.12f}"
+        log_min = math.log10(max(GRADIENT_MIN_USD, 0.01))
+        log_max = math.log10(max(GRADIENT_MAX_USD, 1.0))
+        log_val = math.log10(max(value_usd, GRADIENT_MIN_USD))
+        t = (log_val - log_min) / (log_max - log_min)
+        t = max(0.0, min(1.0, t))
 
-
-def _fmt_usd(val: float) -> str:
-    """Форматирование USD с адаптивной точностью"""
-    if val == 0:
-        return '0.00'
-    if val >= 0.01:
-        return f"{val:.2f}"
-    elif val >= 0.0001:
-        return f"{val:.6f}"
+    # Градиент: белый (FFFFFF) → светло-зелёный (C6EFCE) → ярко-зелёный (27AE60)
+    if t <= 0.5:
+        # белый → светло-зелёный
+        s = t * 2
+        r = int(255 - (255 - 198) * s)
+        g = int(255 - (255 - 239) * s)
+        b = int(255 - (255 - 206) * s)
     else:
-        return f"{val:.10f}"
+        # светло-зелёный → ярко-зелёный
+        s = (t - 0.5) * 2
+        r = int(198 - (198 - 39) * s)
+        g = int(239 - (239 - 174) * s)
+        b = int(206 - (206 - 96) * s)
+
+    return f"{r:02X}{g:02X}{b:02X}"
 
 
-def _format_cell(p: dict) -> str:
-    """Форматирование ячейки позиции — вся ключевая инфа в одной строке"""
-    parts = []
-    parts.append(p['balance_token'])
-    parts.append(f"${_fmt_usd(p['value_usd'])}")
+def _format_cell_text(p: dict) -> str:
+    """Форматирование ячейки — чистый читаемый текст без JSON"""
+    parts = [p.get('balance_token', ''), _fmt_usd(p.get('value_usd', 0))]
 
     if p.get('unlock_time'):
-        parts.append(f"unlock:{p['unlock_time']}")
+        parts.append(f"unlock: {p['unlock_time']}")
     if p.get('health_rate'):
-        parts.append(f"health:{p['health_rate']}")
+        parts.append(f"health: {p['health_rate']}")
 
-    extra = p.get('extra_data')
-    if extra:
+    extra = p.get('extra_data', '')
+    if extra and isinstance(extra, str) and not extra.startswith('{'):
+        parts.append(extra)
+    elif extra and isinstance(extra, str) and extra.startswith('{'):
+        # Старые данные в JSON — декодируем в текст
         try:
-            data = json.loads(extra) if isinstance(extra, str) else extra
+            data = json.loads(extra)
             if isinstance(data, dict):
                 for key in ('rewards', 'borrows'):
                     items = data.get(key, [])
                     for item in items:
                         sym = item.get('symbol', '?')
-                        amt = item.get('amount', 0)
-                        val = item.get('value_usd', 0)
-                        parts.append(f"{key[:-1]}:{_fmt_balance(amt)} {sym} (${_fmt_usd(val)})")
+                        amt = _safe_float(item.get('amount', 0))
+                        val = _safe_float(item.get('value_usd', 0))
+                        parts.append(f"{key[:-1]}: {_fmt_balance(amt)} {sym} ({_fmt_usd(val)})")
         except (json.JSONDecodeError, TypeError):
             pass
 
-    return ' | '.join(parts)
+    return ' | '.join(filter(None, parts))
 
 
 def _make_column_key(p: dict) -> str:
-    """Создаёт уникальный ключ колонки из позиции"""
+    """Уникальный ключ колонки"""
     return f"{p['protocol_name']}|{p['chain']}|{p['position_type']}|{p['pool_name']}"
 
 
 def _make_column_header(key: str) -> str:
-    """Преобразует ключ в читаемый заголовок"""
+    """Читаемый заголовок колонки"""
     parts = key.split('|')
-    return f"{parts[0]} [{parts[1]}] {parts[2]}: {parts[3]}"
+    if len(parts) >= 4:
+        return f"{parts[0]} [{parts[1]}] {parts[2]}: {parts[3]}"
+    return key
 
 
-def save_protocols_csv(wallets: list):
-    """Экспорт DeFi-позиций в CSV (wide format: один кошелёк — одна строка)"""
+def save_protocols_xlsx(wallets: list):
+    """Экспорт DeFi-позиций в XLSX с цветным градиентом по суммам"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
 
@@ -479,13 +532,20 @@ def save_protocols_csv(wallets: list):
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = result_dir / f"debank_protocols_{timestamp}.csv"
+    filepath = result_dir / f"debank_protocols_{timestamp}.xlsx"
 
-    wallet_positions = {}
+    # Собираем данные: wallet → {col_key: {text, value_usd}}
+    wallet_data = {}
     all_columns = []
     seen_columns = set()
 
     for p in all_protocols:
+        value_usd = _safe_float(p.get('value_usd', 0))
+
+        # Фильтр по минимальной сумме
+        if value_usd < MIN_VALUE_USD:
+            continue
+
         w = p['wallet_address']
         col_key = _make_column_key(p)
 
@@ -493,27 +553,109 @@ def save_protocols_csv(wallets: list):
             seen_columns.add(col_key)
             all_columns.append(col_key)
 
-        wallet_positions.setdefault(w, {})[col_key] = _format_cell(p)
+        wallet_data.setdefault(w, {})[col_key] = {
+            'text': _format_cell_text(p),
+            'value_usd': value_usd,
+        }
 
+    if not wallet_data:
+        console.print(f"[yellow][!] Нет позиций >= ${MIN_VALUE_USD:.2f} для экспорта[/yellow]")
+        return None
+
+    # Порядок кошельков: сначала из файла, потом остальные
     all_wallets = list(dict.fromkeys(
-        [w for w in wallets if w in wallet_positions] +
-        [w for w in wallet_positions if w not in wallets]
+        [w for w in wallets if w in wallet_data] +
+        [w for w in wallet_data if w not in wallets]
     ))
 
-    headers = ['wallet'] + [_make_column_header(c) for c in all_columns]
+    # Создаём XLSX
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DeFi Protocols"
 
-    with open(filepath, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
+    # Стили
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D5D8DC'),
+        right=Side(style='thin', color='D5D8DC'),
+        top=Side(style='thin', color='D5D8DC'),
+        bottom=Side(style='thin', color='D5D8DC'),
+    )
+    wallet_font = Font(name='Consolas', size=10)
+    cell_font = Font(size=10)
+    cell_alignment = Alignment(vertical="center", wrap_text=True)
 
-        for wallet in all_wallets:
-            positions = wallet_positions.get(wallet, {})
-            row = [wallet]
-            for col_key in all_columns:
-                row.append(positions.get(col_key, '0'))
-            writer.writerow(row)
+    # Заголовки
+    headers = ['#', 'Wallet', 'Total USD'] + [_make_column_header(c) for c in all_columns]
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=_sanitize_for_xlsx(header))
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
 
+    # Данные
+    for row_idx, wallet in enumerate(all_wallets, 2):
+        positions = wallet_data.get(wallet, {})
+        total_usd = sum(pos['value_usd'] for pos in positions.values())
+
+        # #
+        cell = ws.cell(row=row_idx, column=1, value=row_idx - 1)
+        cell.font = cell_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+
+        # Wallet
+        cell = ws.cell(row=row_idx, column=2, value=wallet)
+        cell.font = wallet_font
+        cell.border = thin_border
+
+        # Total USD
+        cell = ws.cell(row=row_idx, column=3, value=round(total_usd, 2))
+        cell.font = Font(bold=True, size=10)
+        cell.number_format = '$#,##0.00'
+        cell.border = thin_border
+        color = _gradient_color(total_usd)
+        if color:
+            cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+        # Позиции
+        for col_offset, col_key in enumerate(all_columns):
+            cell_col = 4 + col_offset
+            pos = positions.get(col_key)
+            cell = ws.cell(row=row_idx, column=cell_col)
+            cell.border = thin_border
+            cell.font = cell_font
+            cell.alignment = cell_alignment
+
+            if pos:
+                cell.value = _sanitize_for_xlsx(pos['text'])
+                color = _gradient_color(pos['value_usd'])
+                if color:
+                    cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            else:
+                cell.value = ''
+
+    # Ширина колонок
+    ws.column_dimensions['A'].width = 5
+    ws.column_dimensions['B'].width = 45
+    ws.column_dimensions['C'].width = 14
+    for col_offset in range(len(all_columns)):
+        col_letter = ws.cell(row=1, column=4 + col_offset).column_letter
+        ws.column_dimensions[col_letter].width = 35
+
+    # Закрепляем заголовок и первые 3 колонки
+    ws.freeze_panes = 'D2'
+
+    # Автофильтр
+    ws.auto_filter.ref = ws.dimensions
+
+    wb.save(str(filepath))
     console.print(f"[green][v] Протоколы сохранены: {filepath}[/green]")
+    console.print(f"[dim]   Кошельков: {len(all_wallets)} | Протоколов: {len(all_columns)} | "
+                  f"Фильтр: >= ${MIN_VALUE_USD:.2f} | Градиент от ${GRADIENT_MIN_USD:.2f}[/dim]")
     return filepath
 
 
@@ -525,7 +667,6 @@ def print_protocol_summary(results: dict):
     total_positions = sum(len(r['positions']) for r in success_list)
     total_usd = sum(r.get('total_usd', 0) for r in success_list)
 
-    # Собираем уникальные протоколы
     protocols_found = set()
     for r in success_list:
         for pos in r['positions']:
@@ -608,7 +749,7 @@ def debank_protocol_menu():
         choices=[
             Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
             Choice('   🔄 Начать заново (сброс БД)', 'reset'),
-            Choice('   📊 Экспорт результатов в CSV', 'export'),
+            Choice('   📊 Экспорт результатов в XLSX', 'export'),
             Choice('   🔙 Назад', 'back')
         ],
         qmark='🛠️ ',
@@ -619,7 +760,7 @@ def debank_protocol_menu():
         return
 
     if action == 'export':
-        save_protocols_csv(wallets)
+        save_protocols_xlsx(wallets)
         return
 
     if action == 'reset':
@@ -632,7 +773,7 @@ def debank_protocol_menu():
     pending_tasks = get_pending_protocol_tasks()
     if not pending_tasks:
         console.print("[yellow][!] Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
-        save_protocols_csv(wallets)
+        save_protocols_xlsx(wallets)
         return
 
     wallets_to_check = [t['wallet_address'] for t in pending_tasks]
@@ -642,7 +783,7 @@ def debank_protocol_menu():
 
     print_protocol_summary(results)
 
-    save_protocols_csv(wallets)
+    save_protocols_xlsx(wallets)
 
     console.print("\n[bold green]✅ Проверка протоколов DeBank завершена![/bold green]\n")
 

@@ -181,22 +181,30 @@ class NeuraClient:
             
         for attempt in range(RETRY_COUNT):
             try:
-                turnstile_token = self._captcha_solver.solve_turnstile(
-                    sitekey='0x4AAAAAAAM8ceq5KhP1uJBt',
-                    pageurl='https://neuraverse.neuraprotocol.io/',
-                    action='cmbpempz2011ll10l7iucga14',
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-                )
-                
-                if not turnstile_token:
+                # Neura использует hCaptcha (через Privy SDK)
+                # sitekey из конфига Privy: h:b9fc5a50-2e5c-457a-9582-80ce342c2534
+                hcaptcha_sitekey = 'b9fc5a50-2e5c-457a-9582-80ce342c2534'
+
+                if hasattr(self._captcha_solver, 'solve_hcaptcha'):
+                    captcha_token = self._captcha_solver.solve_hcaptcha(
+                        sitekey=hcaptcha_sitekey,
+                        pageurl='https://neuraverse.neuraprotocol.io/',
+                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                    )
+                else:
+                    self._last_error = "Captcha solver does not support hCaptcha"
+                    logger.error(f"[{self.wallet_address}] {self._last_error}")
+                    return None
+
+                if not captcha_token:
                     self._last_error = "Captcha solver returned empty token"
                     logger.warning(f"[{self.wallet_address}] Failed to solve captcha: {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
                     await asyncio.sleep(random.uniform(3, 7))
                     continue
-                
+
                 json_data = {
                     'address': self.wallet_address,
-                    'token': turnstile_token
+                    'token': captcha_token
                 }
                 
                 response_json, status = await self._make_request(
