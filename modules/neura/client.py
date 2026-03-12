@@ -22,8 +22,8 @@ from web3 import Web3
 from web3.contract import AsyncContract
 
 from config.modules.cfg_base import (
-    RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
-    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE, MAIN_PROXY
+    RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, MAIN_PROXY,
+    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, YESCAPTCHA_API_KEY, CAPTCHA_SERVICE,
 )
 from config.modules.cfg_neura import (
     NEURA_MAX_RETRIES_PER_TASK, NEURA_FAUCET_TOKEN,
@@ -45,19 +45,39 @@ try:
 except ImportError:
     CapsolverSolver = None
 
+try:
+    from modules.yescaptcha_solver import YesCaptchaSolver
+except ImportError:
+    YesCaptchaSolver = None
+
+try:
+    from modules.browser_hcaptcha_solver import BrowserHCaptchaSolver
+except ImportError:
+    BrowserHCaptchaSolver = None
+
 
 def get_captcha_solver(proxy_url=None):
     """
     Получить solver капчи с поддержкой прокси.
-    Приоритет прокси: proxy_url (переданный) -> MAIN_PROXY (из конфига) -> без прокси
+    Приоритет: CAPTCHA_SERVICE из конфига -> fallback по наличию ключей
     """
-    # Определяем прокси для отправки запросов к сервису капчи
     captcha_proxy = proxy_url or (MAIN_PROXY if MAIN_PROXY else None)
-    
-    if CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY and CapsolverSolver:
+
+    if CAPTCHA_SERVICE == 'yescaptcha' and YESCAPTCHA_API_KEY and YesCaptchaSolver:
+        return YesCaptchaSolver(api_key=YESCAPTCHA_API_KEY, proxy=captcha_proxy)
+    elif CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY and CapsolverSolver:
         return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=captcha_proxy)
-    elif astrum_CAPTCHA_API_KEY and AstrumSolver:
+    elif CAPTCHA_SERVICE == 'astrum' and astrum_CAPTCHA_API_KEY and AstrumSolver:
         return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=captcha_proxy)
+
+    # Fallback: попробовать любой доступный
+    if YESCAPTCHA_API_KEY and YesCaptchaSolver:
+        return YesCaptchaSolver(api_key=YESCAPTCHA_API_KEY, proxy=captcha_proxy)
+    if CAPSOLVER_API_KEY and CapsolverSolver:
+        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=captcha_proxy)
+    if astrum_CAPTCHA_API_KEY and AstrumSolver:
+        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=captcha_proxy)
+
     return None
 
 
@@ -175,64 +195,33 @@ class NeuraClient:
             return None, 0
     
     async def _get_nonce(self) -> Optional[str]:
-        if not self._captcha_solver:
-            logger.error(f"[{self.wallet_address}] Captcha solver not initialized!")
-            return None
-            
+        """
+        Get nonce via browser-based hCaptcha solver.
+        hCaptcha Enterprise rejects tokens from API solving services,
+        so we use Playwright with persistent profile + stealth to solve
+        captcha and call siwe/init from the same browser session.
+        """
         for attempt in range(RETRY_COUNT):
             try:
-                # Neura использует hCaptcha (через Privy SDK)
-                # sitekey из конфига Privy: h:b9fc5a50-2e5c-457a-9582-80ce342c2534
-                hcaptcha_sitekey = 'b9fc5a50-2e5c-457a-9582-80ce342c2534'
-
-                if hasattr(self._captcha_solver, 'solve_hcaptcha'):
-                    captcha_token = self._captcha_solver.solve_hcaptcha(
-                        sitekey=hcaptcha_sitekey,
-                        pageurl='https://neuraverse.neuraprotocol.io/',
-                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-                    )
-                else:
-                    self._last_error = "Captcha solver does not support hCaptcha"
-                    logger.error(f"[{self.wallet_address}] {self._last_error}")
-                    return None
-
-                if not captcha_token:
-                    self._last_error = "Captcha solver returned empty token"
-                    logger.warning(f"[{self.wallet_address}] Failed to solve captcha: {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
-                    await asyncio.sleep(random.uniform(3, 7))
-                    continue
-
-                json_data = {
-                    'address': self.wallet_address,
-                    'token': captcha_token
-                }
-                
-                response_json, status = await self._make_request(
-                    method="POST",
-                    url='https://privy.neuraverse.neuraprotocol.io/api/v1/siwe/init',
-                    json=json_data,
-                    headers=self.auth_headers
+                browser_solver = BrowserHCaptchaSolver(proxy=self.proxy)
+                nonce = await browser_solver.solve_and_init(
+                    wallet_address=self.wallet_address,
+                    timeout=45,
                 )
-                
-                if status == 200 and response_json:
-                    return response_json.get('nonce')
-                
-                if status == 429:
-                    wait_time = random.uniform(10, 20)
-                    self._last_error = f"Rate limited (429)"
-                    logger.warning(f"[{self.wallet_address}] Rate limited (429), waiting {wait_time:.1f}s...")
-                    await asyncio.sleep(wait_time)
-                    continue
-                    
-                self._last_error = f"nonce request failed, status={status}, response={response_json}"
-                logger.warning(f"[{self.wallet_address}] Failed to get nonce: {self._last_error}")
-                
+
+                if nonce:
+                    logger.info(f"[{self.wallet_address}] Got nonce via browser captcha")
+                    return nonce
+
+                self._last_error = "Browser captcha solver failed to get nonce"
+                logger.warning(f"[{self.wallet_address}] {self._last_error}, attempt {attempt + 1}/{RETRY_COUNT}")
+
             except Exception as e:
                 self._last_error = str(e)
                 logger.error(f"[{self.wallet_address}] Error getting nonce: {e}")
-            
+
             await asyncio.sleep(random.uniform(3, 7))
-        
+
         logger.warning(f"[{self.wallet_address}] Failed to get nonce after all attempts: {self._last_error}")
         return None
     

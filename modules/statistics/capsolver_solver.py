@@ -86,7 +86,8 @@ class CapsolverSolver:
         self,
         sitekey: str,
         pageurl: str,
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        is_invisible: bool = False,
     ) -> Optional[str]:
         """Решение hCaptcha через CapSolver API"""
         task_payload = {
@@ -100,6 +101,8 @@ class CapsolverSolver:
 
         if user_agent:
             task_payload["task"]["userAgent"] = user_agent
+        if is_invisible:
+            task_payload["task"]["isInvisible"] = True
 
         try:
             data = self._make_request("createTask", task_payload)

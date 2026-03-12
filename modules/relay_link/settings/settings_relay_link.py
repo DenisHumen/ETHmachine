@@ -49,6 +49,11 @@ TOKEN_ADDRESSES = {
         "ETH": "0x0000000000000000000000000000000000000000",
         "USDT": "0xA219439258ca9da29E9Cc4cE5596924745e12B93",
         "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff"
+    },
+    792703809: {  # Solana
+        "SOL": "11111111111111111111111111111111",
+        "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
     }
 }
 
@@ -63,7 +68,8 @@ NETWORK_MAPPING = {
     'soneium': 1868,
     'abstract': 2741,
     'manta_pacific': 169,
-    'linea': 59144
+    'linea': 59144,
+    'solana': 792703809
 }
 
 # Reverse mapping для получения названия по ID
@@ -130,12 +136,19 @@ NETWORK_SETTINGS = {
         "native_symbol": "ETH",
         "decimals": 18,
         "min_native_balance": 0.005
+    },
+    792703809: {
+        "name": "Solana",
+        "native_symbol": "SOL",
+        "decimals": 9,
+        "min_native_balance": 0.01
     }
 }
 
 # Минимальные суммы для бриджинга
 MINIMUM_BRIDGE_AMOUNTS = {
     "ETH": 0.00017,
+    "SOL": 0.01,
     "MATIC": 5.0,
     "USDT": 10.0,
     "USDC": 10.0,

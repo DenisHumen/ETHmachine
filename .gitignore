@@ -27,6 +27,7 @@ data/email.csv
 .venv
 __pycache__
 .github
+data/browser_profiles/
 
 # PyArmor backup files (original unencrypted versions)
 *.backup

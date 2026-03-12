@@ -22,7 +22,6 @@ from modules.simple_logger import logger
 from modules.proxy_manager import get_random_proxy, get_proxy_dict, load_proxies, parse_proxy
 from config.modules.cfg_base import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
-    astrum_CAPTCHA_API_KEY, CAPSOLVER_API_KEY, CAPTCHA_SERVICE
 )
 from modules.notifications import send_telegram_notification
 
@@ -31,22 +30,10 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
-from modules.statistics.astrum_captcha_solver import AstrumSolver
-from modules.statistics.capsolver_solver import CapsolverSolver
-
-
-def get_captcha_solver(proxy_url: Optional[str] = None):
-    if CAPTCHA_SERVICE == 'capsolver' and CAPSOLVER_API_KEY:
-        return CapsolverSolver(api_key=CAPSOLVER_API_KEY, proxy=proxy_url)
-    elif astrum_CAPTCHA_API_KEY:
-        return AstrumSolver(api_key=astrum_CAPTCHA_API_KEY, proxy=proxy_url)
-    return None
-
-
-def get_captcha_api_key() -> Optional[str]:
-    if CAPTCHA_SERVICE == 'capsolver':
-        return CAPSOLVER_API_KEY
-    return astrum_CAPTCHA_API_KEY
+try:
+    from modules.browser_hcaptcha_solver import BrowserHCaptchaSolver
+except ImportError:
+    BrowserHCaptchaSolver = None
 
 csv_lock = Lock()
 db_lock = Lock()
@@ -525,16 +512,8 @@ class NeuraProtocolClient:
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
         }
         
-        self.captcha_api_key = self._load_captcha_key()
-        
-        self.captcha_solver = None
-        if self.captcha_api_key:
-            try:
-                self.captcha_solver = get_captcha_solver(proxy_url)
-            except Exception as e:
-                log_warning(f"⚠️ Ошибка инициализации captcha solver: {e}")
-        else:
-            log_warning("⚠️ API ключ капчи не найден")
+        if not BrowserHCaptchaSolver:
+            log_warning("BrowserHCaptchaSolver not available - auth may fail")
     
     def change_proxy(self, new_proxy: str):
         if new_proxy:
@@ -543,91 +522,35 @@ class NeuraProtocolClient:
                 'https': new_proxy
             }
             self.session.proxies.update(self.proxies)
-            
-            if self.captcha_solver:
-                self.captcha_solver.proxy_url = new_proxy
         else:
             self.proxies = None
             self.session.proxies.clear()
     
-    def _load_captcha_key(self) -> Optional[str]:
-        return get_captcha_api_key()
-    
-    def _solve_captcha(self, attempt: int = 1, proxies_list: List[str] = None, wallet_index: int = None, total: int = None) -> Optional[str]:
-        """Решение hCaptcha для авторизации через Privy"""
-        if not self.captcha_solver:
+    def _get_nonce(self, wallet_index: int = None, total: int = None) -> Optional[str]:
+        """Get nonce via browser-based hCaptcha solver (Playwright + stealth)."""
+        import asyncio
+
+        if not BrowserHCaptchaSolver:
+            log_error("BrowserHCaptchaSolver not available")
             return None
 
-        max_retries = RETRY_COUNT
-        hcaptcha_sitekey = 'b9fc5a50-2e5c-457a-9582-80ce342c2534'
+        proxy_str = None
+        if self.proxies:
+            proxy_str = self.proxies.get('http') or self.proxies.get('https')
 
-        for retry in range(attempt, max_retries + 1):
+        for attempt in range(RETRY_COUNT):
             try:
-                if hasattr(self.captcha_solver, 'solve_hcaptcha'):
-                    token = self.captcha_solver.solve_hcaptcha(
-                        sitekey=hcaptcha_sitekey,
-                        pageurl='https://neuraverse.neuraprotocol.io/',
-                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-                    )
-                else:
-                    return None
-                
-                if token:
-                    return token
-                    
-            except Exception as e:
-                error_str = str(e)
-                
-                if "CAPTCHA_UNSOLVABLE" in error_str or not token:
-                    if proxies_list and retry < max_retries:
-                        new_proxy = get_random_proxy(proxies_list)
-                        if new_proxy:
-                            self.change_proxy(new_proxy)
-                            time.sleep(random.uniform(1, 2)) 
-                            continue
-                    
-                    if retry >= max_retries:
-                        return None
-                else:
-                    if proxies_list and retry < max_retries:
-                        new_proxy = get_random_proxy(proxies_list)
-                        if new_proxy:
-                            self.change_proxy(new_proxy)
-                            time.sleep(random.uniform(1, 2))
-                            continue
-                    
-                    if retry >= max_retries:
-                        return None
-        
-        return None
-    
-    def _get_nonce(self, wallet_index: int = None, total: int = None) -> Optional[str]:
-        try:
-            captcha_token = self._solve_captcha(attempt=1, proxies_list=self.proxies_list, wallet_index=wallet_index, total=total)
-            if not captcha_token:
-                return None
-
-            json_data = {
-                'address': self.address,
-                'token': captcha_token
-            }
-            
-            response = self.session.post(
-                f'{self.privy_url}/siwe/init',
-                json=json_data,
-                headers=self.auth_headers,
-                timeout=15
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                nonce = data.get('nonce')
+                solver = BrowserHCaptchaSolver(proxy=proxy_str)
+                nonce = asyncio.run(solver.solve_and_init(
+                    wallet_address=self.address,
+                    timeout=45,
+                ))
                 if nonce:
                     return nonce
-            
-        except Exception as e:
-            pass
-        
+            except Exception as e:
+                log_warning(f"Browser captcha attempt {attempt + 1} failed: {e}")
+                time.sleep(random.uniform(3, 7))
+
         return None
     
     def authenticate(self, max_retries: int = 3, wallet_index: int = None, total: int = None) -> bool:

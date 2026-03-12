@@ -7,6 +7,7 @@ import random
 import sqlite3
 import platform
 import requests
+import binascii
 from typing import Dict, List, Optional, Tuple
 from web3 import Web3
 from questionary import Choice, select
@@ -20,8 +21,23 @@ from modules.simple_logger import logger
 # Импорты из проекта
 from config.modules.cfg_relay import SUM_TO_RELAY, GAS
 from config.modules.cfg_base import MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
-from config.networks import NETWORKS, get_explorer_url
+from config.networks import NETWORKS, SOL_NETWORKS, get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
+
+# Импорты для деривации ключей из мнемоники
+from modules.eth.eth_wallet_generator import mnemonic_to_private_key as eth_mnemonic_to_private_key, PublicKey, ETH_DERIVATION_PATH
+from bip_utils import Bip39SeedGenerator, Bip39MnemonicValidator, Bip44, Bip44Coins, Bip44Changes
+from solders.keypair import Keypair as SolKeypair
+from solders.pubkey import Pubkey as SolPubkey
+from solders.transaction import VersionedTransaction
+from solders.message import MessageV0
+from solders.instruction import Instruction as SolInstruction, AccountMeta as SolAccountMeta
+from solders.hash import Hash as SolHash
+from solders.address_lookup_table_account import AddressLookupTableAccount
+import base58
+
+# Константа chain_id для Solana в Relay API
+SOLANA_CHAIN_ID = 792703809
 
 
 # Функции для цветного логирования
@@ -71,19 +87,55 @@ def log_wallet_summary(wallet_address: str, sent_amount: float, received_amount:
     print(f"     {Fore.RED}• комиссия: {Fore.YELLOW}{bridge_fee:.6f} {token_symbol} {Fore.MAGENTA}({fee_percent:.2f}%) {Fore.RED}- ${fee_usd:.2f}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*84}{Style.RESET_ALL}\n")
 
+def derive_eth_private_key_from_mnemonic(mnemonic: str) -> str:
+    """Деривация ETH приватного ключа из мнемоники (BIP44 m/44'/60'/0'/0/0)"""
+    private_key_bytes = eth_mnemonic_to_private_key(mnemonic, str_derivation_path=f'{ETH_DERIVATION_PATH}/0')
+    return '0x' + binascii.hexlify(private_key_bytes).decode('utf-8')
+
+
+def derive_sol_address_from_mnemonic(mnemonic: str) -> Tuple[str, str]:
+    """
+    Деривация Solana адреса и приватного ключа из мнемоники (BIP44 m/44'/501'/0'/0')
+
+    Returns:
+        Tuple[sol_address, sol_private_key_b58]
+    """
+    seed_bytes = Bip39SeedGenerator(mnemonic).Generate()
+    bip44_mst_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.SOLANA)
+    bip44_acc_ctx = bip44_mst_ctx.Purpose().Coin().Account(0)
+    bip44_chg_ctx = bip44_acc_ctx.Change(Bip44Changes.CHAIN_EXT)
+
+    priv_key = bip44_chg_ctx.PrivateKey().Raw().ToBytes()
+    pub_key = bip44_chg_ctx.PublicKey().RawCompressed().ToBytes()[1:]
+
+    full_keypair_bytes = priv_key + pub_key
+    keypair = SolKeypair.from_bytes(full_keypair_bytes)
+
+    sol_address = str(keypair.pubkey())
+    sol_private_key_b58 = base58.b58encode(full_keypair_bytes).decode()
+
+    return sol_address, sol_private_key_b58
+
+
 class RelayBridge:
     def __init__(self):
         self.base_url = "https://api.relay.link"
         self.db_path = os.path.join(project_root, 'db', 'relay_progress.db')
         self.result_path = os.path.join(project_root, 'result', 'relay_link.csv')
-        
+
         # Инициализация базы данных
         self._init_database()
-        
+
         # Загрузка данных
-        self.private_keys = self._load_private_keys()
         self.proxies = self._load_proxies()
-        
+
+        # Флаг использования мнемоник (для Solana маршрутов)
+        self.use_mnemonics = False
+        # Словарь: eth_address -> {eth_private_key, sol_address, sol_private_key, mnemonic}
+        self.wallet_pairs = {}
+        # Приватные ключи (загружаются из файла или из мнемоник)
+        self.private_keys = []
+
         # Настройка RPC для сетей
         self.rpc_pools = {
             1: NETWORKS['🚀 Ethereum Mainnet']['rpc_urls'],  # Ethereum
@@ -97,7 +149,10 @@ class RelayBridge:
             169: NETWORKS['🚀 Manta Pacific Mainnet']['rpc_urls'],  # Manta Pacific
             59144: NETWORKS['🚀 Linea']['rpc_urls']  # Linea
         }
-        
+
+        # Solana RPC URLs
+        self.solana_rpc_urls = SOL_NETWORKS['🚀 Solana Mainnet']['rpc_urls']
+
         # Маппинг chain_id на названия сетей в explorer_url.py
         self.chain_id_to_explorer_network = {
             1: '🚀 Ethereum Mainnet',
@@ -109,12 +164,13 @@ class RelayBridge:
             1868: '🚀 Soneium',
             2741: '🚀 Abstract',
             169: '🚀 Manta Pacific Mainnet',
-            59144: '🚀 Linea'
+            59144: '🚀 Linea',
+            SOLANA_CHAIN_ID: '🚀 Solana Mainnet'
         }
-        
+
         # Кеш для Web3 подключений
         self.web3_connections = {}
-        
+
         # Инициализация CSV файла с заголовками
         self._init_csv_file()
     
@@ -162,11 +218,11 @@ class RelayBridge:
     def _select_network_and_token(self, prompt_text: str, exclude_chain_id: int = None) -> Tuple[Optional[int], Optional[str]]:
         """
         Интерактивный выбор сети и токена
-        
+
         Args:
             prompt_text: Текст приглашения для выбора
             exclude_chain_id: ID сети которую нужно исключить из списка
-            
+
         Returns:
             Tuple[chain_id, token_symbol] или (None, None) при отмене
         """
@@ -255,69 +311,70 @@ class RelayBridge:
         """
         Вычисление суммы для бриджа на основе SUM_TO_RELAY
         Поддерживает как фиксированную сумму, так и проценты от баланса
-        
+
         Args:
-            wallet_address: Адрес кошелька
+            wallet_address: ETH адрес кошелька
             from_chain_id: ID сети откуда будет бридж
-            
+
         Returns:
-            Сумма для бриджа
+            Сумма для бриджа (в нативных единицах: ETH для EVM, SOL для Solana)
         """
-        # Проверяем тип значений в SUM_TO_RELAY
-        # Определяем формат SUM_TO_RELAY: строки -> проценты, числа -> фикс. суммы
+        token_symbol = NETWORK_SETTINGS[from_chain_id]['native_symbol']
+
         if isinstance(SUM_TO_RELAY[0], str):
             # Это процент от баланса
             min_percent = float(SUM_TO_RELAY[0])
             max_percent = float(SUM_TO_RELAY[1])
-            
+
             # Получаем баланс кошелька
-            balance = self._get_native_balance(from_chain_id, wallet_address, show_log=False)
-            
+            if from_chain_id == SOLANA_CHAIN_ID:
+                sol_address = self._get_sol_address_for_eth(wallet_address)
+                if not sol_address:
+                    log_warning(f"⚠️ SOL адрес не найден для {wallet_address}")
+                    return 0.0
+                balance = self._get_solana_balance(sol_address, show_log=False)
+            else:
+                balance = self._get_native_balance(from_chain_id, wallet_address, show_log=False)
+
             if balance <= 0:
                 log_warning(f"⚠️ Нулевой баланс у кошелька {wallet_address}")
                 return 0.0
-            
-            # Вычисляем случайный процент
+
             percent = random.uniform(min_percent, max_percent)
-            
-            # Вычисляем сумму до учёта резерва на газ
             original_amount = balance * (percent / 100.0)
             amount = original_amount
-            
-            # Резерв на газ: получаем реальную стоимость через RPC
+
+            # Резерв на газ
             gas_reserve = 0.0
-            try:
-                web3_temp = self._get_web3_connection(from_chain_id)
-                if web3_temp:
-                    current_gas_price = web3_temp.eth.gas_price
-                    # Bridge tx ~150k gas, * gas_price * 1.5 для запаса
-                    gas_reserve_wei = 150000 * int(current_gas_price * 1.5)
-                    gas_reserve = gas_reserve_wei / 10**18
-            except Exception:
-                pass
-            # Fallback если не удалось
-            if gas_reserve < 0.0000001:
-                gas_reserve = max(0.00001, balance * 0.001)
-            
-            # Если сумма + газ превышает баланс, уменьшаем до (баланс - резерв газа)
+            if from_chain_id == SOLANA_CHAIN_ID:
+                gas_reserve = 0.001  # ~0.001 SOL на комиссию Solana (реальные комиссии ~0.000005)
+            else:
+                try:
+                    web3_temp = self._get_web3_connection(from_chain_id)
+                    if web3_temp:
+                        current_gas_price = web3_temp.eth.gas_price
+                        gas_reserve_wei = 150000 * int(current_gas_price * 1.5)
+                        gas_reserve = gas_reserve_wei / 10**18
+                except Exception:
+                    pass
+                if gas_reserve < 0.0000001:
+                    gas_reserve = max(0.00001, balance * 0.001)
+
             adjusted = False
             if amount + gas_reserve > balance:
                 amount = balance - gas_reserve
                 adjusted = True
-            
-            # Минимальная проверка
+
             if amount <= 0:
                 log_warning(f"⚠️ После вычета газа сумма для бриджа <= 0 у кошелька {wallet_address}")
                 return 0.0
-            
-            # Логируем исходную и, при необходимости, скорректированную сумму
+
             if adjusted:
-                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {original_amount:.6f} ETH -> скорректировано до {amount:.6f} (резерв газа: {gas_reserve:.6f})")
+                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {original_amount:.6f} {token_symbol} -> скорректировано до {amount:.6f} (резерв газа: {gas_reserve:.6f})")
             else:
-                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {amount:.6f} ETH (резерв газа: {gas_reserve:.6f})")
+                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {amount:.6f} {token_symbol} (резерв газа: {gas_reserve:.6f})")
             return amount
         else:
-            # Это фиксированная сумма
             min_amount, max_amount = SUM_TO_RELAY
             amount = random.uniform(min_amount, max_amount)
             return amount
@@ -388,12 +445,87 @@ class RelayBridge:
         if not os.path.exists(keys_path):
             log_error(f"❌ Файл с приватными ключами не найден: {keys_path}")
             return []
-        
+
         with open(keys_path, 'r', encoding='utf-8') as f:
             keys = [line.strip() for line in f if line.strip()]
-        
+
         return keys
-    
+
+    def _load_mnemonics_and_derive_keys(self) -> List[str]:
+        """
+        Загрузка мнемоник из файла и деривация ETH + SOL ключей.
+        Возвращает список ETH приватных ключей (для совместимости с основным потоком).
+        Заполняет self.wallet_pairs с маппингом eth_address -> {eth_private_key, sol_address, ...}
+        """
+        mnemonic_path = os.path.join(project_root, 'data', 'mnemonic.txt')
+        if not os.path.exists(mnemonic_path):
+            log_error(f"❌ Файл с мнемониками не найден: {mnemonic_path}")
+            return []
+
+        with open(mnemonic_path, 'r', encoding='utf-8') as f:
+            mnemonics = [line.strip() for line in f if line.strip()]
+
+        if not mnemonics:
+            log_error("❌ Файл мнемоник пуст")
+            return []
+
+        eth_private_keys = []
+        for mnemonic in mnemonics:
+            try:
+                # Валидация мнемоники
+                if not Bip39MnemonicValidator().IsValid(mnemonic):
+                    log_error(f"❌ Невалидная мнемоника: {mnemonic[:20]}...")
+                    continue
+
+                # Деривация ETH ключа
+                eth_private_key = derive_eth_private_key_from_mnemonic(mnemonic)
+                eth_account = Web3().eth.account.from_key(eth_private_key)
+                eth_address = eth_account.address
+
+                # Деривация SOL адреса и ключа
+                sol_address, sol_private_key = derive_sol_address_from_mnemonic(mnemonic)
+
+                # Сохраняем пару
+                self.wallet_pairs[eth_address] = {
+                    'eth_private_key': eth_private_key,
+                    'sol_address': sol_address,
+                    'sol_private_key': sol_private_key,
+                    'mnemonic': mnemonic
+                }
+
+                eth_private_keys.append(eth_private_key)
+                log_info(f"✅ Мнемоника загружена: ETH {eth_address} | SOL {sol_address}")
+
+            except Exception as e:
+                log_error(f"❌ Ошибка деривации ключей из мнемоники: {e}")
+                continue
+
+        log_info(f"📋 Загружено {len(eth_private_keys)} пар кошельков из мнемоник")
+
+        # Сохраняем ключи и адреса в файл результатов
+        self._save_wallet_keys_to_csv()
+
+        return eth_private_keys
+
+    def _save_wallet_keys_to_csv(self):
+        """Сохранение приватных ключей и адресов ETH/SOL в файл результатов"""
+        wallets_path = os.path.join(project_root, 'result', 'relay_link_wallets.csv')
+        os.makedirs(os.path.dirname(wallets_path), exist_ok=True)
+
+        with open(wallets_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Mnemonic', 'ETH Address', 'ETH Private Key', 'SOL Address', 'SOL Private Key'])
+            for eth_address, pair in self.wallet_pairs.items():
+                writer.writerow([
+                    pair['mnemonic'],
+                    eth_address,
+                    pair['eth_private_key'],
+                    pair['sol_address'],
+                    pair['sol_private_key']
+                ])
+
+        log_info(f"💾 Ключи кошельков сохранены в {wallets_path} ({len(self.wallet_pairs)} шт.)")
+
     def _load_proxies(self) -> List[str]:
         """Загрузка прокси из файла"""
         proxy_path = os.path.join(project_root, 'data', 'proxy.csv')
@@ -492,60 +624,378 @@ class RelayBridge:
             log_error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
         return 0.0
     
+    def _get_solana_balance(self, sol_address: str, show_log: bool = False) -> float:
+        """Получение баланса SOL через Solana JSON-RPC"""
+        for rpc_url in self.solana_rpc_urls:
+            try:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getBalance",
+                    "params": [sol_address]
+                }
+                response = requests.post(rpc_url, json=payload, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+
+                if 'result' in data and 'value' in data['result']:
+                    balance_lamports = data['result']['value']
+                    balance_sol = balance_lamports / 1_000_000_000  # 9 decimals
+                    if show_log:
+                        log_info(f"📊 Баланс Solana ({sol_address[:8]}...): {balance_sol:.6f} SOL")
+                    return balance_sol
+            except Exception as e:
+                continue
+
+        if show_log:
+            log_error(f"❌ Не удалось получить баланс Solana для {sol_address}")
+        return 0.0
+
+    def _get_solana_latest_blockhash(self) -> Optional[str]:
+        """Получение последнего blockhash из Solana RPC"""
+        for rpc_url in self.solana_rpc_urls:
+            try:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "finalized"}]
+                }
+                response = requests.post(rpc_url, json=payload, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if 'result' in data and 'value' in data['result']:
+                    return data['result']['value']['blockhash']
+            except Exception:
+                continue
+        return None
+
+    def _get_solana_address_lookup_table(self, table_address: str) -> Optional[AddressLookupTableAccount]:
+        """Загрузка Address Lookup Table из Solana RPC"""
+        for rpc_url in self.solana_rpc_urls:
+            try:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getAccountInfo",
+                    "params": [
+                        table_address,
+                        {"encoding": "base64", "commitment": "finalized"}
+                    ]
+                }
+                response = requests.post(rpc_url, json=payload, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+
+                if 'result' not in data or data['result']['value'] is None:
+                    continue
+
+                import base64
+                account_data = base64.b64decode(data['result']['value']['data'][0])
+
+                # Парсинг Address Lookup Table
+                # Формат: 4 bytes deactivation_slot + 4 bytes last_extended_slot + 1 byte last_extended_slot_start_index + ... + addresses
+                # Реальный формат: первые 56 байт - метаданные, далее - 32-байтовые публичные ключи
+                LOOKUP_TABLE_META_SIZE = 56
+                if len(account_data) < LOOKUP_TABLE_META_SIZE:
+                    continue
+
+                addresses_data = account_data[LOOKUP_TABLE_META_SIZE:]
+                addresses = []
+                for i in range(0, len(addresses_data), 32):
+                    if i + 32 <= len(addresses_data):
+                        addresses.append(SolPubkey.from_bytes(addresses_data[i:i+32]))
+
+                return AddressLookupTableAccount(
+                    key=SolPubkey.from_string(table_address),
+                    addresses=addresses
+                )
+            except Exception as e:
+                log_warning(f"⚠️ Ошибка загрузки ALT {table_address[:12]}...: {e}")
+                continue
+        return None
+
+    def _send_solana_transaction(self, signed_tx: VersionedTransaction) -> Optional[str]:
+        """Отправка подписанной Solana транзакции через RPC"""
+        tx_bytes = bytes(signed_tx)
+        tx_base64 = __import__('base64').b64encode(tx_bytes).decode('utf-8')
+
+        for rpc_url in self.solana_rpc_urls:
+            try:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "sendTransaction",
+                    "params": [
+                        tx_base64,
+                        {"encoding": "base64", "skipPreflight": False, "preflightCommitment": "confirmed"}
+                    ]
+                }
+                response = requests.post(rpc_url, json=payload, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+
+                if 'error' in data:
+                    log_error(f"❌ Solana RPC ошибка: {data['error']}")
+                    continue
+
+                if 'result' in data:
+                    return data['result']  # tx signature
+            except Exception as e:
+                log_warning(f"⚠️ Ошибка отправки Solana TX: {e}")
+                continue
+        return None
+
+    def _confirm_solana_transaction(self, tx_signature: str, max_wait_seconds: int = 60) -> bool:
+        """Ожидание подтверждения Solana транзакции"""
+        for attempt in range(max_wait_seconds // 5):
+            for rpc_url in self.solana_rpc_urls:
+                try:
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getSignatureStatuses",
+                        "params": [[tx_signature], {"searchTransactionHistory": True}]
+                    }
+                    response = requests.post(rpc_url, json=payload, timeout=10)
+                    data = response.json()
+
+                    if 'result' in data and data['result']['value']:
+                        status = data['result']['value'][0]
+                        if status is not None:
+                            if status.get('err') is None:
+                                conf = status.get('confirmationStatus', '')
+                                if conf in ('confirmed', 'finalized'):
+                                    return True
+                            else:
+                                log_error(f"❌ Solana TX ошибка: {status['err']}")
+                                return False
+                except Exception:
+                    continue
+            time.sleep(5)
+        return False
+
+    def _execute_solana_bridge(self, quote_data: Dict, wallet_address: str, sol_private_key_b58: str,
+                                from_chain_id: int, to_chain_id: int, sent_amount_sol: float) -> bool:
+        """Выполнение Solana бридж-транзакции (SOL -> EVM)"""
+        try:
+            steps = quote_data.get('steps', [])
+            if not steps:
+                log_error("❌ Нет шагов в котировке")
+                return False
+
+            tx_step = None
+            for step in steps:
+                if step.get('kind') == 'transaction':
+                    tx_step = step
+                    break
+
+            if not tx_step:
+                log_error("❌ Не найден шаг с транзакцией")
+                return False
+
+            items = tx_step.get('items', [])
+            if not items:
+                log_error("❌ Нет элементов транзакции")
+                return False
+
+            tx_data = items[0].get('data', {})
+            instructions_data = tx_data.get('instructions', [])
+            alt_addresses = tx_data.get('addressLookupTableAddresses', [])
+
+            if not instructions_data:
+                log_error("❌ Нет инструкций в транзакции Solana")
+                return False
+
+            # Получаем начальный баланс ETH в целевой сети
+            eth_address = wallet_address  # ETH адрес
+            initial_to_balance = self._get_native_balance(to_chain_id, eth_address)
+
+            # Собираем Solana Keypair
+            sol_keypair = SolKeypair.from_bytes(base58.b58decode(sol_private_key_b58))
+            sol_address = str(sol_keypair.pubkey())
+
+            # Начальный баланс SOL
+            initial_from_balance = self._get_solana_balance(sol_address)
+
+            # Получаем blockhash
+            blockhash_str = self._get_solana_latest_blockhash()
+            if not blockhash_str:
+                log_error("❌ Не удалось получить blockhash")
+                return False
+
+            recent_blockhash = SolHash.from_string(blockhash_str)
+
+            # Собираем инструкции
+            instructions = []
+            for instr_data in instructions_data:
+                program_id = SolPubkey.from_string(instr_data['programId'])
+                accounts = []
+                for key_info in instr_data['keys']:
+                    accounts.append(SolAccountMeta(
+                        pubkey=SolPubkey.from_string(key_info['pubkey']),
+                        is_signer=key_info['isSigner'],
+                        is_writable=key_info['isWritable']
+                    ))
+                data_hex = instr_data['data']
+                data_bytes = bytes.fromhex(data_hex)
+                instructions.append(SolInstruction(program_id, data_bytes, accounts))
+
+            # Загружаем Address Lookup Tables
+            lookup_tables = []
+            for alt_addr in alt_addresses:
+                alt = self._get_solana_address_lookup_table(alt_addr)
+                if alt:
+                    lookup_tables.append(alt)
+
+            # Собираем и подписываем транзакцию
+            message = MessageV0.try_compile(
+                payer=sol_keypair.pubkey(),
+                instructions=instructions,
+                address_lookup_table_accounts=lookup_tables,
+                recent_blockhash=recent_blockhash
+            )
+
+            tx = VersionedTransaction(message, [sol_keypair])
+
+            # Отправляем
+            log_info(f"📤 Отправка Solana транзакции...")
+            tx_signature = self._send_solana_transaction(tx)
+            if not tx_signature:
+                log_error("❌ Не удалось отправить Solana транзакцию")
+                return False
+
+            explorer_link = f"https://solscan.io/tx/{tx_signature}"
+            log_transaction(f"📤 Solana транзакция: {explorer_link}")
+
+            # Ждем подтверждения на Solana
+            log_info("⏳ Ожидание подтверждения Solana транзакции...")
+            confirmed = self._confirm_solana_transaction(tx_signature)
+            if confirmed:
+                log_success(f"✅ Solana транзакция подтверждена")
+            else:
+                log_warning(f"⚠️ Не удалось подтвердить Solana транзакцию, проверяем баланс...")
+
+            # Проверяем поступление ETH в целевую сеть
+            log_info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
+            transaction_success = self._check_balance_changes(
+                eth_address, from_chain_id, to_chain_id, sent_amount_sol,
+                initial_from_balance, initial_to_balance
+            )
+
+            if transaction_success:
+                log_success(f"✅ Бридж SOL -> ETH подтвержден")
+                self._save_transaction_result(eth_address, tx_signature, 0, 'completed')
+                return True
+            else:
+                self._save_transaction_result(eth_address, tx_signature, 0, 'failed')
+                return False
+
+        except Exception as e:
+            log_error(f"❌ Ошибка выполнения Solana транзакции: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def _get_transaction_explorer_link(self, chain_id: int, tx_hash: str) -> str:
         """Получение ссылки на транзакцию в explorer"""
+        # Solana explorer
+        if chain_id == SOLANA_CHAIN_ID:
+            return f"https://solscan.io/tx/{tx_hash}"
+
         explorer_network = self.chain_id_to_explorer_network.get(chain_id)
         if explorer_network:
             explorer_url = get_explorer_url(explorer_network)
             if explorer_url and not explorer_url.startswith("ошибка"):
                 return f"{explorer_url}{tx_hash}"
-        
+
         # Fallback для неизвестных сетей
         network_name = NETWORK_SETTINGS.get(chain_id, {}).get('name', 'Unknown')
         return f"Транзакция {tx_hash} в сети {network_name}"
     
     def _check_balances(self, wallet_address: str, from_chain_id: int, to_chain_id: int) -> Dict[str, Dict]:
-        """Проверка балансов в указанных сетях"""
+        """Проверка балансов в указанных сетях (включая Solana)"""
         balances = {}
-        
+
         for chain_id in [from_chain_id, to_chain_id]:
             network_name = CHAIN_ID_TO_NAME[chain_id]
-            balance = self._get_native_balance(chain_id, wallet_address, show_log=True)
-            
-            if balance > 0:
+
+            if chain_id == SOLANA_CHAIN_ID:
+                # Для Solana используем SOL адрес из wallet_pairs
+                sol_address = self._get_sol_address_for_eth(wallet_address)
+                if sol_address:
+                    balance = self._get_solana_balance(sol_address, show_log=True)
+                else:
+                    log_warning(f"⚠️ SOL адрес не найден для {wallet_address}")
+                    balance = 0.0
+            else:
+                balance = self._get_native_balance(chain_id, wallet_address, show_log=True)
+
+            if balance >= 0:
                 balances[network_name] = {
                     'chain_id': chain_id,
                     'balance': balance,
                     'symbol': NETWORK_SETTINGS[chain_id]['native_symbol']
                 }
-        
+
         return balances
+
+    def _get_sol_address_for_eth(self, eth_address: str) -> Optional[str]:
+        """Получить SOL адрес по ETH адресу из wallet_pairs"""
+        pair = self.wallet_pairs.get(eth_address)
+        if pair:
+            return pair['sol_address']
+        return None
     
-    def _get_quote(self, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str) -> Tuple[Optional[Dict], Optional[str]]:
-        """Получение котировки для бриджа. Возвращает (quote_data, error_message)"""
+    def _get_quote(self, from_chain_id: int, to_chain_id: int, amount: int, wallet_address: str,
+                   sol_recipient: str = None, sol_sender: str = None) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        Получение котировки для бриджа. Возвращает (quote_data, error_message)
+
+        Args:
+            amount: Сумма в минимальных единицах (wei для EVM, lamports для SOL)
+            wallet_address: ETH адрес кошелька
+            sol_recipient: SOL адрес получателя (для EVM->SOL)
+            sol_sender: SOL адрес отправителя (для SOL->EVM)
+        """
         url = f"{self.base_url}/quote"
-        
-        # Получаем адреса нативных токенов
+
         from_token = TOKEN_ADDRESSES[from_chain_id][NETWORK_SETTINGS[from_chain_id]['native_symbol']]
         to_token = TOKEN_ADDRESSES[to_chain_id][NETWORK_SETTINGS[to_chain_id]['native_symbol']]
-        
+
+        # Определяем user и recipient в зависимости от направления
+        if from_chain_id == SOLANA_CHAIN_ID and sol_sender:
+            # SOL -> EVM: user=SOL, recipient=ETH
+            user = sol_sender
+            recipient = wallet_address
+        elif to_chain_id == SOLANA_CHAIN_ID and sol_recipient:
+            # EVM -> SOL: user=ETH, recipient=SOL
+            user = wallet_address
+            recipient = sol_recipient
+        else:
+            # EVM -> EVM
+            user = wallet_address
+            recipient = wallet_address
+
         payload = {
-            "user": wallet_address,
+            "user": user,
             "originChainId": from_chain_id,
             "destinationChainId": to_chain_id,
             "originCurrency": from_token,
             "destinationCurrency": to_token,
-            "amount": str(amount_wei),
+            "amount": str(amount),
             "tradeType": "EXACT_INPUT",
-            "recipient": wallet_address,
-            "slippageBps": "0",
-            "useExternalLiquidity": False
+            "recipient": recipient
         }
-        
+
+        # Для EVM->EVM маршрутов оставляем старые параметры
+        if from_chain_id != SOLANA_CHAIN_ID and to_chain_id != SOLANA_CHAIN_ID:
+            payload["slippageBps"] = "0"
+            payload["useExternalLiquidity"] = False
+
         headers = {"Content-Type": "application/json"}
-        
+
         try:
-            # Используем случайный прокси для API запроса
             api_proxy = self._get_random_proxy_for_api()
             proxies = None
             if api_proxy:
@@ -553,10 +1003,22 @@ class RelayBridge:
                     'http': f'http://{api_proxy}',
                     'https': f'http://{api_proxy}'
                 }
-            
+
+            log_info(f"📡 Запрос котировки: {NETWORK_SETTINGS[from_chain_id]['name']} -> {NETWORK_SETTINGS[to_chain_id]['name']}, user: {user[:12]}..., получатель: {recipient[:12]}...")
             response = requests.post(url, json=payload, headers=headers, proxies=proxies, timeout=30)
             response.raise_for_status()
             return response.json(), None
+        except requests.exceptions.HTTPError as e:
+            response_body = ""
+            try:
+                response_body = e.response.text if e.response else ""
+            except Exception:
+                pass
+            error_msg = f"Ошибка получения котировки: {e}"
+            if response_body:
+                error_msg += f" | Ответ API: {response_body[:500]}"
+            log_error(f"❌ {error_msg}")
+            return None, error_msg
         except Exception as e:
             error_msg = f"Ошибка получения котировки: {e}"
             log_error(f"❌ {error_msg}")
@@ -566,52 +1028,62 @@ class RelayBridge:
         """
         Проверка изменения балансов для подтверждения успешности транзакции
         Основной критерий успеха - поступление средств в целевую сеть
-        
+
         Args:
-            wallet_address: Адрес кошелька
+            wallet_address: ETH адрес кошелька
             from_chain_id: ID сети откуда отправили
             to_chain_id: ID сети куда должно прийти
             sent_amount: Отправленная сумма
-            initial_from_balance: Начальный баланс в исходной сети  
+            initial_from_balance: Начальный баланс в исходной сети
             initial_to_balance: Начальный баланс в целевой сети
             max_wait_minutes: Максимальное время ожидания в минутах
-        
+
         Returns:
             True если средства поступили в целевую сеть
         """
-        max_attempts = (max_wait_minutes * 60) // SLEEP_BETWEEN_ACTIONS[1]  # Количество попыток
+        max_attempts = (max_wait_minutes * 60) // SLEEP_BETWEEN_ACTIONS[1]
         log_info(f"⏱️ Максимальное время ожидания: {max_wait_minutes} минут ({max_attempts} проверок)")
-        
+
+        # Определяем, проверяем ли Solana баланс
+        is_solana_dest = (to_chain_id == SOLANA_CHAIN_ID)
+        sol_address = None
+        if is_solana_dest:
+            sol_address = self._get_sol_address_for_eth(wallet_address)
+            if not sol_address:
+                log_error(f"❌ SOL адрес не найден для {wallet_address}")
+                return False
+
         for attempt in range(max_attempts):
             try:
                 log_info(f"🔍 Проверка {attempt + 1}/{max_attempts}: проверяем баланс в {NETWORK_SETTINGS[to_chain_id]['name']}...")
-                
-                # Получаем АКТУАЛЬНЫЙ баланс целевой сети через Web3 RPC (используем все доступные RPC)
-                current_to_balance = self._get_native_balance(to_chain_id, wallet_address)
-                
+
+                # Получаем АКТУАЛЬНЫЙ баланс целевой сети
+                if is_solana_dest:
+                    current_to_balance = self._get_solana_balance(sol_address)
+                else:
+                    current_to_balance = self._get_native_balance(to_chain_id, wallet_address)
+
                 # Рассчитываем изменение в целевой сети
                 to_change = current_to_balance - initial_to_balance
-                
+
                 log_info(f"📊 Баланс: {initial_to_balance:.8f} → {current_to_balance:.8f} (изменение: {to_change:.8f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']})")
-                
-                # Главный критерий успеха - если есть поступление в целевую сеть
-                if to_change > 0.000001:  # Минимальное изменение для учета
+
+                # Главный критерий успеха
+                if to_change > 0.000001:
                     log_success(f"✅ Транзакция успешна! Получено: {to_change:.6f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']}")
                     return True
-                
-                # Показываем что ждем еще
+
                 if attempt < max_attempts - 1:
                     log_info(f"⏳ Средства еще не поступили, ожидание {SLEEP_BETWEEN_ACTIONS[1]} сек...")
                     sleep_time = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
                     time.sleep(sleep_time)
-                    
+
             except Exception as e:
                 log_error(f"❌ Ошибка при проверке баланса (попытка {attempt + 1}): {e}")
                 if attempt < max_attempts - 1:
                     log_info(f"🔄 Повторная попытка через {SLEEP_BETWEEN_ACTIONS[1]} сек...")
                 time.sleep(SLEEP_BETWEEN_ACTIONS[1])
-                
-        # Если время истекло и средства не поступили
+
         log_error(f"❌ Средства не поступили в {NETWORK_SETTINGS[to_chain_id]['name']} в течение {max_wait_minutes} минут")
         return False
 
@@ -621,10 +1093,16 @@ class RelayBridge:
             # Вычисляем комиссию из котировки для сохранения в результат
             quote_fee_eth = 0.0
             if quote_data and 'details' in quote_data and 'currencyOut' in quote_data['details']:
-                amount_out_wei = int(quote_data['details']['currencyOut']['amount'])
-                amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
-                quote_fee_eth = sent_amount - amount_out_eth
-                #log_info(f"💰 Комиссия из котировки: {quote_fee_eth:.8f} ETH")
+                if to_chain_id == SOLANA_CHAIN_ID:
+                    # Для ETH->SOL: берем комиссию из fees секции
+                    fees_section = quote_data.get('fees', {})
+                    relayer_fee = fees_section.get('relayer', {})
+                    if 'amountFormatted' in relayer_fee:
+                        quote_fee_eth = float(relayer_fee['amountFormatted'])
+                else:
+                    amount_out_wei = int(quote_data['details']['currencyOut']['amount'])
+                    amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
+                    quote_fee_eth = sent_amount - amount_out_eth
             
             steps = quote_data.get('steps', [])
             if not steps:
@@ -660,7 +1138,11 @@ class RelayBridge:
             
             # Получаем начальные балансы для проверки
             initial_from_balance = self._get_native_balance(from_chain_id, wallet_address)
-            initial_to_balance = self._get_native_balance(to_chain_id, wallet_address)
+            if to_chain_id == SOLANA_CHAIN_ID:
+                sol_address = self._get_sol_address_for_eth(wallet_address)
+                initial_to_balance = self._get_solana_balance(sol_address) if sol_address else 0.0
+            else:
+                initial_to_balance = self._get_native_balance(to_chain_id, wallet_address)
 
             # Подготовка транзакции
             account = web3.eth.account.from_key(private_key)
@@ -815,10 +1297,21 @@ class RelayBridge:
             
             # Рассчитываем реальную полученную сумму и комиссию из котировки
             if quote_data and 'details' in quote_data and 'currencyOut' in quote_data['details']:
-                # Используем реальные данные из котировки
-                amount_out_wei = int(quote_data['details']['currencyOut']['amount'])
-                amount_out_eth = Web3.from_wei(amount_out_wei, 'ether')
-                calculated_bridge_fee = amount - float(amount_out_eth)
+                currency_out = quote_data['details']['currencyOut']
+                out_chain_id = currency_out.get('currency', {}).get('chainId', 0)
+                amount_out_raw = int(currency_out['amount'])
+                # Для Solana - 9 decimals, для EVM - 18 decimals
+                if out_chain_id == SOLANA_CHAIN_ID:
+                    amount_out_eth = amount_out_raw / 1_000_000_000  # SOL amount
+                else:
+                    amount_out_eth = float(Web3.from_wei(amount_out_raw, 'ether'))
+                # Для кросс-чейн ETH->SOL комиссия берется из fees
+                fees_section = quote_data.get('fees', {})
+                relayer_fee = fees_section.get('relayer', {})
+                if out_chain_id == SOLANA_CHAIN_ID and 'amountFormatted' in relayer_fee:
+                    calculated_bridge_fee = float(relayer_fee['amountFormatted'])
+                else:
+                    calculated_bridge_fee = amount - float(amount_out_eth)
             else:
                 # Fallback к примерной комиссии если нет данных котировки
                 estimated_received = amount * 0.995  # Примерно 0.5% комиссия
@@ -843,46 +1336,48 @@ class RelayBridge:
                 f"{final_bridge_fee:.8f}"
             ])
     
-    def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str) -> Dict:
+    def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str, sol_recipient: str = None, sol_sender: str = None) -> Dict:
         """Проверка комиссий в котировке перед выполнением с ожиданием снижения комиссии"""
-        # Берем лимит комиссии из конфигурации
-        max_fee_usd = GAS.get('LIMIT_GAS_COST', 0.1)  # Лимит комиссии в USD из config.py
-        
+        max_fee_usd = GAS.get('LIMIT_GAS_COST', 0.1)
+
         while True:
             if not quote_data or 'details' not in quote_data:
                 log_warning("⚠️ Нет детальной информации о комиссиях в котировке")
-                return quote_data  # Возвращаем текущую котировку если нет данных
-            
+                return quote_data
+
             details = quote_data['details']
-            
-            # Получаем фактическую выходную сумму
+
             if 'currencyOut' in details:
-                amount_out_wei = int(details['currencyOut']['amount'])
-                amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
-                
-                actual_fee = amount_eth - amount_out_eth
-                actual_fee_percentage = (actual_fee / amount_eth) * 100
-                
-                # Конвертируем в USD для проверки лимита
-                eth_price = 3000  # Примерная цена ETH
-                fee_usd = actual_fee * eth_price
-                
-                # Тихо проверяем комиссии без лишних логов
-                
-                # Проверяем лимит комиссии
+                # Для кросс-чейн маршрутов с Solana используем fees.relayer.amountUsd из API
+                is_solana_route = (to_chain_id == SOLANA_CHAIN_ID or from_chain_id == SOLANA_CHAIN_ID)
+                if is_solana_route:
+                    fee_usd = 0.0
+                    fees_section = quote_data.get('fees', {})
+                    for fee_type in ['relayer', 'gas']:
+                        fee_entry = fees_section.get(fee_type, {})
+                        if 'amountUsd' in fee_entry:
+                            fee_usd += float(fee_entry['amountUsd'])
+                    if fee_usd == 0:
+                        log_info(f"ℹ️ Кросс-чейн Solana: комиссия не определена, пропускаем проверку")
+                        return quote_data
+                else:
+                    amount_out_wei = int(details['currencyOut']['amount'])
+                    amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
+                    actual_fee = amount_eth - amount_out_eth
+                    eth_price = 3000
+                    fee_usd = actual_fee * eth_price
+
                 if fee_usd > max_fee_usd:
                     log_warning(f"⚠️ Комиссия слишком высокая: ${fee_usd:.4f} > ${max_fee_usd}")
                     log_warning(f"   💡 Ожидание снижения комиссии... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
-                    
-                    # Ждем перед следующей проверкой
+
                     time.sleep(GAS['WHITE_TIMEOUT'])
-                    
-                    # Получаем новую котировку
+
                     log_info("🔄 Получение новой котировки...")
-                    new_quote, error_msg = self._get_quote(from_chain_id, to_chain_id, amount_wei, wallet_address)
+                    new_quote, error_msg = self._get_quote(from_chain_id, to_chain_id, amount_wei, wallet_address, sol_recipient=sol_recipient, sol_sender=sol_sender)
                     if new_quote:
                         quote_data = new_quote
-                        continue  # Проверяем новую котировку
+                        continue
                     else:
                         log_warning("⚠️ Не удалось получить новую котировку, используем текущую")
                         return quote_data
@@ -896,73 +1391,120 @@ class RelayBridge:
     def _process_wallet(self, private_key: str, wallet_index: int) -> bool:
         """Обработка одного кошелька"""
         try:
-            # Получение адреса кошелька сначала для логирования
+            # Получение адреса кошелька (всегда ETH)
             account = Web3().eth.account.from_key(private_key)
             wallet_address = account.address
-            
-            # Получение записи кошелька из базы данных
+
             wallet_record = self._get_wallet_record(private_key)
             if not wallet_record:
                 log_error(f"❌ Запись кошелька {wallet_address} не найдена в базе данных")
                 return False
-            
-            # Проверка статуса - если уже выполнен, пропускаем
-            if wallet_record['status'] == 'completed' or wallet_record['status'] == 'completed_no_confirmation':
+
+            if wallet_record['status'] in ('completed', 'completed_no_confirmation'):
                 return True
 
             log_progress(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
-            
-            # Получаем данные из записи базы
+
             from_network = wallet_record['from_network']
             to_network = wallet_record['to_network']
             amount = wallet_record['amount']
-            
-            # Получаем chain_id для сетей
+
             from_chain_id = NETWORK_MAPPING[from_network]
             to_chain_id = NETWORK_MAPPING[to_network]
-            
+
+            # Определяем SOL адреса для маршрутов с Solana
+            sol_recipient = None
+            sol_sender = None
+            sol_private_key = None
+            wallet_pair = self.wallet_pairs.get(wallet_address)
+
+            if to_chain_id == SOLANA_CHAIN_ID:
+                if not wallet_pair:
+                    log_error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
+                    return False
+                sol_recipient = wallet_pair['sol_address']
+                log_info(f"🔗 SOL получатель: {sol_recipient}")
+
+            if from_chain_id == SOLANA_CHAIN_ID:
+                if not wallet_pair:
+                    log_error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
+                    return False
+                sol_sender = wallet_pair['sol_address']
+                sol_private_key = wallet_pair['sol_private_key']
+                log_info(f"🔗 SOL отправитель: {sol_sender}")
+
             # Проверка балансов
             balances = self._check_balances(wallet_address, from_chain_id, to_chain_id)
             if not balances:
                 log_warning(f"⚠️ Нет балансов для бриджа у кошелька {wallet_address}")
                 return False
-            
+
             if from_network not in balances:
                 log_warning(f"⚠️ Нет баланса в сети {from_network} у кошелька {wallet_address}")
                 return False
-            
+
             # Проверка достаточности баланса
             available_balance = balances[from_network]['balance']
+            min_balance = 0.01 if from_chain_id == SOLANA_CHAIN_ID else 0.0001
             if amount > available_balance:
-                # Попробуем сделать мост на максимально доступную сумму
-                if available_balance > 0.0001:  # Минимальная сумма для моста (0.0001 ETH)
-                    amount = available_balance * 0.95  # Оставляем 5% для газа
+                if available_balance > min_balance:
+                    amount = available_balance * 0.95
                 else:
-                    log_error(f"❌ {wallet_address}: Баланс слишком мал: {available_balance:.6f} ETH")
+                    log_error(f"❌ {wallet_address}: Баланс слишком мал: {available_balance:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
                     return False
-            
+
+            # Проверка минимальной суммы для бриджа
+            token_symbol = NETWORK_SETTINGS[from_chain_id]['native_symbol']
+            min_bridge = MINIMUM_BRIDGE_AMOUNTS.get(token_symbol, 0)
+            if amount < min_bridge:
+                log_error(f"❌ {wallet_address}: Сумма {amount:.6f} {token_symbol} меньше минимальной для бриджа ({min_bridge} {token_symbol})")
+                self._update_wallet_error(wallet_record['id'], f"Сумма {amount:.6f} меньше минимальной {min_bridge} {token_symbol}")
+                return False
+
             # Получение котировки
-            amount_wei = Web3.to_wei(amount, 'ether')
-            quote, error_msg = self._get_quote(from_chain_id, to_chain_id, amount_wei, wallet_address)
-            
+            if from_chain_id == SOLANA_CHAIN_ID:
+                # SOL -> EVM: amount в lamports
+                amount_units = int(amount * 1_000_000_000)
+            else:
+                # EVM: amount в wei
+                amount_units = Web3.to_wei(amount, 'ether')
+
+            quote, error_msg = self._get_quote(
+                from_chain_id, to_chain_id, amount_units, wallet_address,
+                sol_recipient=sol_recipient, sol_sender=sol_sender
+            )
+
             if not quote:
-                # Записываем ошибку в базу и пропускаем кошелек
                 self._update_wallet_error(wallet_record['id'], error_msg or "Неизвестная ошибка котировки")
                 log_error(f"❌ Не удалось получить котировку для кошелька {wallet_address}, пропускаем")
                 return False
-            
-            # Проверка комиссий в котировке с ожиданием снижения
-            quote = self._check_quote_fees(quote, amount, from_chain_id, to_chain_id, amount_wei, wallet_address)
-            
+
+            # Проверка комиссий
+            quote = self._check_quote_fees(
+                quote, amount, from_chain_id, to_chain_id, amount_units, wallet_address,
+                sol_recipient=sol_recipient, sol_sender=sol_sender
+            )
+
             # Выполнение бриджа
-            bridge_success = self._execute_bridge(quote, wallet_address, private_key, from_chain_id, to_chain_id, amount)
+            if from_chain_id == SOLANA_CHAIN_ID:
+                # SOL -> EVM: используем Solana транзакцию
+                bridge_success = self._execute_solana_bridge(
+                    quote, wallet_address, sol_private_key,
+                    from_chain_id, to_chain_id, amount
+                )
+            else:
+                # EVM -> (EVM|SOL): используем EVM транзакцию
+                bridge_success = self._execute_bridge(
+                    quote, wallet_address, private_key,
+                    from_chain_id, to_chain_id, amount
+                )
+
             if not bridge_success:
                 log_error(f"❌ Ошибка выполнения бриджа для кошелька {wallet_address}")
                 return False
-            
-            # Если bridge_success = True, значит средства уже поступили (проверено в _execute_bridge)
+
             status = 'completed'
-            
+
             # Сохранение в CSV
             last_tx_hash = None
             bridge_fee = 0
@@ -973,38 +1515,35 @@ class RelayBridge:
             if result:
                 last_tx_hash, bridge_fee = result
             conn.close()
-            
+
             self._save_to_csv(wallet_address, from_network, to_network, amount, last_tx_hash, bridge_fee or 0, status, quote)
 
             # Красивый вывод итогов кошелька
             try:
-                # Получаем курс токена
                 token_symbol = NETWORK_SETTINGS[from_chain_id]['native_symbol']
                 price_usd = self._get_native_token_price_in_usdt(from_chain_id)
-                
-                # Рассчитываем полученную сумму (отправленная минус комиссия)
                 received_amount = amount - (bridge_fee or 0)
-                
+
+                display_address = wallet_address
+                if to_chain_id == SOLANA_CHAIN_ID and sol_recipient:
+                    display_address = f"{wallet_address} -> SOL:{sol_recipient[:12]}..."
+                elif from_chain_id == SOLANA_CHAIN_ID and sol_sender:
+                    display_address = f"SOL:{sol_sender[:12]}... -> {wallet_address}"
+
                 log_wallet_summary(
-                    wallet_address, 
-                    amount, 
-                    received_amount, 
-                    bridge_fee or 0, 
-                    from_network, 
-                    to_network, 
-                    token_symbol, 
-                    price_usd
+                    display_address, amount, received_amount,
+                    bridge_fee or 0, from_network, to_network,
+                    token_symbol, price_usd
                 )
             except Exception as e:
                 log_error(f"❌ Ошибка получения курса для итогов: {e}")
                 print(f"\n{'='*20} {wallet_address} {'='*20}")
                 print(f"     ✅ Обработан успешно: {amount:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
                 print(f"     Из {from_network} в {to_network}\n")
-            
+
             return True
-            
+
         except Exception as e:
-            # Пытаемся получить адрес кошелька для логирования если возможно
             try:
                 account = Web3().eth.account.from_key(private_key)
                 wallet_address = account.address
@@ -1126,7 +1665,8 @@ class RelayBridge:
             42161: 'ethereum',   # Arbitrum - ETH
             169: 'ethereum',   # Manta Pacific - ETH
             42170: 'ethereum',  # Arbitrum Nova - ETH
-            59144: 'ethereum'  # Linea - ETH
+            59144: 'ethereum',  # Linea - ETH
+            SOLANA_CHAIN_ID: 'solana'  # Solana - SOL
         }
         
         coingecko_id = coingecko_ids.get(chain_id, 'ethereum')
@@ -1180,7 +1720,8 @@ class RelayBridge:
             8453: 3000.0, # ETH на Base
             42161: 3000.0, # ETH on Arbitrum
             42170: 3000.0,  # ETH on Arbitrum Nova
-            59144: 3000.0  # ETH on Linea
+            59144: 3000.0,  # ETH on Linea
+            SOLANA_CHAIN_ID: 150.0  # SOL
         }
         return fallback_prices.get(chain_id, 3000.0)
     
@@ -1227,38 +1768,66 @@ class RelayBridge:
                 # В случае ошибки используем умеренную цену
                 return web3.to_wei('20', 'gwei')
     
+    def _is_solana_route(self, from_chain_id: int, to_chain_id: int) -> bool:
+        """Проверяет, участвует ли Solana в маршруте"""
+        return from_chain_id == SOLANA_CHAIN_ID or to_chain_id == SOLANA_CHAIN_ID
+
     def run(self):
         """Основная функция запуска"""
         try:
             log_info("🌉 Relay Bridge - запуск обработки кошельков")
-            
+
             # Проверка возможности продолжения
             resume = self._check_resume_option()
-            
+
             # Если не resume mode, то выбираем сети и токены
             if not resume:
                 log_info("\n" + "="*60)
                 log_info("🔧 НАСТРОЙКА ПАРАМЕТРОВ МОСТА")
                 log_info("="*60)
-                
+
                 # Шаг 1: Выбор исходной сети и токена
                 log_info("\n📤 ШАГ 1: Выбор сети и токена для отправки")
                 from_chain_id, from_token = self._select_network_and_token("Откуда отправить?")
                 if from_chain_id is None:
                     log_info("👋 Работа отменена пользователем")
                     return
-                
+
                 log_success(f"✅ Выбрано: {NETWORK_SETTINGS[from_chain_id]['name']} → {from_token}")
-                
+
                 # Шаг 2: Выбор целевой сети и токена
                 log_info(f"\n📥 ШАГ 2: Выбор сети и токена для получения")
                 to_chain_id, to_token = self._select_network_and_token("Куда отправить?", exclude_chain_id=from_chain_id)
                 if to_chain_id is None:
                     log_info("👋 Работа отменена пользователем")
                     return
-                
+
                 log_success(f"✅ Выбрано: {NETWORK_SETTINGS[to_chain_id]['name']} → {to_token}")
-                
+
+                # Если маршрут включает Solana - загружаем мнемоники
+                if self._is_solana_route(from_chain_id, to_chain_id):
+                    log_info("\n🔑 Маршрут включает Solana — загружаем мнемоники для деривации ETH+SOL ключей")
+                    self.use_mnemonics = True
+                    self.private_keys = self._load_mnemonics_and_derive_keys()
+
+                    if not self.private_keys:
+                        log_error("❌ Не удалось загрузить мнемоники. Проверьте файл data/mnemonic.txt")
+                        return
+
+                    # Показываем пары кошельков
+                    log_info(f"\n📋 Загруженные пары кошельков:")
+                    for eth_addr, pair in self.wallet_pairs.items():
+                        log_info(f"   ETH: {eth_addr}")
+                        log_info(f"   SOL: {pair['sol_address']}")
+                        log_info(f"   {'─'*50}")
+                else:
+                    # Для EVM->EVM маршрутов используем приватные ключи как раньше
+                    self.private_keys = self._load_private_keys()
+
+                if not self.private_keys:
+                    log_error("❌ Нет ключей для работы")
+                    return
+
                 # Показываем итоговую конфигурацию
                 log_info("="*60)
                 log_info("🔧 ИТОГОВАЯ КОНФИГУРАЦИЯ")
@@ -1267,16 +1836,17 @@ class RelayBridge:
                 log_info(f"💎 Токен отправки: {from_token}")
                 log_info(f"🌐 В сеть: {NETWORK_SETTINGS[to_chain_id]['name']}")
                 log_info(f"💎 Токен получения: {to_token}")
-                
-                # Определяем тип суммы (фиксированная или процент)
+
                 if isinstance(SUM_TO_RELAY[0], str):
                     log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]}% от баланса")
                 else:
                     log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
-                
+
                 log_info(f"👛 Кошельков: {len(self.private_keys)}")
+                if self.use_mnemonics:
+                    log_info(f"🔑 Режим: мнемоники (ETH+SOL деривация)")
                 log_info("="*60 + "\n")
-                
+
                 # Подтверждение запуска
                 choice = select(
                     "Запустить мост с этими параметрами?",
@@ -1287,33 +1857,52 @@ class RelayBridge:
                     qmark='🛠️',
                     pointer='👉'
                 ).ask()
-                
+
                 if not choice:
                     log_info("👋 Работа отменена пользователем")
                     return
-                
+
                 # Создание плана работ с новыми параметрами
                 if not self._create_work_plan(from_chain_id, from_token, to_chain_id, to_token):
                     return
             else:
-                # Resume mode - параметры уже есть в базе
+                # Resume mode - проверяем нужны ли мнемоники
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT DISTINCT to_network FROM relay_progress LIMIT 1')
+                row = cursor.fetchone()
+                cursor.execute('SELECT DISTINCT from_network FROM relay_progress LIMIT 1')
+                from_row = cursor.fetchone()
+                conn.close()
+
+                solana_involved = (row and row[0] == 'solana') or (from_row and from_row[0] == 'solana')
+                if solana_involved:
+                    log_info("🔑 Resume: маршрут с Solana — загружаем мнемоники")
+                    self.use_mnemonics = True
+                    self.private_keys = self._load_mnemonics_and_derive_keys()
+                else:
+                    self.private_keys = self._load_private_keys()
+
+                if not self.private_keys:
+                    log_error("❌ Нет ключей для работы")
+                    return
+
                 log_info("📂 Продолжение работы с существующими параметрами")
-            
+
             # Обработка кошельков
             total_wallets = len(self.private_keys)
             successful = 0
-            
+
             for i, private_key in enumerate(self.private_keys):
                 success = self._process_wallet(private_key, i)
                 if success:
                     successful += 1
-                
-                # Небольшая пауза между кошельками
+
                 if i < total_wallets - 1:
                     time.sleep(random.uniform(2, 5))
-            
+
             log_success(f"🎉 Работа завершена! Успешно обработано: {successful}/{total_wallets}")
-            
+
         except KeyboardInterrupt:
             log_warning("👋 Работа прервана пользователем")
         except Exception as e:

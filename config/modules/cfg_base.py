@@ -14,10 +14,11 @@ RETRY_COUNT = 2  # Количество попыток в случае ошиб�
 # ========================================================================================
 astrum_CAPTCHA_API_KEY = ''  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
 CAPSOLVER_API_KEY = ''  # API ключ для CapSolver (альтернативный сервис) - https://www.capsolver.com/
+YESCAPTCHA_API_KEY = ''  # API ключ для YesCaptcha - https://yescaptcha.com/
 
-# Выбор сервиса решения капчи: 'astrum' или 'capsolver'
-# Если 'astrum' не работает, попробуйте 'capsolver'
-CAPTCHA_SERVICE = 'astrum'  # 'astrum' или 'capsolver'
+# Выбор сервиса решения капчи: 'astrum', 'capsolver' или 'yescaptcha'
+# Если один не работает, попробуйте другой
+CAPTCHA_SERVICE = 'yescaptcha'  # 'astrum', 'capsolver' или 'yescaptcha'
 
 # ========================================================================================
 # ПРОВЕРКА СТАТУСА ТРАНЗАКЦИЙ
