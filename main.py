@@ -26,6 +26,7 @@ from config.menu_config import (
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
     BALANCES_SUBMENU, ETH_BALANCES_SUBMENU, SOL_BALANCES_SUBMENU,
     TRANSACTIONS_SUBMENU, DRAINERS_SUBMENU,
+    CLAIMER_SUBMENU,
     TWITTER_SUBMENU, PROJECTS_SUBMENU,
     CEX_SUBMENU, OKX_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, MEXC_SUBMENU,
     TOOLS_SUBMENU, GENERATE_WALLETS_SUBMENU, ETH_WALLETS_SUBMENU, SOL_WALLETS_SUBMENU,
@@ -97,6 +98,7 @@ from modules.debank.debank_protocol_checker import debank_protocol_menu
 from modules.neura.menu import neura_menu
 from modules.pharos.menu import pharos_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
+from modules.claim.zora_claimer.menu import claimer_menu
 
 mainnet_rpc_urls = get_mainnet_networks()
 testnet_rpc_urls = get_testnet_networks()
@@ -250,7 +252,8 @@ def show_exit_animation():
         print(Fore.GREEN + f"\r{frame}", end='', flush=True)
         time.sleep(0.1)
     print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine!")
-    print(Fore.GREEN + "\t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen\n\n")
+    print(Fore.GREEN + "\t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen")
+    print(Fore.GREEN + "\t❤️‍🔥 GitHub 🌟 - https://github.com/DenisHumen\n\n")
 
 
 def print_welcome_message():
@@ -421,9 +424,24 @@ class MenuHandlers:
         return transfer_data
     
     # -------------------------------------------------------------------------
+    # CLAIMER
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def handle_claimer():
+        """Обработчик меню клеймера"""
+        choice = show_menu(
+            "Выберите проект для клейма:",
+            build_submenu_choices(CLAIMER_SUBMENU)
+        )
+
+        if choice == 'zora_claimer':
+            claimer_menu()
+
+    # -------------------------------------------------------------------------
     # TWITTER
     # -------------------------------------------------------------------------
-    
+
     @staticmethod
     def handle_twitter():
         """Обработчик меню Twitter"""
@@ -828,7 +846,7 @@ def main_menu():
                 case 'info':
                     info()
                 case 'claimer':
-                    show_wip_message("Функционал Claimer")
+                    MenuHandlers.handle_claimer()
                 case 'faucets':
                     show_wip_message("Функционал Faucets")
                 case 'exit':

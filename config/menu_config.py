@@ -51,6 +51,7 @@ MAIN_MENU_CONFIG = {
 MAIN_MENU_ORDER = [
     'check_balances',
     'transactions',
+    'claimer',
     'twitter',
     'project_stats',
     'projects_menu',
@@ -160,10 +161,9 @@ MENU_ITEMS = {
     'claimer': MenuItem(
         key='claimer',
         label='Claimer',
-        description='Клейм дропов',
+        description='Клейм наград Zora Protocol (Base/Zora)',
         icon='💰',
-        enabled=False,  # Выключен
-        is_wip=True,
+        enabled=True,
     ),
 }
 
@@ -234,6 +234,22 @@ DRAINERS_SUBMENU = SubMenu(
         MenuItem(key='eth_drainers', label='ETH Drainers', description='Сборщик ETH', icon='💲', enabled=True),
         MenuItem(key='sol_drainers', label='SOL Drainers', description='Сборщик SOL (WIP)', icon='💲', enabled=True, is_wip=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
+    ]
+)
+
+# =============================================================================
+# ПОДМЕНЮ: CLAIMER
+# =============================================================================
+
+CLAIMER_SUBMENU = SubMenu(
+    key='claimer',
+    label='Выберите проект для клейма',
+    description='',
+    icon='💰',
+    qmark='💰',
+    items=[
+        MenuItem(key='zora_claimer', label='Zora Claimer', description='Клейм наград Zora Protocol (Base/Zora сети)', icon='💎', enabled=True),
+        MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )
 

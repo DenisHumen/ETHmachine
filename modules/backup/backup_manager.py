@@ -44,24 +44,47 @@ except ImportError:
 # Путь для логов
 log_dir = os.path.join(project_root, 'log')
 
-# Флаг инициализации логгера (больше не нужен, но оставим для совместимости)
+# Флаг инициализации логгера
 _logger_initialized = False
 
 def _setup_logging():
-    """Настройка логирования - теперь используем simple_logger"""
+    """Настройка логирования - теперь используем simple_logger.
+    Лог-файл создаётся только если предыдущий уже превышает 5 МБ или отсутствует.
+    """
     global _logger_initialized
     if _logger_initialized:
         return
     _logger_initialized = True
-    
+
     os.makedirs(log_dir, exist_ok=True)
-    
-    # Добавляем только файловый лог, консольный уже настроен в simple_logger
+
+    log_file = os.path.join(log_dir, 'backup.log')
+
+    # Проверяем размер существующего лог-файла
+    # Если файл существует и меньше 5 МБ — дописываем в него (без ротации при старте)
+    # Если файл > 5 МБ — loguru выполнит ротацию автоматически
+    max_log_size_mb = 5
+
+    if os.path.exists(log_file):
+        file_size_mb = os.path.getsize(log_file) / (1024 * 1024)
+        if file_size_mb <= max_log_size_mb:
+            # Файл маленький — просто дописываем без ротации
+            logger.add(
+                log_file,
+                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+                level="DEBUG",
+                rotation=f"{max_log_size_mb} MB",
+                retention="30 days",
+                mode="a"
+            )
+            return
+
+    # Файл не существует или > 5 МБ — создаём/ротируем
     logger.add(
-        os.path.join(log_dir, 'backup.log'),
+        log_file,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level="DEBUG",
-        rotation="10 MB",
+        rotation=f"{max_log_size_mb} MB",
         retention="30 days"
     )
 
