@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 
-from loguru import logger
+from modules.simple_logger import logger
 from config.modules.cfg_etherscan import ETHER_SCAN_API_KEY_v2
 from config.modules.cfg_base import RETRY_COUNT, NUM_THREADS
 from modules.eth.rpc_return_module import get_network_rpc_selection
@@ -56,36 +56,33 @@ class LastTxChecker:
         self.wallet_counter = 0
         
     def load_proxies(self):
-        """Загрузка прокси из CSV файла"""
+        """Загрузка прокси из data.csv"""
+        from modules.data_manager import get_proxies
+        raw_proxies = get_proxies()
         proxies = []
-        try:
-            with open('data/proxy.csv', 'r') as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if row:
-                        proxy_str = row[0].strip()
-                        if '@' in proxy_str:
-                            auth, address = proxy_str.split('@')
-                            proxies.append(f"http://{auth}@{address}")
-                        else:
-                            proxies.append(f"http://{proxy_str}")
-            logger.info(f"Загружено {len(proxies)} прокси")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки прокси: {e}")
+        for proxy_str in raw_proxies:
+            if '@' in proxy_str:
+                auth, address = proxy_str.split('@')
+                proxies.append(f"http://{auth}@{address}")
+            else:
+                proxies.append(f"http://{proxy_str}")
+        logger.info(f"Загружено {len(proxies)} прокси")
         return proxies
-    
+
     def load_wallets(self):
-        """Загрузка адресов кошельков из файла"""
-        wallets = []
-        try:
-            with open('data/walletss.txt', 'r') as f:
-                for line in f:
-                    wallet = line.strip()
-                    if wallet:
-                        wallets.append(wallet)
-            logger.info(f"Загружено {len(wallets)} кошельков")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки кошельков: {e}")
+        """Загрузка адресов кошельков из data.csv"""
+        from modules.data_manager import get_wallet_addresses
+        wallets = get_wallet_addresses()
+        if not wallets:
+            from modules.data_manager import get_private_keys
+            from eth_account import Account
+            for pk in get_private_keys():
+                try:
+                    pk_hex = pk if pk.startswith('0x') else f'0x{pk}'
+                    wallets.append(Account.from_key(pk_hex).address)
+                except Exception:
+                    pass
+        logger.info(f"Загружено {len(wallets)} кошельков")
         return wallets
     
     def get_last_incoming_tx(self, address, network_name, chain_id, wallet_num):

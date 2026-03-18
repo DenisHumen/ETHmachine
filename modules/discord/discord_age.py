@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT
-from loguru import logger
+from modules.simple_logger import logger
 
 def decode_token_user_id(token):
     """
@@ -40,29 +40,15 @@ def decode_token_user_id(token):
         logger.error(f"Ошибка при декодировании токена: {e}")
         return None
 
-def read_tokens(file_path):
-    """Читает токены из файла"""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            tokens = [line.strip() for line in f if line.strip()]
-        return tokens
-    except Exception as e:
-        logger.error(f"Ошибка при чтении токенов: {e}")
-        return []
+def read_tokens(file_path=None):
+    """Читает Discord-токены из data.csv"""
+    from modules.data_manager import get_discord_tokens
+    return get_discord_tokens()
 
-def read_proxies(file_path):
-    """Читает прокси из CSV файла в формате login:pass@ip:port"""
-    try:
-        proxies = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    proxies.append(line)
-        return proxies
-    except Exception as e:
-        logger.error(f"Ошибка при чтении прокси: {e}")
-        return []
+def read_proxies(file_path=None):
+    """Читает прокси из data.csv"""
+    from modules.data_manager import get_proxies
+    return get_proxies()
 
 def get_proxy_dict(proxy_string):
     """Преобразует строку прокси в формат для requests"""
@@ -362,7 +348,7 @@ def process_token_batch(tokens_with_proxies):
     
     return results
 
-def check_discord_accounts(os_type, tokens_file='data/discord_token.txt', proxies_file='data/proxy.csv'):
+def check_discord_accounts(os_type, tokens_file=None, proxies_file=None):
     """
     Основная функция проверки Discord аккаунтов с многопоточностью
     

@@ -432,18 +432,12 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float,
 
 
 def load_wallets():
-    """Загрузить адреса кошельков"""
-    wallets_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'walletss.txt')
-    try:
-        with open(wallets_path, 'r') as f:
-            wallets = [line.strip() for line in f.readlines() if line.strip()]
-        return wallets
-    except FileNotFoundError:
-        logger.error(f"File not found: {wallets_path}")
-        return []
-    except Exception as ex:
-        logger.error(f"Error loading wallets: {ex}")
-        return []
+    """Загрузить адреса кошельков из data.csv"""
+    from modules.data_manager import get_wallet_addresses
+    wallets = get_wallet_addresses()
+    if not wallets:
+        logger.error("Нет кошельков в data/data.csv")
+    return wallets
 
 
 def get_chain_rpc_list(chain):

@@ -11,56 +11,13 @@ from colorama import Fore, Style, init
 from itertools import cycle
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from loguru import logger
+from modules.simple_logger import logger, setup_file_logging
+from modules.data_manager import get_private_keys, get_proxies
+from modules.proxy_manager import parse_proxy
 from pathlib import Path
 
 init()
 
-# Настройка логирования для модуля drainers
-def setup_drainer_logging():
-    """Настраивает логирование для модуля дренирования"""
-    log_dir = Path("log")
-    log_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f'drainer_{timestamp}.log'
-    
-    # Добавляем обработчик для записи в файл
-    logger.add(
-        log_file,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
-        encoding="utf-8"
-    )
-    
-    logger.info(f"Логирование настроено. Файл: {log_file}")
-
-def load_proxies():
-    """Загружает список прокси из data/proxy.csv"""
-    proxy_file = Path("data/proxy.csv")
-    proxies = []
-    
-    if not proxy_file.exists():
-        logger.warning("Файл data/proxy.csv не найден, работаем без прокси")
-        return []
-    
-    try:
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if row and row[0].strip():
-                    proxy = row[0].strip()
-                    if not proxy.startswith('http'):
-                        proxy = f"http://{proxy}"
-                    proxies.append(proxy)
-        
-        logger.info(f"Загружено {len(proxies)} прокси из data/proxy.csv")
-        return proxies
-    except Exception as e:
-        logger.error(f"Ошибка загрузки прокси: {e}")
-        return []
 
 def get_random_proxy(proxy_list):
     """Возвращает случайный прокси из списка"""
@@ -307,15 +264,15 @@ def process_single_wallet(private_key, rpc_url, explorer_url, wallet_index, tota
 
 def eth_drainers():
     """Дренирование всех кошельков из private_keys.txt на главный кошелек, поддержка ВСЕХ сетей"""
-    # Настраиваем логирование
-    setup_drainer_logging()
-    
+    setup_file_logging("log/drainer.log")
+
     logger.info("="*80)
     logger.info("🚀 Запуск модуля дренирования кошельков")
     logger.info("="*80)
 
-    # Загрузка списка прокси
-    proxy_list = load_proxies()
+    # Загрузка данных из data.csv
+    proxy_list = [parse_proxy(p) for p in get_proxies() if p]
+    proxy_list = [p for p in proxy_list if p]
     if proxy_list:
         logger.success(f"✅ Загружено {len(proxy_list)} прокси для ротации")
     else:
@@ -327,16 +284,10 @@ def eth_drainers():
         logger.error("❌ Не удалось получить данные сети")
         return
 
-    private_keys_file = 'data/private_keys.txt'
-    if not os.path.exists(private_keys_file):
-        logger.error(f"❌ Файл {private_keys_file} не найден")
-        return
-
-    with open(private_keys_file, 'r') as f:
-        private_keys = [line.strip() for line in f.readlines() if line.strip()]
+    private_keys = get_private_keys()
 
     if not private_keys:
-        logger.error("❌ Приватные ключи не найдены")
+        logger.error("❌ Приватные ключи не найдены в data.csv")
         return
 
     logger.success(f"📂 Загружено {len(private_keys)} приватных ключей")
@@ -456,18 +407,12 @@ def eth_drainers():
     logger.success("✅ Подключение к сети установлено")
     
     # Загрузка приватных ключей
-    private_keys_file = 'data/private_keys.txt'
-    if not os.path.exists(private_keys_file):
-        logger.error(f"❌ Файл {private_keys_file} не найден")
-        return
-    
-    with open(private_keys_file, 'r') as f:
-        private_keys = [line.strip() for line in f.readlines() if line.strip()]
-    
+    private_keys = get_private_keys()
+
     if not private_keys:
-        logger.error("❌ Приватные ключи не найдены")
+        logger.error("❌ Приватные ключи не найдены в data.csv")
         return
-    
+
     logger.success(f"📂 Загружено {len(private_keys)} приватных ключей")
     
     # Проверка главного кошелька

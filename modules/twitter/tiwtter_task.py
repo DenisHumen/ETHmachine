@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from loguru import logger
+from modules.simple_logger import logger
 from curl_cffi.requests import AsyncSession
 
 # Исправляем импорты - убираем src.

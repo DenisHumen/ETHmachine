@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import requests
-from loguru import logger
+from modules.simple_logger import logger
 from colorama import init
 from questionary import Choice, select
 
@@ -35,31 +35,24 @@ console = Console()
 
 
 def load_wallets() -> list:
-    wallet_file = project_root / 'data' / 'walletss.txt'
-    wallets = []
-    try:
-        with open(wallet_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and line.startswith('0x'):
-                    wallets.append(line)
-    except Exception as e:
-        console.print(f"[red]Ошибка загрузки кошельков: {e}[/red]")
+    from modules.data_manager import get_wallet_addresses
+    wallets = get_wallet_addresses()
+    if not wallets:
+        console.print("[yellow]Нет wallet_address в data.csv, пробуем private_key...[/yellow]")
+        from modules.data_manager import get_private_keys
+        from eth_account import Account
+        for pk in get_private_keys():
+            try:
+                pk_hex = pk if pk.startswith('0x') else f'0x{pk}'
+                wallets.append(Account.from_key(pk_hex).address)
+            except Exception:
+                pass
     return wallets
 
 
 def load_proxies() -> list:
-    proxy_file = project_root / 'data' / 'proxy.csv'
-    proxies = []
-    try:
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and '@' in line and ':' in line:
-                    proxies.append(line)
-    except:
-        pass
-    return proxies
+    from modules.data_manager import get_proxies
+    return get_proxies()
 
 
 def make_proxy_dict(proxy_str: str) -> dict:
@@ -309,7 +302,7 @@ def print_summary(results: dict, token_symbol: str):
 def check_token_balance_menu():
     wallets = load_wallets()
     if not wallets:
-        console.print("[red]❌ Нет кошельков в data/walletss.txt![/red]")
+        console.print("[red]❌ Нет кошельков в data/data.csv![/red]")
         return
     
     console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")

@@ -15,10 +15,10 @@ sys.path.append(str(project_root))
 
 from modules.simple_logger import logger
 
-def process_mnemonics(input_path="data/mnemonic.txt", output_path="result/result.csv"):
-    # Чтение мнемоник
-    with open(input_path, "r", encoding="utf-8") as f:
-        mnemonics = [line.strip() for line in f if line.strip()]
+def process_mnemonics(input_path=None, output_path="result/result.csv"):
+    # Чтение мнемоник из data.csv
+    from modules.data_manager import get_mnemonics
+    mnemonics = get_mnemonics()
 
     spinner_cycle = cycle(["|", "/", "-", "\\"])
     bar_length = 30

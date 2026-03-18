@@ -8,7 +8,7 @@ import sys
 import re
 import csv
 from pathlib import Path
-from loguru import logger
+from modules.simple_logger import logger
 
 class ConfigValidator:
     """Валидатор конфигурации проекта"""
@@ -289,13 +289,9 @@ class ConfigValidator:
     def check_data_files(self):
         """Проверка файлов данных"""
         logger.debug("📁 Проверка файлов данных...")
-        
-        self._validate_mnemonic_file()
-        self._validate_email_file() 
-        self._validate_private_keys_file()
-        self._validate_proxy_file()
+
+        self._validate_data_csv()
         self._validate_transfer_token_file()
-        self._validate_wallets_file()
     
     def _is_valid_eth_address(self, address):
         """Проверка корректности ETH адреса"""
@@ -342,121 +338,63 @@ class ConfigValidator:
         
         return any(re.match(pattern, amount, re.IGNORECASE) for pattern in patterns)
     
-    def _validate_mnemonic_file(self):
-        """Проверка файла мнемоник"""
-        file_path = self.data_dir / 'mnemonic.txt'
+    def _validate_data_csv(self):
+        """Проверка файла data.csv"""
+        file_path = self.data_dir / 'data.csv'
         if not file_path.exists():
+            self.warnings.append("⚠️ Отсутствует файл data/data.csv (будет создан при первом запуске)")
             return
-            
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if not content:
-                    return
-                
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                for i, line in enumerate(lines, 1):
-                    words = line.split()
-                    if len(words) != 12:
-                        self.warnings.append(f"⚠️ data/mnemonic.txt строка {i}: должно быть 12 слов, найдено {len(words)}")
-                    
-                logger.debug(f"✅ Мнемоники проверены: {len(lines)} записей")
-                        
-        except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/mnemonic.txt: {e}")
-    
-    def _validate_email_file(self):
-        """Проверка файла email.csv"""
-        file_path = self.data_dir / 'email.csv'
-        if not file_path.exists():
-            self.warnings.append("⚠️ Отсутствует файл data/email.csv")
-            return
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                lines = list(reader)
-                
-                if not lines:
-                    self.warnings.append("⚠️ Пустой файл data/email.csv")
-                    return
-                
-                start_idx = 1 if lines and lines[0] == ['email', 'password', 'imap_domain'] else 0
-                
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames or []
+
+                expected = [
+                    'private_key', 'proxy', 'reserve_proxy', 'wallet_address', 'mnemonic',
+                    'sol_address', 'discord_token', 'email', 'email_password', 'email_imap',
+                ]
+                missing = [h for h in expected if h not in headers]
+                if missing:
+                    self.warnings.append(f"⚠️ data/data.csv: отсутствуют заголовки: {', '.join(missing)}")
+
                 data_lines = 0
-                for i, row in enumerate(lines[start_idx:], start_idx + 1):
-                    if not row or not any(cell.strip() for cell in row):
-                        continue
-                        
+                for i, row in enumerate(reader, 2):
                     data_lines += 1
-                    if len(row) != 3:
-                        self.warnings.append(f"⚠️ data/email.csv строка {i}: ожидается 3 колонки (email,password,imap_domain), найдено {len(row)}")
-                        continue
-                    
-                    email, password, imap_domain = [cell.strip() for cell in row]
-                    
-                    if not self._is_valid_email(email):
-                        self.warnings.append(f"⚠️ data/email.csv строка {i}: некорректный email '{email}'")
-                    
-                    if not password:
-                        self.warnings.append(f"⚠️ data/email.csv строка {i}: пустой пароль")
-                        
-                    if not imap_domain:
-                        self.warnings.append(f"⚠️ data/email.csv строка {i}: пустой imap_domain")
-                
-                if data_lines > 0:
-                    logger.debug(f"✅ Email файл проверен: {data_lines} записей")
-                        
+                    pk = (row.get('private_key') or '').strip()
+                    proxy = (row.get('proxy') or '').strip()
+                    wallet = (row.get('wallet_address') or '').strip()
+
+                    if pk and not self._is_valid_private_key(pk):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный приватный ключ")
+
+                    if proxy and not self._is_valid_proxy_format(proxy):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный формат прокси (ожидается login:password@ip:port)")
+
+                    reserve = (row.get('reserve_proxy') or '').strip()
+                    if reserve and not self._is_valid_proxy_format(reserve):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный формат reserve_proxy")
+
+                    if wallet and not self._is_valid_eth_address(wallet):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный ETH адрес")
+
+                    email_val = (row.get('email') or '').strip()
+                    if email_val and not self._is_valid_email(email_val):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный email '{email_val}'")
+
+                    mnemonic = (row.get('mnemonic') or '').strip()
+                    if mnemonic:
+                        words = mnemonic.split()
+                        if len(words) not in (12, 24):
+                            self.warnings.append(f"⚠️ data/data.csv строка {i}: мнемоника должна содержать 12 или 24 слова, найдено {len(words)}")
+
+                if data_lines == 0:
+                    self.warnings.append("⚠️ data/data.csv пуст (нет данных)")
+                else:
+                    logger.debug(f"✅ data/data.csv проверен: {data_lines} записей")
+
         except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/email.csv: {e}")
-    
-    def _validate_private_keys_file(self):
-        """Проверка файла private_keys.txt"""
-        file_path = self.data_dir / 'private_keys.txt'
-        if not file_path.exists():
-            self.warnings.append("⚠️ Отсутствует файл data/private_keys.txt")
-            return
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if not content:
-                    self.warnings.append("⚠️ Пустой файл data/private_keys.txt")
-                    return
-                
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                for i, line in enumerate(lines, 1):
-                    if not self._is_valid_private_key(line):
-                        self.warnings.append(f"⚠️ data/private_keys.txt строка {i}: некорректный приватный ключ")
-                        
-                logger.debug(f"✅ Приватные ключи проверены: {len(lines)} записей")
-                        
-        except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/private_keys.txt: {e}")
-    
-    def _validate_proxy_file(self):
-        """Проверка файла proxy.csv"""
-        file_path = self.data_dir / 'proxy.csv'
-        if not file_path.exists():
-            self.warnings.append("⚠️ Отсутствует файл data/proxy.csv")
-            return
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if not content:
-                    self.warnings.append("⚠️ Пустой файл data/proxy.csv")
-                    return
-                
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                for i, line in enumerate(lines, 1):
-                    if not self._is_valid_proxy_format(line):
-                        self.warnings.append(f"⚠️ data/proxy.csv строка {i}: некорректный формат прокси (ожидается login:password@ip:port)")
-                        
-                logger.debug(f"✅ Прокси проверены: {len(lines)} записей")
-                        
-        except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/proxy.csv: {e}")
+            self.warnings.append(f"⚠️ Ошибка чтения data/data.csv: {e}")
     
     def _validate_transfer_token_file(self):
         """Проверка файла transfer_token.csv"""
@@ -503,29 +441,6 @@ class ConfigValidator:
         except Exception as e:
             self.warnings.append(f"⚠️ Ошибка чтения data/transfer_token.csv: {e}")
     
-    def _validate_wallets_file(self):
-        """Проверка файла walletss.txt"""
-        file_path = self.data_dir / 'walletss.txt'
-        if not file_path.exists():
-            self.warnings.append("⚠️ Отсутствует файл data/walletss.txt")
-            return
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if not content:
-                    self.warnings.append("⚠️ Пустой файл data/walletss.txt")
-                    return
-                
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                for i, line in enumerate(lines, 1):
-                    if not self._is_valid_eth_address(line):
-                        self.warnings.append(f"⚠️ data/walletss.txt строка {i}: некорректный ETH адрес")
-                        
-                logger.debug(f"✅ Кошельки проверены: {len(lines)} записей")
-                        
-        except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/walletss.txt: {e}")
     
     def show_results(self):
         """Показать результаты проверки"""

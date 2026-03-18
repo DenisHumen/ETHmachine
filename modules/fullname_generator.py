@@ -10,7 +10,7 @@ import platform
 from pathlib import Path
 from datetime import datetime
 from colorama import Fore, init
-from loguru import logger
+from modules.simple_logger import logger
 
 init(autoreset=True)
 

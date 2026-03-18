@@ -1,33 +1,35 @@
 main.spec
-result/*
-data/proxy.csv
-data/walletss.txt
-modules/__pycache__/
-config/__pycache__/
 build
 venv
-*.pyc
-data/transfer_token.csv
-.DS_Store
-data/mnemonic.txt
-data/one_time_intermediary.csv
-data/private_keys.txt
-data/twitter/twitters.csv
-data/twitter/twitter_task.csv
-config/cex_settings.py
-data/walletss_sol.txt
-backups/*
-result/password_generator.csv
-log/*
-data/discord_token.txt
-db/*
-data/email.csv
-.claude
-.playwright-mcp
 .venv
 __pycache__
-.github
+*.pyc
+
+# Data files (содержат приватные ключи, пароли, токены)
+data/data.csv
+data/data_*.csv
+data/transfer_token.csv
+data/one_time_intermediary.csv
+data/twitter/twitters.csv
+data/twitter/twitter_task.csv
 data/browser_profiles/
+
+# Config (API ключи бирж)
+config/cex_settings.py
+
+# Results & logs
+result/*
+log/*
+backups/*
+db/*
+
+# OS
+.DS_Store
+
+# IDE & tools
+.claude
+.playwright-mcp
+.github
 
 # PyArmor backup files (original unencrypted versions)
 *.backup

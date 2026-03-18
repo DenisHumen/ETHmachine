@@ -9,7 +9,7 @@ YesCaptcha Solver — решение hCaptcha, Turnstile и reCAPTCHA через
 import time
 import requests
 from typing import Optional, Dict
-from loguru import logger
+from modules.simple_logger import logger
 
 
 # Курс: 100 RMB = 125,000 Points, 100 RMB ≈ 13.7 USDT

@@ -8,7 +8,7 @@ import csv
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from loguru import logger
+from modules.simple_logger import logger
 from colorama import Fore
 import questionary
 from questionary import Choice

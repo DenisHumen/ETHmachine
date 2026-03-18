@@ -88,6 +88,43 @@ python main.py
 
 **Solana:** Solana (Mainnet/Devnet), Eclipse
 
+## 📂 Данные — единый файл `data/data.csv`
+
+Все данные хранятся в **одном CSV файле** `data/data.csv` со следующими заголовками:
+
+```csv
+private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_token,email,email_password,email_imap
+```
+
+| Колонка | Описание | Пример |
+|---------|----------|--------|
+| `private_key` | Приватный ключ EVM кошелька | `0xabc...` или `abc...` |
+| `proxy` | Основной прокси | `login:pass@ip:port` |
+| `reserve_proxy` | Резервный прокси (fallback) | `login:pass@ip:port` |
+| `wallet_address` | ETH-адрес (если без private_key) | `0x742d...` |
+| `mnemonic` | Мнемоническая фраза (12/24 слова) | `word1 word2 ... word12` |
+| `sol_address` | Solana-адрес | `7xKXt...` |
+| `discord_token` | Discord токен | `MTIx...` |
+| `email` | Email адрес | `user@mail.com` |
+| `email_password` | Пароль от email | `password123` |
+| `email_imap` | IMAP сервер | `imap.mail.com` |
+
+Не все колонки обязательны — заполняйте только нужные для ваших задач.
+
+### Несколько профилей
+
+Файл данных должен начинаться с `data_` и заканчиваться на `.csv`:
+- `data.csv` — основной файл (обратная совместимость)
+- `data_main.csv` — основной профиль
+- `data_test.csv` — тестовый профиль
+
+Если в `data/` несколько таких файлов — при запуске будет предложен выбор.
+
+### Отдельные файлы
+
+- `data/transfer_token.csv` — настройки переводов ERC-20 (отдельный формат)
+- `data/twitter/` — Twitter аккаунты и задачи (отдельная директория)
+
 ## ⚙️ Конфигурация
 
 Основные настройки в `config/`:
@@ -107,7 +144,7 @@ python main.py
 ## 🔒 Безопасность
 
 ⚠️ **Важно:**
-- Никогда не публикуйте файлы с приватными ключами (`private_keys.txt`, `mnemonic.txt`)
+- Никогда не публикуйте файл `data/data.csv` — он содержит приватные ключи и пароли
 - Храните API ключи бирж в безопасности
 - Используйте `.gitignore` для исключения конфиденциальных данных
 - Регулярно создавайте резервные копии через модуль Backup

@@ -4,10 +4,10 @@ from colorama import Fore, Style
 import sys
 from web3 import Web3
 
-def process_private_keys(input_path="data/private_keys.txt", output_path="result/result.csv"):
-    # Чтение приватных ключей
-    with open(input_path, "r", encoding="utf-8") as f:
-        private_keys = [line.strip() for line in f if line.strip()]
+def process_private_keys(input_path=None, output_path="result/result.csv"):
+    # Чтение приватных ключей из data.csv
+    from modules.data_manager import get_private_keys
+    private_keys = get_private_keys()
 
     spinner_cycle = cycle(["|", "/", "-", "\\"])
     bar_length = 30

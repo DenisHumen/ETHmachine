@@ -40,52 +40,20 @@ import base58
 SOLANA_CHAIN_ID = 792703809
 
 
-# Функции для цветного логирования
-def log_info(message: str):
-    """Информационное сообщение"""
-    logger.info(message)
 
-def log_success(message: str):
-    """Успешное сообщение - зеленый цвет"""
-    logger.opt(colors=True).success(f"<green>{message}</green>")
-
-def log_warning(message: str):
-    """Предупреждение - желтый цвет"""
-    logger.opt(colors=True).warning(f"<yellow>{message}</yellow>")
-
-def log_error(message: str):
-    """Ошибка"""
-    logger.error(message)
-
-def log_transaction(message: str):
-    """Транзакционные сообщения"""
-    logger.info(message)
-
-def log_balance(message: str):
-    """Балансовые сообщения"""
-    logger.info(message)
-
-def log_progress(message: str):
-    """Прогресс выполнения"""
-    logger.info(message)
-
-def log_wallet_summary(wallet_address: str, sent_amount: float, received_amount: float, 
-                       bridge_fee: float, from_network: str, to_network: str, 
+def log_wallet_summary(wallet_address: str, sent_amount: float, received_amount: float,
+                       bridge_fee: float, from_network: str, to_network: str,
                        token_symbol: str, price_usd: float):
-    """Красивый цветной вывод итогов кошелька"""
-    from colorama import Fore, Style, init
-    init()
-    
+    """Вывод итогов кошелька через глобальный логер"""
     sent_usd = sent_amount * price_usd
     received_usd = received_amount * price_usd
     fee_usd = bridge_fee * price_usd
     fee_percent = (bridge_fee / sent_amount * 100) if sent_amount > 0 else 0
-    
-    print(f"\n{Fore.CYAN}{'='*20} {wallet_address} {'='*20}{Style.RESET_ALL}")
-    print(f"     {Fore.GREEN}• отправлено: {Fore.YELLOW}{sent_amount:.6f} {token_symbol} {Fore.BLUE}({from_network}) {Fore.GREEN}- ${sent_usd:.2f}{Style.RESET_ALL}")
-    print(f"     {Fore.GREEN}• получено: {Fore.YELLOW}{received_amount:.6f} {token_symbol} {Fore.BLUE}({to_network}) {Fore.GREEN}- ${received_usd:.2f}{Style.RESET_ALL}")
-    print(f"     {Fore.RED}• комиссия: {Fore.YELLOW}{bridge_fee:.6f} {token_symbol} {Fore.MAGENTA}({fee_percent:.2f}%) {Fore.RED}- ${fee_usd:.2f}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}{'='*84}{Style.RESET_ALL}\n")
+
+    logger.info(f"{'='*20} {wallet_address} {'='*20}")
+    logger.success(f"  отправлено: {sent_amount:.6f} {token_symbol} ({from_network}) - ${sent_usd:.2f}")
+    logger.success(f"  получено: {received_amount:.6f} {token_symbol} ({to_network}) - ${received_usd:.2f}")
+    logger.error(f"  комиссия: {bridge_fee:.6f} {token_symbol} ({fee_percent:.2f}%) - ${fee_usd:.2f}")
 
 def derive_eth_private_key_from_mnemonic(mnemonic: str) -> str:
     """Деривация ETH приватного ключа из мнемоники (BIP44 m/44'/60'/0'/0/0)"""
@@ -237,7 +205,7 @@ class RelayBridge:
         available_networks.append(Choice('🔙 Назад', None))
         
         # Выбор сети
-        log_info(f"\n{prompt_text}")
+        logger.info(f"\n{prompt_text}")
         selected = select(
             "Выберите сеть:",
             choices=available_networks,
@@ -253,7 +221,7 @@ class RelayBridge:
         # Получаем доступные токены для выбранной сети
         available_tokens = TOKEN_ADDRESSES.get(chain_id, {})
         if not available_tokens:
-            log_error(f"❌ Нет доступных токенов для сети {NETWORK_SETTINGS[chain_id]['name']}")
+            logger.error(f"❌ Нет доступных токенов для сети {NETWORK_SETTINGS[chain_id]['name']}")
             return None, None
         
         # Формируем список токенов с нативным первым
@@ -304,7 +272,7 @@ class RelayBridge:
         
         # Для ERC20 токенов (если потребуется в будущем)
         # TODO: добавить поддержку ERC20 токенов
-        log_warning(f"⚠️ Проверка баланса ERC20 токенов пока не реализована")
+        logger.warning(f"⚠️ Проверка баланса ERC20 токенов пока не реализована")
         return 0.0
     
     def _calculate_bridge_amount(self, wallet_address: str, from_chain_id: int) -> float:
@@ -330,14 +298,14 @@ class RelayBridge:
             if from_chain_id == SOLANA_CHAIN_ID:
                 sol_address = self._get_sol_address_for_eth(wallet_address)
                 if not sol_address:
-                    log_warning(f"⚠️ SOL адрес не найден для {wallet_address}")
+                    logger.warning(f"⚠️ SOL адрес не найден для {wallet_address}")
                     return 0.0
                 balance = self._get_solana_balance(sol_address, show_log=False)
             else:
                 balance = self._get_native_balance(from_chain_id, wallet_address, show_log=False)
 
             if balance <= 0:
-                log_warning(f"⚠️ Нулевой баланс у кошелька {wallet_address}")
+                logger.warning(f"⚠️ Нулевой баланс у кошелька {wallet_address}")
                 return 0.0
 
             percent = random.uniform(min_percent, max_percent)
@@ -366,13 +334,13 @@ class RelayBridge:
                 adjusted = True
 
             if amount <= 0:
-                log_warning(f"⚠️ После вычета газа сумма для бриджа <= 0 у кошелька {wallet_address}")
+                logger.warning(f"⚠️ После вычета газа сумма для бриджа <= 0 у кошелька {wallet_address}")
                 return 0.0
 
             if adjusted:
-                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {original_amount:.6f} {token_symbol} -> скорректировано до {amount:.6f} (резерв газа: {gas_reserve:.6f})")
+                logger.info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {original_amount:.6f} {token_symbol} -> скорректировано до {amount:.6f} (резерв газа: {gas_reserve:.6f})")
             else:
-                log_info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {amount:.6f} {token_symbol} (резерв газа: {gas_reserve:.6f})")
+                logger.info(f"💰 Вычислено {percent:.2f}% от баланса {balance:.6f} = {amount:.6f} {token_symbol} (резерв газа: {gas_reserve:.6f})")
             return amount
         else:
             min_amount, max_amount = SUM_TO_RELAY
@@ -401,7 +369,7 @@ class RelayBridge:
                 amount = self._calculate_bridge_amount(wallet_address, from_chain_id)
                 
                 if amount <= 0:
-                    log_warning(f"⚠️ Пропускаем кошелек {wallet_address} - недостаточно средств")
+                    logger.warning(f"⚠️ Пропускаем кошелек {wallet_address} - недостаточно средств")
                     continue
                 
                 # Добавление записи в БД (используем пустую строку для private_key_hash, т.к. теперь ищем по wallet_address)
@@ -411,9 +379,9 @@ class RelayBridge:
                 ''', (wallet_address, '', from_network, to_network, amount))
             
             conn.commit()
-            log_success(f"✅ План работ создан для {len(self.private_keys)} кошельков")
+            logger.success(f"✅ План работ создан для {len(self.private_keys)} кошельков")
         elif existing_count > 0:
-            log_info(f"📋 Найдено {existing_count} записей в базе данных")
+            logger.info(f"📋 Найдено {existing_count} записей в базе данных")
         
         conn.close()
         return True
@@ -440,15 +408,11 @@ class RelayBridge:
             writer.writerow(headers)
     
     def _load_private_keys(self) -> List[str]:
-        """Загрузка приватных ключей из файла"""
-        keys_path = os.path.join(project_root, 'data', 'private_keys.txt')
-        if not os.path.exists(keys_path):
-            log_error(f"❌ Файл с приватными ключами не найден: {keys_path}")
-            return []
-
-        with open(keys_path, 'r', encoding='utf-8') as f:
-            keys = [line.strip() for line in f if line.strip()]
-
+        """Загрузка приватных ключей из data.csv"""
+        from modules.data_manager import get_private_keys
+        keys = get_private_keys()
+        if not keys:
+            logger.error("❌ Нет приватных ключей в data/data.csv")
         return keys
 
     def _load_mnemonics_and_derive_keys(self) -> List[str]:
@@ -457,16 +421,11 @@ class RelayBridge:
         Возвращает список ETH приватных ключей (для совместимости с основным потоком).
         Заполняет self.wallet_pairs с маппингом eth_address -> {eth_private_key, sol_address, ...}
         """
-        mnemonic_path = os.path.join(project_root, 'data', 'mnemonic.txt')
-        if not os.path.exists(mnemonic_path):
-            log_error(f"❌ Файл с мнемониками не найден: {mnemonic_path}")
-            return []
-
-        with open(mnemonic_path, 'r', encoding='utf-8') as f:
-            mnemonics = [line.strip() for line in f if line.strip()]
+        from modules.data_manager import get_mnemonics
+        mnemonics = get_mnemonics()
 
         if not mnemonics:
-            log_error("❌ Файл мнемоник пуст")
+            logger.error("❌ Нет мнемоник в data/data.csv")
             return []
 
         eth_private_keys = []
@@ -474,7 +433,7 @@ class RelayBridge:
             try:
                 # Валидация мнемоники
                 if not Bip39MnemonicValidator().IsValid(mnemonic):
-                    log_error(f"❌ Невалидная мнемоника: {mnemonic[:20]}...")
+                    logger.error(f"❌ Невалидная мнемоника: {mnemonic[:20]}...")
                     continue
 
                 # Деривация ETH ключа
@@ -494,13 +453,13 @@ class RelayBridge:
                 }
 
                 eth_private_keys.append(eth_private_key)
-                log_info(f"✅ Мнемоника загружена: ETH {eth_address} | SOL {sol_address}")
+                logger.info(f"✅ Мнемоника загружена: ETH {eth_address} | SOL {sol_address}")
 
             except Exception as e:
-                log_error(f"❌ Ошибка деривации ключей из мнемоники: {e}")
+                logger.error(f"❌ Ошибка деривации ключей из мнемоники: {e}")
                 continue
 
-        log_info(f"📋 Загружено {len(eth_private_keys)} пар кошельков из мнемоник")
+        logger.info(f"📋 Загружено {len(eth_private_keys)} пар кошельков из мнемоник")
 
         # Сохраняем ключи и адреса в файл результатов
         self._save_wallet_keys_to_csv()
@@ -524,23 +483,12 @@ class RelayBridge:
                     pair['sol_private_key']
                 ])
 
-        log_info(f"💾 Ключи кошельков сохранены в {wallets_path} ({len(self.wallet_pairs)} шт.)")
+        logger.info(f"💾 Ключи кошельков сохранены в {wallets_path} ({len(self.wallet_pairs)} шт.)")
 
     def _load_proxies(self) -> List[str]:
-        """Загрузка прокси из файла"""
-        proxy_path = os.path.join(project_root, 'data', 'proxy.csv')
-        if not os.path.exists(proxy_path):
-            log_warning(f"⚠️ Файл с прокси не найден: {proxy_path}")
-            return []
-        
-        proxies = []
-        with open(proxy_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if row and len(row) > 0:
-                    proxies.append(row[0].strip())
-        
-        return proxies
+        """Загрузка прокси из data.csv"""
+        from modules.data_manager import get_proxies
+        return get_proxies()
     
     def _get_random_proxy_for_api(self) -> Optional[str]:
         """Получение случайного прокси для API запросов"""
@@ -558,17 +506,17 @@ class RelayBridge:
     def _get_web3_connection(self, chain_id: int) -> Optional[Web3]:
         """Получение Web3 подключения с ротацией RPC"""
         if chain_id not in self.rpc_pools:
-            log_error(f"❌ Нет RPC для сети {chain_id}")
+            logger.error(f"❌ Нет RPC для сети {chain_id}")
             return None
         
         cache_key = chain_id
         if cache_key in self.web3_connections:
             web3 = self.web3_connections[cache_key]
             if web3.is_connected():
-                #log_info(f"🔗 Используем кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']}")
+                #logger.info(f"🔗 Используем кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']}")
                 return web3
             else:
-                log_warning(f"⚠️ Кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']} не активно, переподключаемся...")
+                logger.warning(f"⚠️ Кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']} не активно, переподключаемся...")
         
         # Перебираем RPC пока не найдем рабочий (тихо)
         rpc_list = self.rpc_pools[chain_id]
@@ -580,12 +528,12 @@ class RelayBridge:
                     self.web3_connections[cache_key] = web3
                     return web3
                 else:
-                    log_warning(f"⚠️ RPC не отвечает: {rpc_url[:50]}...")
+                    logger.warning(f"⚠️ RPC не отвечает: {rpc_url[:50]}...")
             except Exception as e:
-                log_warning(f"⚠️ RPC ошибка: {rpc_url[:50]}... - {e}")
+                logger.warning(f"⚠️ RPC ошибка: {rpc_url[:50]}... - {e}")
                 continue
         
-        log_error(f"❌ Все RPC для сети {chain_id} ({NETWORK_SETTINGS[chain_id]['name']}) недоступны")
+        logger.error(f"❌ Все RPC для сети {chain_id} ({NETWORK_SETTINGS[chain_id]['name']}) недоступны")
         return None
     
     def _get_native_balance(self, chain_id: int, wallet_address: str, show_log: bool = False) -> float:
@@ -616,12 +564,12 @@ class RelayBridge:
             # Выводим сообщение только при show_log=True (первоначальная проверка)
             if show_log:
                 network_name = NETWORK_SETTINGS[chain_id]['name']
-                log_info(f"📊 Текущий баланс {network_name}: {max_balance:.8f} ETH")
+                logger.info(f"📊 Текущий баланс {network_name}: {max_balance:.8f} ETH")
             return max_balance
         
         # Если все RPC не работают, возвращаем 0
         if show_log:
-            log_error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
+            logger.error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
         return 0.0
     
     def _get_solana_balance(self, sol_address: str, show_log: bool = False) -> float:
@@ -642,13 +590,13 @@ class RelayBridge:
                     balance_lamports = data['result']['value']
                     balance_sol = balance_lamports / 1_000_000_000  # 9 decimals
                     if show_log:
-                        log_info(f"📊 Баланс Solana ({sol_address[:8]}...): {balance_sol:.6f} SOL")
+                        logger.info(f"📊 Баланс Solana ({sol_address[:8]}...): {balance_sol:.6f} SOL")
                     return balance_sol
             except Exception as e:
                 continue
 
         if show_log:
-            log_error(f"❌ Не удалось получить баланс Solana для {sol_address}")
+            logger.error(f"❌ Не удалось получить баланс Solana для {sol_address}")
         return 0.0
 
     def _get_solana_latest_blockhash(self) -> Optional[str]:
@@ -711,7 +659,7 @@ class RelayBridge:
                     addresses=addresses
                 )
             except Exception as e:
-                log_warning(f"⚠️ Ошибка загрузки ALT {table_address[:12]}...: {e}")
+                logger.warning(f"⚠️ Ошибка загрузки ALT {table_address[:12]}...: {e}")
                 continue
         return None
 
@@ -736,13 +684,13 @@ class RelayBridge:
                 data = response.json()
 
                 if 'error' in data:
-                    log_error(f"❌ Solana RPC ошибка: {data['error']}")
+                    logger.error(f"❌ Solana RPC ошибка: {data['error']}")
                     continue
 
                 if 'result' in data:
                     return data['result']  # tx signature
             except Exception as e:
-                log_warning(f"⚠️ Ошибка отправки Solana TX: {e}")
+                logger.warning(f"⚠️ Ошибка отправки Solana TX: {e}")
                 continue
         return None
 
@@ -768,7 +716,7 @@ class RelayBridge:
                                 if conf in ('confirmed', 'finalized'):
                                     return True
                             else:
-                                log_error(f"❌ Solana TX ошибка: {status['err']}")
+                                logger.error(f"❌ Solana TX ошибка: {status['err']}")
                                 return False
                 except Exception:
                     continue
@@ -781,7 +729,7 @@ class RelayBridge:
         try:
             steps = quote_data.get('steps', [])
             if not steps:
-                log_error("❌ Нет шагов в котировке")
+                logger.error("❌ Нет шагов в котировке")
                 return False
 
             tx_step = None
@@ -791,12 +739,12 @@ class RelayBridge:
                     break
 
             if not tx_step:
-                log_error("❌ Не найден шаг с транзакцией")
+                logger.error("❌ Не найден шаг с транзакцией")
                 return False
 
             items = tx_step.get('items', [])
             if not items:
-                log_error("❌ Нет элементов транзакции")
+                logger.error("❌ Нет элементов транзакции")
                 return False
 
             tx_data = items[0].get('data', {})
@@ -804,7 +752,7 @@ class RelayBridge:
             alt_addresses = tx_data.get('addressLookupTableAddresses', [])
 
             if not instructions_data:
-                log_error("❌ Нет инструкций в транзакции Solana")
+                logger.error("❌ Нет инструкций в транзакции Solana")
                 return False
 
             # Получаем начальный баланс ETH в целевой сети
@@ -821,7 +769,7 @@ class RelayBridge:
             # Получаем blockhash
             blockhash_str = self._get_solana_latest_blockhash()
             if not blockhash_str:
-                log_error("❌ Не удалось получить blockhash")
+                logger.error("❌ Не удалось получить blockhash")
                 return False
 
             recent_blockhash = SolHash.from_string(blockhash_str)
@@ -859,32 +807,32 @@ class RelayBridge:
             tx = VersionedTransaction(message, [sol_keypair])
 
             # Отправляем
-            log_info(f"📤 Отправка Solana транзакции...")
+            logger.info(f"📤 Отправка Solana транзакции...")
             tx_signature = self._send_solana_transaction(tx)
             if not tx_signature:
-                log_error("❌ Не удалось отправить Solana транзакцию")
+                logger.error("❌ Не удалось отправить Solana транзакцию")
                 return False
 
             explorer_link = f"https://solscan.io/tx/{tx_signature}"
-            log_transaction(f"📤 Solana транзакция: {explorer_link}")
+            logger.info(f"📤 Solana транзакция: {explorer_link}")
 
             # Ждем подтверждения на Solana
-            log_info("⏳ Ожидание подтверждения Solana транзакции...")
+            logger.info("⏳ Ожидание подтверждения Solana транзакции...")
             confirmed = self._confirm_solana_transaction(tx_signature)
             if confirmed:
-                log_success(f"✅ Solana транзакция подтверждена")
+                logger.success(f"✅ Solana транзакция подтверждена")
             else:
-                log_warning(f"⚠️ Не удалось подтвердить Solana транзакцию, проверяем баланс...")
+                logger.warning(f"⚠️ Не удалось подтвердить Solana транзакцию, проверяем баланс...")
 
             # Проверяем поступление ETH в целевую сеть
-            log_info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
+            logger.info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
             transaction_success = self._check_balance_changes(
                 eth_address, from_chain_id, to_chain_id, sent_amount_sol,
                 initial_from_balance, initial_to_balance
             )
 
             if transaction_success:
-                log_success(f"✅ Бридж SOL -> ETH подтвержден")
+                logger.success(f"✅ Бридж SOL -> ETH подтвержден")
                 self._save_transaction_result(eth_address, tx_signature, 0, 'completed')
                 return True
             else:
@@ -892,7 +840,7 @@ class RelayBridge:
                 return False
 
         except Exception as e:
-            log_error(f"❌ Ошибка выполнения Solana транзакции: {e}")
+            logger.error(f"❌ Ошибка выполнения Solana транзакции: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -926,7 +874,7 @@ class RelayBridge:
                 if sol_address:
                     balance = self._get_solana_balance(sol_address, show_log=True)
                 else:
-                    log_warning(f"⚠️ SOL адрес не найден для {wallet_address}")
+                    logger.warning(f"⚠️ SOL адрес не найден для {wallet_address}")
                     balance = 0.0
             else:
                 balance = self._get_native_balance(chain_id, wallet_address, show_log=True)
@@ -1004,7 +952,7 @@ class RelayBridge:
                     'https': f'http://{api_proxy}'
                 }
 
-            log_info(f"📡 Запрос котировки: {NETWORK_SETTINGS[from_chain_id]['name']} -> {NETWORK_SETTINGS[to_chain_id]['name']}, user: {user[:12]}..., получатель: {recipient[:12]}...")
+            logger.info(f"📡 Запрос котировки: {NETWORK_SETTINGS[from_chain_id]['name']} -> {NETWORK_SETTINGS[to_chain_id]['name']}, user: {user[:12]}..., получатель: {recipient[:12]}...")
             response = requests.post(url, json=payload, headers=headers, proxies=proxies, timeout=30)
             response.raise_for_status()
             return response.json(), None
@@ -1017,11 +965,11 @@ class RelayBridge:
             error_msg = f"Ошибка получения котировки: {e}"
             if response_body:
                 error_msg += f" | Ответ API: {response_body[:500]}"
-            log_error(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             return None, error_msg
         except Exception as e:
             error_msg = f"Ошибка получения котировки: {e}"
-            log_error(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             return None, error_msg
     
     def _check_balance_changes(self, wallet_address: str, from_chain_id: int, to_chain_id: int, sent_amount: float, initial_from_balance: float, initial_to_balance: float, max_wait_minutes: int = 15) -> bool:
@@ -1042,7 +990,7 @@ class RelayBridge:
             True если средства поступили в целевую сеть
         """
         max_attempts = (max_wait_minutes * 60) // SLEEP_BETWEEN_ACTIONS[1]
-        log_info(f"⏱️ Максимальное время ожидания: {max_wait_minutes} минут ({max_attempts} проверок)")
+        logger.info(f"⏱️ Максимальное время ожидания: {max_wait_minutes} минут ({max_attempts} проверок)")
 
         # Определяем, проверяем ли Solana баланс
         is_solana_dest = (to_chain_id == SOLANA_CHAIN_ID)
@@ -1050,12 +998,12 @@ class RelayBridge:
         if is_solana_dest:
             sol_address = self._get_sol_address_for_eth(wallet_address)
             if not sol_address:
-                log_error(f"❌ SOL адрес не найден для {wallet_address}")
+                logger.error(f"❌ SOL адрес не найден для {wallet_address}")
                 return False
 
         for attempt in range(max_attempts):
             try:
-                log_info(f"🔍 Проверка {attempt + 1}/{max_attempts}: проверяем баланс в {NETWORK_SETTINGS[to_chain_id]['name']}...")
+                logger.info(f"🔍 Проверка {attempt + 1}/{max_attempts}: проверяем баланс в {NETWORK_SETTINGS[to_chain_id]['name']}...")
 
                 # Получаем АКТУАЛЬНЫЙ баланс целевой сети
                 if is_solana_dest:
@@ -1066,25 +1014,25 @@ class RelayBridge:
                 # Рассчитываем изменение в целевой сети
                 to_change = current_to_balance - initial_to_balance
 
-                log_info(f"📊 Баланс: {initial_to_balance:.8f} → {current_to_balance:.8f} (изменение: {to_change:.8f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']})")
+                logger.info(f"📊 Баланс: {initial_to_balance:.8f} → {current_to_balance:.8f} (изменение: {to_change:.8f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']})")
 
                 # Главный критерий успеха
                 if to_change > 0.000001:
-                    log_success(f"✅ Транзакция успешна! Получено: {to_change:.6f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']}")
+                    logger.success(f"✅ Транзакция успешна! Получено: {to_change:.6f} {NETWORK_SETTINGS[to_chain_id]['native_symbol']}")
                     return True
 
                 if attempt < max_attempts - 1:
-                    log_info(f"⏳ Средства еще не поступили, ожидание {SLEEP_BETWEEN_ACTIONS[1]} сек...")
+                    logger.info(f"⏳ Средства еще не поступили, ожидание {SLEEP_BETWEEN_ACTIONS[1]} сек...")
                     sleep_time = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
                     time.sleep(sleep_time)
 
             except Exception as e:
-                log_error(f"❌ Ошибка при проверке баланса (попытка {attempt + 1}): {e}")
+                logger.error(f"❌ Ошибка при проверке баланса (попытка {attempt + 1}): {e}")
                 if attempt < max_attempts - 1:
-                    log_info(f"🔄 Повторная попытка через {SLEEP_BETWEEN_ACTIONS[1]} сек...")
+                    logger.info(f"🔄 Повторная попытка через {SLEEP_BETWEEN_ACTIONS[1]} сек...")
                 time.sleep(SLEEP_BETWEEN_ACTIONS[1])
 
-        log_error(f"❌ Средства не поступили в {NETWORK_SETTINGS[to_chain_id]['name']} в течение {max_wait_minutes} минут")
+        logger.error(f"❌ Средства не поступили в {NETWORK_SETTINGS[to_chain_id]['name']} в течение {max_wait_minutes} минут")
         return False
 
     def _execute_bridge(self, quote_data: Dict, wallet_address: str, private_key: str, from_chain_id: int, to_chain_id: int, sent_amount: float) -> bool:
@@ -1106,7 +1054,7 @@ class RelayBridge:
             
             steps = quote_data.get('steps', [])
             if not steps:
-                log_error("❌ Нет шагов в котировке")
+                logger.error("❌ Нет шагов в котировке")
                 return False
             
             # Находим шаг с транзакцией
@@ -1117,17 +1065,17 @@ class RelayBridge:
                     break
             
             if not tx_step:
-                log_error("❌ Не найден шаг с транзакцией")
+                logger.error("❌ Не найден шаг с транзакцией")
                 return False
             
             items = tx_step.get('items', [])
             if not items:
-                log_error("❌ Нет элементов транзакции")
+                logger.error("❌ Нет элементов транзакции")
                 return False
             
             tx_data = items[0].get('data', {})
             if not tx_data:
-                log_error("❌ Нет данных транзакции")
+                logger.error("❌ Нет данных транзакции")
                 return False
             
             # Подключение к сети
@@ -1167,7 +1115,7 @@ class RelayBridge:
                 estimated_gas = web3.eth.estimate_gas(transaction_for_estimate)
                 gas_limit = int(estimated_gas * 1.2)
             except Exception as e:
-                log_warning(f"⚠️ Не удалось оценить газ: {e}")
+                logger.warning(f"⚠️ Не удалось оценить газ: {e}")
                 gas_limit = tx_data.get('gas', 200000)
                 if isinstance(gas_limit, str):
                     gas_limit = int(gas_limit)
@@ -1230,25 +1178,25 @@ class RelayBridge:
             
             # Получаем ссылку на explorer
             explorer_link = self._get_transaction_explorer_link(chain_id, tx_hash.hex())
-            log_transaction(f"📤 Транзакция отправлена: {explorer_link}")
+            logger.info(f"📤 Транзакция отправлена: {explorer_link}")
             
             # Ждем небольшое время перед проверкой
-            log_info(f"⏰ Ожидание 30 секунд перед проверкой статуса транзакции...")
+            logger.info(f"⏰ Ожидание 30 секунд перед проверкой статуса транзакции...")
             time.sleep(30)
             
             # Проверяем статус транзакции в исходной сети
             try:
                 tx_receipt = web3.eth.get_transaction_receipt(tx_hash)
                 if tx_receipt.status == 1:
-                    log_success(f"✅ Транзакция подтверждена в {NETWORK_SETTINGS[chain_id]['name']}")
+                    logger.success(f"✅ Транзакция подтверждена в {NETWORK_SETTINGS[chain_id]['name']}")
                 else:
-                    log_error(f"❌ Транзакция отклонена в {NETWORK_SETTINGS[chain_id]['name']}")
+                    logger.error(f"❌ Транзакция отклонена в {NETWORK_SETTINGS[chain_id]['name']}")
                     return False
             except Exception as e:
-                log_warning(f"⚠️ Не удалось получить статус транзакции: {e}")
+                logger.warning(f"⚠️ Не удалось получить статус транзакции: {e}")
             
             # Проверяем успешность через изменение балансов
-            log_info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
+            logger.info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
             transaction_success = self._check_balance_changes(
                 wallet_address, from_chain_id, to_chain_id, sent_amount, 
                 initial_from_balance, initial_to_balance
@@ -1256,7 +1204,7 @@ class RelayBridge:
             
             # Если балансы изменились, транзакция успешна
             if transaction_success:
-                log_success(f"✅ Транзакция подтверждена")
+                logger.success(f"✅ Транзакция подтверждена")
             
             # Сохранение результата
             if transaction_success:
@@ -1269,7 +1217,7 @@ class RelayBridge:
                 return False
                 
         except Exception as e:
-            log_error(f"❌ Ошибка выполнения транзакции: {e}")
+            logger.error(f"❌ Ошибка выполнения транзакции: {e}")
             self._save_transaction_result(wallet_address, None, 0, 'error', str(e))
             return False
     
@@ -1318,7 +1266,7 @@ class RelayBridge:
                 calculated_bridge_fee = amount - estimated_received
                 amount_out_eth = estimated_received
                 
-                log_warning("⚠️ Используем примерную комиссию, так как нет данных котировки")
+                logger.warning("⚠️ Используем примерную комиссию, так как нет данных котировки")
             
             # Используем bridge_fee из базы данных, если он больше 0, иначе рассчитанный
             final_bridge_fee = bridge_fee if bridge_fee > 0 else calculated_bridge_fee
@@ -1342,7 +1290,7 @@ class RelayBridge:
 
         while True:
             if not quote_data or 'details' not in quote_data:
-                log_warning("⚠️ Нет детальной информации о комиссиях в котировке")
+                logger.warning("⚠️ Нет детальной информации о комиссиях в котировке")
                 return quote_data
 
             details = quote_data['details']
@@ -1358,7 +1306,7 @@ class RelayBridge:
                         if 'amountUsd' in fee_entry:
                             fee_usd += float(fee_entry['amountUsd'])
                     if fee_usd == 0:
-                        log_info(f"ℹ️ Кросс-чейн Solana: комиссия не определена, пропускаем проверку")
+                        logger.info(f"ℹ️ Кросс-чейн Solana: комиссия не определена, пропускаем проверку")
                         return quote_data
                 else:
                     amount_out_wei = int(details['currencyOut']['amount'])
@@ -1368,24 +1316,24 @@ class RelayBridge:
                     fee_usd = actual_fee * eth_price
 
                 if fee_usd > max_fee_usd:
-                    log_warning(f"⚠️ Комиссия слишком высокая: ${fee_usd:.4f} > ${max_fee_usd}")
-                    log_warning(f"   💡 Ожидание снижения комиссии... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
+                    logger.warning(f"⚠️ Комиссия слишком высокая: ${fee_usd:.4f} > ${max_fee_usd}")
+                    logger.warning(f"   💡 Ожидание снижения комиссии... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
 
                     time.sleep(GAS['WHITE_TIMEOUT'])
 
-                    log_info("🔄 Получение новой котировки...")
+                    logger.info("🔄 Получение новой котировки...")
                     new_quote, error_msg = self._get_quote(from_chain_id, to_chain_id, amount_wei, wallet_address, sol_recipient=sol_recipient, sol_sender=sol_sender)
                     if new_quote:
                         quote_data = new_quote
                         continue
                     else:
-                        log_warning("⚠️ Не удалось получить новую котировку, используем текущую")
+                        logger.warning("⚠️ Не удалось получить новую котировку, используем текущую")
                         return quote_data
                 else:
-                    log_success(f"✅ Комиссия в пределах лимита: ${fee_usd:.4f} ≤ ${max_fee_usd}")
+                    logger.success(f"✅ Комиссия в пределах лимита: ${fee_usd:.4f} ≤ ${max_fee_usd}")
                     return quote_data
             else:
-                log_warning("⚠️ Нет информации о выходной сумме в котировке")
+                logger.warning("⚠️ Нет информации о выходной сумме в котировке")
                 return quote_data
 
     def _process_wallet(self, private_key: str, wallet_index: int) -> bool:
@@ -1397,13 +1345,13 @@ class RelayBridge:
 
             wallet_record = self._get_wallet_record(private_key)
             if not wallet_record:
-                log_error(f"❌ Запись кошелька {wallet_address} не найдена в базе данных")
+                logger.error(f"❌ Запись кошелька {wallet_address} не найдена в базе данных")
                 return False
 
             if wallet_record['status'] in ('completed', 'completed_no_confirmation'):
                 return True
 
-            log_progress(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
+            logger.info(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
 
             from_network = wallet_record['from_network']
             to_network = wallet_record['to_network']
@@ -1420,27 +1368,27 @@ class RelayBridge:
 
             if to_chain_id == SOLANA_CHAIN_ID:
                 if not wallet_pair:
-                    log_error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
+                    logger.error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
                     return False
                 sol_recipient = wallet_pair['sol_address']
-                log_info(f"🔗 SOL получатель: {sol_recipient}")
+                logger.info(f"🔗 SOL получатель: {sol_recipient}")
 
             if from_chain_id == SOLANA_CHAIN_ID:
                 if not wallet_pair:
-                    log_error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
+                    logger.error(f"❌ SOL адрес не найден для {wallet_address}. Используйте мнемоники")
                     return False
                 sol_sender = wallet_pair['sol_address']
                 sol_private_key = wallet_pair['sol_private_key']
-                log_info(f"🔗 SOL отправитель: {sol_sender}")
+                logger.info(f"🔗 SOL отправитель: {sol_sender}")
 
             # Проверка балансов
             balances = self._check_balances(wallet_address, from_chain_id, to_chain_id)
             if not balances:
-                log_warning(f"⚠️ Нет балансов для бриджа у кошелька {wallet_address}")
+                logger.warning(f"⚠️ Нет балансов для бриджа у кошелька {wallet_address}")
                 return False
 
             if from_network not in balances:
-                log_warning(f"⚠️ Нет баланса в сети {from_network} у кошелька {wallet_address}")
+                logger.warning(f"⚠️ Нет баланса в сети {from_network} у кошелька {wallet_address}")
                 return False
 
             # Проверка достаточности баланса
@@ -1450,14 +1398,14 @@ class RelayBridge:
                 if available_balance > min_balance:
                     amount = available_balance * 0.95
                 else:
-                    log_error(f"❌ {wallet_address}: Баланс слишком мал: {available_balance:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
+                    logger.error(f"❌ {wallet_address}: Баланс слишком мал: {available_balance:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
                     return False
 
             # Проверка минимальной суммы для бриджа
             token_symbol = NETWORK_SETTINGS[from_chain_id]['native_symbol']
             min_bridge = MINIMUM_BRIDGE_AMOUNTS.get(token_symbol, 0)
             if amount < min_bridge:
-                log_error(f"❌ {wallet_address}: Сумма {amount:.6f} {token_symbol} меньше минимальной для бриджа ({min_bridge} {token_symbol})")
+                logger.error(f"❌ {wallet_address}: Сумма {amount:.6f} {token_symbol} меньше минимальной для бриджа ({min_bridge} {token_symbol})")
                 self._update_wallet_error(wallet_record['id'], f"Сумма {amount:.6f} меньше минимальной {min_bridge} {token_symbol}")
                 return False
 
@@ -1476,7 +1424,7 @@ class RelayBridge:
 
             if not quote:
                 self._update_wallet_error(wallet_record['id'], error_msg or "Неизвестная ошибка котировки")
-                log_error(f"❌ Не удалось получить котировку для кошелька {wallet_address}, пропускаем")
+                logger.error(f"❌ Не удалось получить котировку для кошелька {wallet_address}, пропускаем")
                 return False
 
             # Проверка комиссий
@@ -1500,7 +1448,7 @@ class RelayBridge:
                 )
 
             if not bridge_success:
-                log_error(f"❌ Ошибка выполнения бриджа для кошелька {wallet_address}")
+                logger.error(f"❌ Ошибка выполнения бриджа для кошелька {wallet_address}")
                 return False
 
             status = 'completed'
@@ -1536,7 +1484,7 @@ class RelayBridge:
                     token_symbol, price_usd
                 )
             except Exception as e:
-                log_error(f"❌ Ошибка получения курса для итогов: {e}")
+                logger.error(f"❌ Ошибка получения курса для итогов: {e}")
                 print(f"\n{'='*20} {wallet_address} {'='*20}")
                 print(f"     ✅ Обработан успешно: {amount:.6f} {NETWORK_SETTINGS[from_chain_id]['native_symbol']}")
                 print(f"     Из {from_network} в {to_network}\n")
@@ -1547,9 +1495,9 @@ class RelayBridge:
             try:
                 account = Web3().eth.account.from_key(private_key)
                 wallet_address = account.address
-                log_error(f"❌ Ошибка обработки кошелька {wallet_address}: {e}")
+                logger.error(f"❌ Ошибка обработки кошелька {wallet_address}: {e}")
             except:
-                log_error(f"❌ Ошибка обработки кошелька {wallet_index + 1}: {e}")
+                logger.error(f"❌ Ошибка обработки кошелька {wallet_index + 1}: {e}")
             return False
     
     def _check_resume_option(self) -> bool:
@@ -1570,12 +1518,12 @@ class RelayBridge:
         conn.close()
         
         if total_count > 0:
-            log_info(f"📊 Статистика базы данных:")
-            log_info(f"   📋 Всего записей: {total_count}")
-            log_info(f"   ⏳ Ожидающих: {pending_count}")
-            log_info(f"   ✅ Завершенных: {completed_count}")
+            logger.info(f"📊 Статистика базы данных:")
+            logger.info(f"   📋 Всего записей: {total_count}")
+            logger.info(f"   ⏳ Ожидающих: {pending_count}")
+            logger.info(f"   ✅ Завершенных: {completed_count}")
             if error_count > 0:
-                log_info(f"   ❌ С ошибками: {error_count}")
+                logger.info(f"   ❌ С ошибками: {error_count}")
             
             if pending_count > 0:
                 choice = select(
@@ -1595,12 +1543,12 @@ class RelayBridge:
                 ).ask()
             
             if choice == "restart":
-                log_info("🗑️ Очистка базы данных...")
+                logger.info("🗑️ Очистка базы данных...")
                 os.remove(self.db_path)
                 self._init_database()
                 return False
             
-            log_info("📂 Использование существующей базы данных")
+            logger.info("📂 Использование существующей базы данных")
             return True
         
         return False
@@ -1612,7 +1560,7 @@ class RelayBridge:
             account = Web3().eth.account.from_key(private_key)
             wallet_address = account.address
         except Exception as e:
-            log_error(f"❌ Ошибка получения адреса из приватного ключа: {e}")
+            logger.error(f"❌ Ошибка получения адреса из приватного ключа: {e}")
             return None
         
         conn = sqlite3.connect(self.db_path)
@@ -1698,21 +1646,21 @@ class RelayBridge:
                 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429 and attempt < max_attempts - 1:
-                    log_warning(f"⚠️ Rate limit попытка {attempt + 1}, пробуем другой прокси...")
+                    logger.warning(f"⚠️ Rate limit попытка {attempt + 1}, пробуем другой прокси...")
                     time.sleep(1)  # Небольшая пауза перед следующей попыткой
                     continue
                 else:
                     raise e
             except Exception as e:
                 if attempt < max_attempts - 1:
-                    log_warning(f"⚠️ Ошибка API попытка {attempt + 1}: {e}")
+                    logger.warning(f"⚠️ Ошибка API попытка {attempt + 1}: {e}")
                     time.sleep(1)
                     continue
                 else:
                     raise e
         
         # Если все попытки провалились, используем fallback курсы
-        log_warning(f"⚠️ Не удалось получить курс {token_symbol} после {max_attempts} попыток, используем fallback")
+        logger.warning(f"⚠️ Не удалось получить курс {token_symbol} после {max_attempts} попыток, используем fallback")
         fallback_prices = {
             1: 3000.0,    # ETH
             10: 3000.0,   # ETH на Optimism
@@ -1741,14 +1689,14 @@ class RelayBridge:
         
         limit_usdt = GAS['LIMIT_GAS_COST']
         
-        log_info(f"⛽ Стоимость газа в {network_name}: {gas_cost_native:.6f} {token_symbol} (${gas_cost_usdt:.4f})")
-        log_info(f"📊 Лимит: ${limit_usdt}")
+        logger.info(f"⛽ Стоимость газа в {network_name}: {gas_cost_native:.6f} {token_symbol} (${gas_cost_usdt:.4f})")
+        logger.info(f"📊 Лимит: ${limit_usdt}")
         
         if gas_cost_usdt > limit_usdt:
-            log_warning(f"⚠️ Газ слишком дорогой: ${gas_cost_usdt:.4f} > ${limit_usdt}")
+            logger.warning(f"⚠️ Газ слишком дорогой: ${gas_cost_usdt:.4f} > ${limit_usdt}")
             return False
         
-        log_success(f"✅ Газ в пределах лимита: ${gas_cost_usdt:.4f} ≤ ${limit_usdt}")
+        logger.success(f"✅ Газ в пределах лимита: ${gas_cost_usdt:.4f} ≤ ${limit_usdt}")
         return True
     
     def _wait_for_acceptable_gas_price(self, web3: Web3, gas_limit: int, chain_id: int) -> int:
@@ -1760,11 +1708,11 @@ class RelayBridge:
                 if self._check_gas_cost_limit(chain_id, gas_limit, current_gas_price):
                     return current_gas_price
                 
-                log_warning(f"⏳ Ожидание снижения цены газа... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
+                logger.warning(f"⏳ Ожидание снижения цены газа... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
                 time.sleep(GAS['WHITE_TIMEOUT'])
                 
             except Exception as e:
-                log_error(f"❌ Ошибка при проверке цены газа: {e}")
+                logger.error(f"❌ Ошибка при проверке цены газа: {e}")
                 # В случае ошибки используем умеренную цену
                 return web3.to_wei('20', 'gwei')
     
@@ -1775,77 +1723,77 @@ class RelayBridge:
     def run(self):
         """Основная функция запуска"""
         try:
-            log_info("🌉 Relay Bridge - запуск обработки кошельков")
+            logger.info("🌉 Relay Bridge - запуск обработки кошельков")
 
             # Проверка возможности продолжения
             resume = self._check_resume_option()
 
             # Если не resume mode, то выбираем сети и токены
             if not resume:
-                log_info("\n" + "="*60)
-                log_info("🔧 НАСТРОЙКА ПАРАМЕТРОВ МОСТА")
-                log_info("="*60)
+                logger.info("\n" + "="*60)
+                logger.info("🔧 НАСТРОЙКА ПАРАМЕТРОВ МОСТА")
+                logger.info("="*60)
 
                 # Шаг 1: Выбор исходной сети и токена
-                log_info("\n📤 ШАГ 1: Выбор сети и токена для отправки")
+                logger.info("\n📤 ШАГ 1: Выбор сети и токена для отправки")
                 from_chain_id, from_token = self._select_network_and_token("Откуда отправить?")
                 if from_chain_id is None:
-                    log_info("👋 Работа отменена пользователем")
+                    logger.info("👋 Работа отменена пользователем")
                     return
 
-                log_success(f"✅ Выбрано: {NETWORK_SETTINGS[from_chain_id]['name']} → {from_token}")
+                logger.success(f"✅ Выбрано: {NETWORK_SETTINGS[from_chain_id]['name']} → {from_token}")
 
                 # Шаг 2: Выбор целевой сети и токена
-                log_info(f"\n📥 ШАГ 2: Выбор сети и токена для получения")
+                logger.info(f"\n📥 ШАГ 2: Выбор сети и токена для получения")
                 to_chain_id, to_token = self._select_network_and_token("Куда отправить?", exclude_chain_id=from_chain_id)
                 if to_chain_id is None:
-                    log_info("👋 Работа отменена пользователем")
+                    logger.info("👋 Работа отменена пользователем")
                     return
 
-                log_success(f"✅ Выбрано: {NETWORK_SETTINGS[to_chain_id]['name']} → {to_token}")
+                logger.success(f"✅ Выбрано: {NETWORK_SETTINGS[to_chain_id]['name']} → {to_token}")
 
                 # Если маршрут включает Solana - загружаем мнемоники
                 if self._is_solana_route(from_chain_id, to_chain_id):
-                    log_info("\n🔑 Маршрут включает Solana — загружаем мнемоники для деривации ETH+SOL ключей")
+                    logger.info("\n🔑 Маршрут включает Solana — загружаем мнемоники для деривации ETH+SOL ключей")
                     self.use_mnemonics = True
                     self.private_keys = self._load_mnemonics_and_derive_keys()
 
                     if not self.private_keys:
-                        log_error("❌ Не удалось загрузить мнемоники. Проверьте файл data/mnemonic.txt")
+                        logger.error("❌ Не удалось загрузить мнемоники. Проверьте колонку mnemonic в data/data.csv")
                         return
 
                     # Показываем пары кошельков
-                    log_info(f"\n📋 Загруженные пары кошельков:")
+                    logger.info(f"\n📋 Загруженные пары кошельков:")
                     for eth_addr, pair in self.wallet_pairs.items():
-                        log_info(f"   ETH: {eth_addr}")
-                        log_info(f"   SOL: {pair['sol_address']}")
-                        log_info(f"   {'─'*50}")
+                        logger.info(f"   ETH: {eth_addr}")
+                        logger.info(f"   SOL: {pair['sol_address']}")
+                        logger.info(f"   {'─'*50}")
                 else:
                     # Для EVM->EVM маршрутов используем приватные ключи как раньше
                     self.private_keys = self._load_private_keys()
 
                 if not self.private_keys:
-                    log_error("❌ Нет ключей для работы")
+                    logger.error("❌ Нет ключей для работы")
                     return
 
                 # Показываем итоговую конфигурацию
-                log_info("="*60)
-                log_info("🔧 ИТОГОВАЯ КОНФИГУРАЦИЯ")
-                log_info("="*60)
-                log_info(f"🌐 Из сети: {NETWORK_SETTINGS[from_chain_id]['name']}")
-                log_info(f"💎 Токен отправки: {from_token}")
-                log_info(f"🌐 В сеть: {NETWORK_SETTINGS[to_chain_id]['name']}")
-                log_info(f"💎 Токен получения: {to_token}")
+                logger.info("="*60)
+                logger.info("🔧 ИТОГОВАЯ КОНФИГУРАЦИЯ")
+                logger.info("="*60)
+                logger.info(f"🌐 Из сети: {NETWORK_SETTINGS[from_chain_id]['name']}")
+                logger.info(f"💎 Токен отправки: {from_token}")
+                logger.info(f"🌐 В сеть: {NETWORK_SETTINGS[to_chain_id]['name']}")
+                logger.info(f"💎 Токен получения: {to_token}")
 
                 if isinstance(SUM_TO_RELAY[0], str):
-                    log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]}% от баланса")
+                    logger.info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]}% от баланса")
                 else:
-                    log_info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
+                    logger.info(f"💰 Сумма: {SUM_TO_RELAY[0]}-{SUM_TO_RELAY[1]} {from_token}")
 
-                log_info(f"👛 Кошельков: {len(self.private_keys)}")
+                logger.info(f"👛 Кошельков: {len(self.private_keys)}")
                 if self.use_mnemonics:
-                    log_info(f"🔑 Режим: мнемоники (ETH+SOL деривация)")
-                log_info("="*60 + "\n")
+                    logger.info(f"🔑 Режим: мнемоники (ETH+SOL деривация)")
+                logger.info("="*60 + "\n")
 
                 # Подтверждение запуска
                 choice = select(
@@ -1859,7 +1807,7 @@ class RelayBridge:
                 ).ask()
 
                 if not choice:
-                    log_info("👋 Работа отменена пользователем")
+                    logger.info("👋 Работа отменена пользователем")
                     return
 
                 # Создание плана работ с новыми параметрами
@@ -1877,17 +1825,17 @@ class RelayBridge:
 
                 solana_involved = (row and row[0] == 'solana') or (from_row and from_row[0] == 'solana')
                 if solana_involved:
-                    log_info("🔑 Resume: маршрут с Solana — загружаем мнемоники")
+                    logger.info("🔑 Resume: маршрут с Solana — загружаем мнемоники")
                     self.use_mnemonics = True
                     self.private_keys = self._load_mnemonics_and_derive_keys()
                 else:
                     self.private_keys = self._load_private_keys()
 
                 if not self.private_keys:
-                    log_error("❌ Нет ключей для работы")
+                    logger.error("❌ Нет ключей для работы")
                     return
 
-                log_info("📂 Продолжение работы с существующими параметрами")
+                logger.info("📂 Продолжение работы с существующими параметрами")
 
             # Обработка кошельков
             total_wallets = len(self.private_keys)
@@ -1901,12 +1849,12 @@ class RelayBridge:
                 if i < total_wallets - 1:
                     time.sleep(random.uniform(2, 5))
 
-            log_success(f"🎉 Работа завершена! Успешно обработано: {successful}/{total_wallets}")
+            logger.success(f"🎉 Работа завершена! Успешно обработано: {successful}/{total_wallets}")
 
         except KeyboardInterrupt:
-            log_warning("👋 Работа прервана пользователем")
+            logger.warning("👋 Работа прервана пользователем")
         except Exception as e:
-            log_error(f"❌ Критическая ошибка: {e}")
+            logger.error(f"❌ Критическая ошибка: {e}")
 
 def main():
     """Точка входа в программу"""

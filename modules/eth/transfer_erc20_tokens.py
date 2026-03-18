@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from itertools import cycle
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from loguru import logger
+from modules.simple_logger import logger
 
 # Настройка путей для импорта
 project_root = Path(__file__).parent.parent.parent
@@ -235,23 +235,13 @@ def get_token_address(network, token_symbol):
 
 def get_proxy_list():
     """Получение списка прокси"""
-    proxies = []
-    try:
-        with open("data/proxy.csv", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.lower().startswith("proxy"):
-                    continue
-                if line.startswith("http://"):
-                    line = line[7:]
-                proxies.append(line)
-    except Exception as e:
-        logger.warning(f"Не удалось загрузить прокси: {e}")
-    
+    from modules.data_manager import get_proxies
+    proxies = get_proxies()
+
     if not proxies:
-        logger.error("ВНИМАНИЕ: В файле data/proxy.csv не найдено ни одного прокси!")
-        input(Fore.YELLOW + "Добавьте прокси в файл data/proxy.csv и нажмите Enter для продолжения, либо Ctrl+C для выхода...")
-    
+        logger.error("ВНИМАНИЕ: В файле data/data.csv не найдено ни одного прокси!")
+        input(Fore.YELLOW + "Добавьте прокси в файл data/data.csv и нажмите Enter для продолжения, либо Ctrl+C для выхода...")
+
     return proxies
 
 def get_web3_with_proxy(rpc_url, proxy_url):

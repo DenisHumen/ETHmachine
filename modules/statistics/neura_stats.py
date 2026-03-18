@@ -901,23 +901,13 @@ class NeuraProtocolClient:
 
 
 def load_wallets() -> List[str]:
-    try:
-        with open('data/private_keys.txt', 'r') as f:
-            keys = [line.strip() for line in f if line.strip()]
-        return keys
-    except Exception as e:
-        log_error(f"❌ Ошибка загрузки кошельков: {e}")
-        return []
+    from modules.data_manager import get_private_keys
+    return get_private_keys()
 
 
 def load_proxies() -> List[str]:
-    try:
-        with open('data/proxy.csv', 'r', encoding='utf-8') as f:
-            proxies = [line.strip() for line in f if line.strip()]
-        return proxies
-    except Exception as e:
-        log_warning(f"⚠️ Ошибка загрузки прокси: {e}")
-        return []
+    from modules.data_manager import get_proxies
+    return get_proxies()
 
 
 def get_proxy_for_wallet(wallet_index: int, proxies: List[str]) -> Optional[str]:

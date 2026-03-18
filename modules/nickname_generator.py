@@ -11,20 +11,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
 from config.modules.cfg_generators import NICKNAME_GENERATOR
-from loguru import logger
-
-
-def log_info(message: str):
-    """Информационное сообщение - синий цвет"""
-    logger.opt(colors=True).info(f"<blue>{message}</blue>")
-
-def log_success(message: str):
-    """Успешное выполнение - зеленый цвет"""
-    logger.opt(colors=True).info(f"<green>{message}</green>")
-
-def log_error(message: str):
-    """Ошибка - красный цвет"""
-    logger.opt(colors=True).error(f"<red>{message}</red>")
+from modules.simple_logger import logger
 
 
 class NicknameGenerator:
@@ -288,63 +275,63 @@ class NicknameGenerator:
                 for nickname in nicknames:
                     f.write(f"{nickname}\n")
             
-            log_success(f"✅ {len(nicknames)} никнеймов сохранено в {filepath}")
+            logger.success(f"✅ {len(nicknames)} никнеймов сохранено в {filepath}")
             return filepath
             
         except Exception as e:
-            log_error(f"❌ Ошибка сохранения файла: {e}")
+            logger.error(f"❌ Ошибка сохранения файла: {e}")
             return None
 
 
 def generate_nicknames():
     """Основная функция для вызова из main.py"""
     try:
-        log_info("🎭 Запуск генератора никнеймов")
+        logger.info("🎭 Запуск генератора никнеймов")
         
         # Показываем настройки
         settings = NICKNAME_GENERATOR
-        log_info(f"📋 Настройки:")
-        log_info(f"   • Длина: {settings['MIN_LENGTH']}-{settings['MAX_LENGTH']} символов")
-        log_info(f"   • Специальные символы: {'включены' if settings['USE_SPECIAL_CHARS'] else 'отключены'}")
+        logger.info(f"📋 Настройки:")
+        logger.info(f"   • Длина: {settings['MIN_LENGTH']}-{settings['MAX_LENGTH']} символов")
+        logger.info(f"   • Специальные символы: {'включены' if settings['USE_SPECIAL_CHARS'] else 'отключены'}")
         
         # Показываем настройки чисел
         use_numbers = settings.get('USE_NUMBERS', False)
-        log_info(f"   • Использование чисел: {'включено' if use_numbers else 'отключено'}")
+        logger.info(f"   • Использование чисел: {'включено' if use_numbers else 'отключено'}")
         if use_numbers:
             min_nums = settings.get('MIN_NUMBERS', 1)
             max_nums = settings.get('MAX_NUMBERS', 3)
             nice_nums = settings.get('NICE_NUMBERS', [])
-            log_info(f"   • Количество чисел: {min_nums}-{max_nums}")
+            logger.info(f"   • Количество чисел: {min_nums}-{max_nums}")
             if nice_nums:
-                log_info(f"   • Красивые числа: {nice_nums[:5]}{'...' if len(nice_nums) > 5 else ''}")
+                logger.info(f"   • Красивые числа: {nice_nums[:5]}{'...' if len(nice_nums) > 5 else ''}")
         
-        log_info(f"   • Количество: {settings['QUANTITY']} никнеймов")
+        logger.info(f"   • Количество: {settings['QUANTITY']} никнеймов")
         
         # Создаем генератор
         generator = NicknameGenerator()
         
         # Генерируем никнеймы
-        log_info(f"🔄 Генерируем {settings['QUANTITY']} никнеймов...")
+        logger.info(f"🔄 Генерируем {settings['QUANTITY']} никнеймов...")
         nicknames = generator.generate_nicknames()
         
         # Показываем примеры
-        log_info("📝 Примеры сгенерированных никнеймов:")
+        logger.info("📝 Примеры сгенерированных никнеймов:")
         for i, nickname in enumerate(nicknames[:5]):  # Показываем первые 5
-            log_info(f"   {i+1}. {nickname}")
+            logger.info(f"   {i+1}. {nickname}")
         
         if len(nicknames) > 5:
-            log_info(f"   ... и еще {len(nicknames) - 5}")
+            logger.info(f"   ... и еще {len(nicknames) - 5}")
         
         # Сохраняем в файл
         filepath = generator.save_nicknames_to_file(nicknames)
         
         if filepath:
-            log_success(f"🎉 Генерация завершена! Файл: {os.path.basename(filepath)}")
+            logger.success(f"🎉 Генерация завершена! Файл: {os.path.basename(filepath)}")
         
         return nicknames
         
     except Exception as e:
-        log_error(f"❌ Ошибка генерации никнеймов: {e}")
+        logger.error(f"❌ Ошибка генерации никнеймов: {e}")
         return None
 
 

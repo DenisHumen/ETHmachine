@@ -15,42 +15,27 @@ from modules.pharos import pharos_logger as logger
 from modules.pharos.worker import run_parallel, run_loop
 from modules.pharos.stats import collect_stats, export_csv
 
-# Путь к файлу приватных ключей
-WALLETS_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'private_keys.txt')
-PROXIES_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'proxy.csv')
+from modules.data_manager import load_data
 
 
 def load_wallets() -> list[dict]:
-    """Загрузить кошельки и прокси из файлов data/."""
-    wallets_path = os.path.normpath(WALLETS_FILE)
-    proxies_path = os.path.normpath(PROXIES_FILE)
+    """Загрузить кошельки и прокси из data.csv."""
+    rows = load_data()
 
-    if not os.path.exists(wallets_path):
-        logger.log(f"Файл {wallets_path} не найден!", "error")
+    if not rows:
+        logger.log("Нет данных в data.csv!", "error")
         return []
 
-    with open(wallets_path, "r", encoding="utf-8") as f:
-        keys = [line.strip() for line in f if line.strip()]
-
-    proxies = []
-    if os.path.exists(proxies_path):
-        with open(proxies_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.lower().startswith('proxy') or line.lower().startswith('login'):
-                    continue
-                proxies.append(line)
-
     wallets = []
-    for i, pk in enumerate(keys):
-        pk = pk.strip()
+    for i, row in enumerate(rows):
+        pk = row.get('private_key', '').strip()
         if not pk:
             continue
         if not pk.startswith("0x"):
             pk = "0x" + pk
         try:
             account = Account.from_key(pk)
-            proxy = proxies[i] if i < len(proxies) else None
+            proxy = row.get('proxy', '').strip() or None
             wallets.append({"private_key": pk, "address": account.address, "proxy": proxy})
         except Exception as e:
             logger.log(f"Ошибка ключа #{i + 1}: {e}", "error")
@@ -106,7 +91,7 @@ def _menu_create_db():
     wallets = load_wallets()
 
     if not wallets:
-        logger.log(f"Нет кошельков. Добавьте приватные ключи в data/private_keys.txt", "error")
+        logger.log(f"Нет кошельков. Добавьте приватные ключи в data/data.csv", "error")
         return
 
     proxies_count = sum(1 for w in wallets if w.get("proxy"))
@@ -133,7 +118,7 @@ def _menu_stats():
     """Статистика XP + Level → CSV."""
     wallets = load_wallets()
     if not wallets:
-        logger.log("Нет кошельков. Добавьте приватные ключи в data/private_keys.txt", "error")
+        logger.log("Нет кошельков. Добавьте приватные ключи в data/data.csv", "error")
         return
 
     workers = _ask_workers()

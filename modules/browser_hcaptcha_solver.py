@@ -13,7 +13,7 @@ import json
 import time
 from pathlib import Path
 from typing import Optional
-from loguru import logger
+from modules.simple_logger import logger
 
 
 BROWSER_PROFILES_DIR = Path(__file__).parent.parent / "data" / "browser_profiles"

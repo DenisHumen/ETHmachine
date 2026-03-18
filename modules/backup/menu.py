@@ -5,7 +5,7 @@
 import os
 import sys
 from questionary import select, Choice, confirm, Separator
-from loguru import logger
+from modules.simple_logger import logger
 
 # Добавляем путь к корневой директории проекта
 current_dir = os.path.dirname(os.path.abspath(__file__))

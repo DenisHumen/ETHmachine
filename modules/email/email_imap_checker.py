@@ -18,7 +18,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 from colorama import Fore, Style, init
-from loguru import logger
+from modules.simple_logger import logger, setup_file_logging
 
 # Импорт настроек
 from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
@@ -28,24 +28,6 @@ from config.modules.cfg_email import (
 
 # Инициализация colorama
 init(autoreset=True)
-
-# Флаг инициализации логгера
-_logger_initialized = False
-
-def _setup_logging():
-    """Настройка логирования - вызывается при запуске модуля"""
-    global _logger_initialized
-    if _logger_initialized:
-        return
-    _logger_initialized = True
-    
-    import os
-    os.makedirs("log", exist_ok=True)
-    
-    logger.add("log/email_checker.log", 
-              format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-              level="INFO",
-              rotation="10 MB")
 
 class EmailChecker:
     """Класс для проверки email аккаунтов через IMAP"""
@@ -250,41 +232,25 @@ class EmailChecker:
                 self.total_failed += 1
                 print(Fore.RED + f"❌ [{self.total_checked}] {email} - {status}")
     
-    def load_emails_from_csv(self, filepath='data/email.csv'):
-        """Загрузка email данных из CSV файла"""
-        emails = []
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row.get('email') and row.get('password'):
-                        emails.append(row)
-            logger.info(f"Загружено {len(emails)} email аккаунтов из {filepath}")
-            return emails
-        except FileNotFoundError:
-            logger.error(f"Файл {filepath} не найден")
-            return []
-        except Exception as e:
-            logger.error(f"Ошибка чтения файла {filepath}: {e}")
-            return []
+    def load_emails_from_csv(self, filepath=None):
+        """Загрузка email данных из data.csv"""
+        from modules.data_manager import get_emails
+        emails = get_emails()
+        if emails:
+            logger.info(f"Загружено {len(emails)} email аккаунтов")
+        else:
+            logger.warning("Нет email аккаунтов в data/data.csv")
+        return emails
     
-    def load_proxies_from_csv(self, filepath='data/proxy.csv'):
-        """Загрузка прокси из CSV файла"""
-        proxies = []
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                for line in f:
-                    proxy = line.strip()
-                    if proxy and not proxy.startswith('#'):
-                        proxies.append(proxy)
-            logger.info(f"Загружено {len(proxies)} прокси из {filepath}")
-            return proxies
-        except FileNotFoundError:
-            logger.warning(f"Файл прокси {filepath} не найден. Работаем без прокси.")
-            return []
-        except Exception as e:
-            logger.error(f"Ошибка чтения файла прокси {filepath}: {e}")
-            return []
+    def load_proxies_from_csv(self, filepath=None):
+        """Загрузка прокси из data.csv"""
+        from modules.data_manager import get_proxies
+        proxies = get_proxies()
+        if proxies:
+            logger.info(f"Загружено {len(proxies)} прокси")
+        else:
+            logger.warning("Нет прокси в data/data.csv. Работаем без прокси.")
+        return proxies
     
     def save_results_to_csv(self, filepath=None):
         """Сохранение результатов в CSV файл"""
@@ -370,7 +336,7 @@ class EmailChecker:
 
 def run_email_checker():
     """Главная функция запуска модуля проверки почт"""
-    _setup_logging()
+    setup_file_logging("log/email_checker.log")
     try:
         checker = EmailChecker()
         checker.run_multithreaded_check()

@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 from colorama import Fore, Style, init
 from web3 import Web3
-from loguru import logger
+from modules.simple_logger import logger
 
 init()
 
@@ -19,37 +19,17 @@ sys.path.append(str(project_root))
 
 from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 
+from modules.simple_logger import setup_file_logging
+
 # Настройка логирования для модуля get_gas_price
 def setup_gas_price_logging():
     """Настраивает логирование для модуля получения цены газа"""
-    log_dir = Path("log")
-    log_dir.mkdir(exist_ok=True)
-    
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f'gas_price_{timestamp}.log'
-    
-    # Добавляем обработчик для записи в файл
-    logger.add(
-        log_file,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
-        encoding="utf-8"
-    )
-    
-    logger.info(f"Логирование настроено. Файл: {log_file}")
+    setup_file_logging("log/gas_price.log")
 
 def load_proxies():
-    """Загружает прокси из файла data/proxy.csv"""
-    try:
-        proxy_file = project_root / 'data' / 'proxy.csv'
-        with open(proxy_file, 'r') as f:
-            reader = csv.reader(f)
-            proxies = [row[0] for row in reader if row]
-        return proxies
-    except FileNotFoundError:
-        return []
+    """Загружает прокси из data.csv"""
+    from modules.data_manager import get_proxies
+    return get_proxies()
 
 def get_proxy_dict(proxy_string):
     """Преобразует строку прокси в формат для requests"""

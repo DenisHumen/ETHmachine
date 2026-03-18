@@ -8,7 +8,7 @@
 import sys
 import os
 from questionary import Choice, select
-from loguru import logger
+from modules.simple_logger import logger
 
 # Добавляем корневую директорию проекта в sys.path
 project_root = os.path.join(os.path.dirname(__file__), '..', '..')

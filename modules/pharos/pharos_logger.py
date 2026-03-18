@@ -9,7 +9,7 @@ _print_lock = threading.Lock()
 
 def log(msg: str, level: str = "info", addr: str = ""):
     """Thread-safe лог в стиле pharos → loguru."""
-    prefix = f"[{addr}] " if addr else ""
+    prefix = f"{addr} │ " if addr else ""
     full_msg = f"{prefix}{msg}"
 
     match level:

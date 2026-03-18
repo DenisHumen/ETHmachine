@@ -15,6 +15,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from modules.simple_logger import logger
+from modules.data_manager import get_private_keys, get_proxies
 from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT, astrum_CAPTCHA_API_KEY
 from config.modules.cfg_neura import (
     NEURA_MODULES, NEURA_USE_PROXY, NEURA_RANDOM_PROXY,
@@ -35,35 +36,11 @@ progress_lock = Lock()
 
 
 def load_private_keys() -> List[str]:
-    keys_file = project_root / 'data' / 'private_keys.txt'
-    
-    if not keys_file.exists():
-        logger.error(f"Файл {keys_file} не найден!")
-        return []
-    
-    with open(keys_file, 'r') as f:
-        keys = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-    
-    logger.info(f"Загружено {len(keys)} приватных ключей")
-    return keys
+    return get_private_keys()
 
 
 def load_proxies() -> List[str]:
-    proxy_file = project_root / 'data' / 'proxy.csv'
-    
-    if not proxy_file.exists():
-        logger.warning("Файл proxy.csv не найден, работаем без прокси")
-        return []
-    
-    proxies = []
-    with open(proxy_file, 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if row and row[0].strip():
-                proxies.append(row[0].strip())
-    
-    logger.info(f"Загружено {len(proxies)} прокси")
-    return proxies
+    return get_proxies()
 
 
 def get_wallet_address_from_key(private_key: str) -> str:

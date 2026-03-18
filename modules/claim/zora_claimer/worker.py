@@ -18,6 +18,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 from modules.simple_logger import logger, setup_file_logging
 from modules.proxy_manager import ProxyManager, mask_proxy
+from modules.data_manager import get_private_keys
 from config.modules.cfg_base import (
     NUM_THREADS, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS, RETRY_COUNT
 )
@@ -46,18 +47,8 @@ run_stats = {
 
 
 def load_private_keys() -> List[str]:
-    """Загрузить приватные ключи из файла"""
-    keys_file = project_root / 'data' / 'private_keys.txt'
-
-    if not keys_file.exists():
-        logger.error(f"Файл {keys_file} не найден!")
-        return []
-
-    with open(keys_file, 'r') as f:
-        keys = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-
-    logger.info(f"Загружено {len(keys)} приватных ключей")
-    return keys
+    """Загрузить приватные ключи из data.csv"""
+    return get_private_keys()
 
 
 def prepare_wallets(private_keys: List[str]) -> List[Tuple[str, str]]:

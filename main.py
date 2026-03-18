@@ -56,6 +56,7 @@ if platform.system().lower() == 'windows':
 # =============================================================================
 
 from modules.config_validator import validate_configuration
+from modules.data_manager import select_data_file
 from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balance_menu
@@ -123,18 +124,11 @@ def check_and_create_files():
     """Проверяет и создает необходимые файлы и директории"""
     required_files = [
         'result/result.csv',
-        'data/proxy.csv',
-        'data/walletss.txt',
-        'data/walletss_sol.txt',
         'config/cex_settings.py',
         'data/transfer_token.csv',
-        'data/mnemonic.txt',
-        'data/private_keys.txt',
         'data/twitter/twitters.csv',
         'data/twitter/twitter_task.csv',
         'result/twitter/result.csv',
-        'data/discord_token.txt',
-        'data/email.csv',
     ]
     required_directories = [
         'result',
@@ -159,6 +153,10 @@ def check_and_create_files():
                 _write_default_file_content(f, file)
             print(Fore.GREEN + f"File created: {file}")
 
+    # Автосоздание data/data.csv с заголовками
+    from modules.data_manager import _ensure_data_file
+    _ensure_data_file()
+
 
 def _write_default_file_content(f, file_path: str):
     """Записывает содержимое по умолчанию для файла"""
@@ -174,8 +172,6 @@ def _write_default_file_content(f, file_path: str):
         f.write('nickname,auth_token,ct0,proxy\n')
     elif 'data/twitter/twitter_task.csv' in file_path:
         f.write('link,type,value\n')
-    elif 'data/email.csv' in file_path:
-        f.write('email,password,imap_domain\n')
 
 
 def _get_default_cex_settings() -> str:
@@ -882,6 +878,9 @@ if __name__ == "__main__":
         print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт." + Style.RESET_ALL)
         input("\nНажмите Enter для выхода...")
         exit(1)
+
+    # Выбор файла данных (если несколько — интерактивный выбор)
+    select_data_file()
     
     # Запускаем live мониторинг если включен
     backup_manager = None

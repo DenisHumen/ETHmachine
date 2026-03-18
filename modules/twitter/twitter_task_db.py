@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from loguru import logger
+from modules.simple_logger import logger
 
 # Количество попыток для операций с БД
 DB_RETRY_COUNT = 5

@@ -6,28 +6,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from loguru import logger
-
-# Настройка логирования для модуля password_generator
-def setup_password_generator_logging():
-    """Настраивает логирование для генератора паролей"""
-    log_dir = Path("log")
-    log_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f'password_generator_{timestamp}.log'
-    
-    # Добавляем обработчик для записи в файл
-    logger.add(
-        log_file,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
-        encoding="utf-8"
-    )
-    
-    logger.info(f"Логирование настроено. Файл: {log_file}")
+from modules.simple_logger import logger, setup_file_logging
 
 # Импорт параметров из config/modules/cfg_password.py
 from config.modules.cfg_password import (
@@ -79,8 +58,7 @@ def print_progress_bar(iteration, total, length=40):
     print(f'\r[{bar}] {iteration}/{total} ({percent:.1f}%)', end='', flush=True)
 
 def password_generator_menu():
-    # Настраиваем логирование
-    setup_password_generator_logging()
+    setup_file_logging("log/password_generator.log")
     
     try:
         total = COUNT_GENERATED_PASSWORDS

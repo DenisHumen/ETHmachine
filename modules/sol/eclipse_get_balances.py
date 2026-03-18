@@ -58,40 +58,25 @@ def _setup_logging():
 
 
 def load_wallets():
-    """Загружает адреса кошельков из файла data/walletss_sol.txt"""
-    try:
-        wallets_file = project_root / 'data' / 'walletss_sol.txt'
-        if not wallets_file.exists():
-            logger.error(f"❌ Файл {wallets_file} не найден!")
-            return []
-        
-        with open(wallets_file, 'r', encoding='utf-8') as f:
-            wallets = [line.strip() for line in f if line.strip()]
-        
-        logger.success(f"✅ Загружено {len(wallets)} кошельков из {wallets_file.name}")
-        return wallets
-    except Exception as e:
-        logger.error(f"❌ Ошибка загрузки кошельков: {e}")
-        return []
+    """Загружает SOL-адреса из data.csv (колонка sol_address)"""
+    from modules.data_manager import get_sol_addresses
+    wallets = get_sol_addresses()
+    if wallets:
+        logger.success(f"✅ Загружено {len(wallets)} SOL кошельков")
+    else:
+        logger.error("❌ Нет SOL-адресов в data/data.csv (колонка sol_address)")
+    return wallets
 
 
 def load_proxies():
-    """Загружает прокси из файла data/proxy.csv"""
-    try:
-        proxy_file = project_root / 'data' / 'proxy.csv'
-        if not proxy_file.exists():
-            logger.warning("⚠️ Файл data/proxy.csv не найден! Работаем без прокси.")
-            return []
-        
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            proxies = [row[0].strip() for row in reader if row and row[0].strip()]
-        
-        logger.success(f"✅ Загружено {len(proxies)} прокси из {proxy_file.name}")
-        return proxies
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка загрузки прокси: {e}. Работаем без прокси.")
-        return []
+    """Загружает прокси из data.csv"""
+    from modules.data_manager import get_proxies
+    proxies = get_proxies()
+    if proxies:
+        logger.success(f"✅ Загружено {len(proxies)} прокси")
+    else:
+        logger.warning("⚠️ Нет прокси в data/data.csv. Работаем без прокси.")
+    return proxies
 
 
 def get_proxy_dict(proxy_string):
