@@ -82,7 +82,7 @@ def select_data_file() -> Path:
         choices = [Choice(f'   📄 {f.name}', str(f)) for f in files]
         selected = select(
             "\n╔════════════════════════════════════════════════╗\n"
-            "║      Выбор файла данных / Select data file    ║\n"
+            "║      Выбор файла данных / Select data file     ║\n"
             "╚════════════════════════════════════════════════╝",
             choices=choices,
             qmark='📂',
