@@ -444,6 +444,7 @@ PROJECT_STATS_SUBMENU = SubMenu(
     icon='📊',
     items=[
         MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='📊', enabled=True, requires_os='windows'),
+        MenuItem(key='perle_checker', label='Perle', description='Проверка элигибельности SOL кошельков', icon='📊', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )

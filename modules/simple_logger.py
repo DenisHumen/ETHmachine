@@ -1,36 +1,75 @@
 import sys
+from typing import Optional
+
 from loguru import logger
+
+# ═══════════════════════════════════════════════════════════
+# Loguru setup
+# ═══════════════════════════════════════════════════════════
 
 logger.remove()
 
-logger.level("INFO", color="<white>")
+logger.level("INFO",    color="<white>")
 logger.level("SUCCESS", color="<green>")
 logger.level("WARNING", color="<yellow>")
-logger.level("ERROR", color="<red>")
-logger.level("DEBUG", color="<cyan>")
+logger.level("ERROR",   color="<red>")
+logger.level("DEBUG",   color="<cyan>")
 
-# ═══════════════════════════════════════════════════
-# Статус-метки с рамкой ║ STATUS ║
-# ═══════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+# Таблица маппинга уровней -> метка, loguru-цвет, ANSI-фон
+# ═══════════════════════════════════════════════════════════
 
-_STATUS_MAP = {
-    "INFO":    "START",
-    "SUCCESS": " OK  ",
-    "WARNING": "WARN ",
-    "ERROR":   "FAIL ",
-    "DEBUG":   "DEBUG",
+_LEVELS = {
+    #              label    loguru-fg   ANSI background
+    "INFO":    ("START", "cyan",    "\033[46m"),
+    "SUCCESS": ("  OK ", "green",   "\033[42m"),
+    "WARNING": (" WARN", "yellow",  "\033[43m"),
+    "ERROR":   (" FAIL", "red",     "\033[41m"),
+    "DEBUG":   ("DEBUG", "magenta", "\033[45m"),
 }
 
+_RST = "\033[0m"
+_WB  = "\033[97;1m"  # bright-white + bold
 
-def _format_record(record):
-    level_name = record["level"].name
-    status = _STATUS_MAP.get(level_name, level_name[:5].ljust(5))
-    time_str = record["time"].strftime("%H:%M:%S")
-    msg = record["message"]
+_STATUS_DISPATCH = {
+    "success": "success",
+    "error":   "error",
+    "warning": "warning",
+    "debug":   "debug",
+}
 
-    return (
-        f"<level>{time_str} ║ {status} ║ {msg}</level>\n"
-    )
+# ═══════════════════════════════════════════════════════════
+# Форматирование
+# ═══════════════════════════════════════════════════════════
+
+def _format_record(record) -> str:
+    """
+    Формат строки лога:
+      HH:MM:SS │ ██ LABEL ██ │ [i/N] │ wallet │ message
+    Бейдж — сплошной цветной прямоугольник (ANSI bg) с белым
+    жирным текстом внутри.  [i/N] — белый, wallet — синий,
+    сообщение — цвет уровня.
+    """
+    lvl = record["level"].name
+    label, fg, bg = _LEVELS.get(lvl, ("?????", "white", "\033[47m"))
+
+    ts    = record["time"].strftime("%H:%M:%S")
+    badge = f"{bg}{_WB} {label} {_RST}"
+    extra = record["extra"]
+
+    parts: list[str] = [f"<white>{ts}</white>", badge]
+
+    idx = extra.get("task_index")
+    tot = extra.get("task_total")
+    if idx is not None and tot is not None:
+        parts.append(f"<white>[{idx}/{tot}]</white>")
+
+    wallet = extra.get("wallet")
+    if wallet:
+        parts.append(f"<blue>{wallet}</blue>")
+
+    parts.append(f"<{fg}>{record['message']}</{fg}>")
+    return " │ ".join(parts) + "\n"
 
 
 LOG_FORMAT_FILE = (
@@ -42,38 +81,38 @@ _handler_id = logger.add(
     sys.stderr,
     format=_format_record,
     level="DEBUG",
-    colorize=True
+    colorize=True,
 )
 
+# ═══════════════════════════════════════════════════════════
+# Публичный API
+# ═══════════════════════════════════════════════════════════
 
-def _log_by_status(message: str, status: str):
-    match status:
-        case "success":
-            logger.success(message)
-        case "error":
-            logger.error(message)
-        case "warning":
-            logger.warning(message)
-        case "debug":
-            logger.debug(message)
-        case _:
-            logger.info(message)
-
-
-def log_wallet_task(wallet: str, index: int, total: int, message: str, status: str = "info"):
-    idx = str(index).zfill(3)
-    full_msg = f"[{idx}] {wallet} │ {message}"
-    _log_by_status(full_msg, status)
+def _emit(
+    message: str,
+    status: str,
+    index: Optional[int] = None,
+    total: Optional[int] = None,
+    wallet: Optional[str] = None,
+) -> None:
+    """Единая точка отправки лога с контекстом."""
+    bound = logger.bind(task_index=index, task_total=total, wallet=wallet)
+    method = _STATUS_DISPATCH.get(status, "info")
+    getattr(bound, method)(message)
 
 
-def log_task(index: int, total: int, message: str, status: str = "info"):
-    idx = str(index).zfill(3)
-    full_msg = f"[{idx}] {message}"
-    _log_by_status(full_msg, status)
+def log_wallet_task(
+    wallet: str, index: int, total: int, message: str, status: str = "info",
+) -> None:
+    _emit(message, status, index=index, total=total, wallet=wallet)
 
 
-def log_simple(message: str, status: str = "info"):
-    _log_by_status(message, status)
+def log_task(index: int, total: int, message: str, status: str = "info") -> None:
+    _emit(message, status, index=index, total=total)
+
+
+def log_simple(message: str, status: str = "info") -> None:
+    _emit(message, status)
 
 
 def setup_file_logging(log_file: str):

@@ -100,6 +100,7 @@ from modules.neura.menu import neura_menu
 from modules.pharos.menu import pharos_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
 from modules.claim.zora_claimer.menu import claimer_menu
+from modules.statistics.perle.menu import perle_menu
 
 mainnet_rpc_urls = get_mainnet_networks()
 testnet_rpc_urls = get_testnet_networks()
@@ -252,19 +253,61 @@ def show_exit_animation():
     print(Fore.GREEN + "\t❤️‍🔥 GitHub 🌟 - https://github.com/DenisHumen\n\n")
 
 
+def _gradient_line(text: str, r_start, g_start, b_start, r_end, g_end, b_end) -> str:
+    """Окрашивает каждый символ строки RGB-градиентом (true-color ANSI)."""
+    n = max(len(text) - 1, 1)
+    parts: list[str] = []
+    for i, ch in enumerate(text):
+        r = int(r_start + (r_end - r_start) * i / n)
+        g = int(g_start + (g_end - g_start) * i / n)
+        b = int(b_start + (b_end - b_start) * i / n)
+        parts.append(f"\033[38;2;{r};{g};{b}m{ch}")
+    parts.append(Style.RESET_ALL)
+    return "".join(parts)
+
+
+_LOGO_FILE = os.path.join(os.path.dirname(__file__), "assets", "ASCI_logo.txt")
+
+
 def print_welcome_message():
-    """Выводит приветственное сообщение"""
-    print(
-        Fore.GREEN + "\nWelcome to ETHmachine! 🌟 \n ERC20  🌟 - "
-        + Fore.MAGENTA + "0xa24fbbd57720ec580395aedba3ad37f6a6067727"
-        + Fore.GREEN + " \n TG     🌟 - "
-        + Fore.MAGENTA + "https://t.me/DenisHumen"
-        + Fore.GREEN + " \n GitHub 🌟 - "
-        + Fore.MAGENTA + "https://github.com/DenisHumen"
-        + Fore.GREEN + "\n Steam  🌟 - "
-        + Fore.MAGENTA + "https://steamcommunity.com/id/Krokosha/"
-        + Fore.GREEN + "\n\n"
-    )
+    """Gradient ASCII-art logo from assets/ + author tag + links."""
+    # Градиент: бирюзовый → фиолетовый
+    cs = (0, 255, 200)
+    ce = (160, 50, 255)
+
+    # Загружаем арт из файла, обрезаем пустые строки и trailing-пробелы
+    try:
+        with open(_LOGO_FILE, "r", encoding="utf-8") as f:
+            raw_lines = f.read().splitlines()
+    except FileNotFoundError:
+        raw_lines = ["  ETHmachine"]
+
+    logo_lines = [ln.rstrip() for ln in raw_lines]
+    # Убираем пустые строки сверху и снизу
+    while logo_lines and not logo_lines[0].strip():
+        logo_lines.pop(0)
+    while logo_lines and not logo_lines[-1].strip():
+        logo_lines.pop()
+
+    max_w = max((len(ln) for ln in logo_lines), default=20)
+
+    print()
+    for line in logo_lines:
+        print(_gradient_line(line, *cs, *ce))
+
+    # Подпись автора — серым, выровнена по правому краю лого
+    author = f"\033[38;2;100;100;100m{'by @DenisHumen':>{max_w}}\033[0m"
+    print(author)
+    print()
+
+    for label, url in [
+        ("ERC20 ", "0xa24fbbd57720ec580395aedba3ad37f6a6067727"),
+        ("TG    ", "https://t.me/DenisHumen"),
+        ("GitHub", "https://github.com/DenisHumen"),
+        ("Steam ", "https://steamcommunity.com/id/Krokosha/"),
+    ]:
+        print(f"  {Fore.GREEN}{label}  {Fore.MAGENTA}{url}{Style.RESET_ALL}")
+    print()
 
 
 # =============================================================================
@@ -483,6 +526,7 @@ class MenuHandlers:
                 current_os = get_os_type()
                 stats_choices.append(Choice(f'📊 Neura         ⚠️  Доступно только на Windows (текущая ОС: {current_os})', 'neura_stat_unavailable'))
             
+            stats_choices.append(Choice('� Perle         🌟 Проверка элигибельности SOL кошельков', 'perle_checker'))
             stats_choices.append(Choice('🔙 Back', 'back'))
             
             action = show_menu("Выберите действие (статистика по проектам):", stats_choices)
@@ -495,6 +539,8 @@ class MenuHandlers:
                         MenuHandlers._show_neura_unavailable()
                 case 'neura_stat_unavailable':
                     MenuHandlers._show_neura_unavailable()
+                case 'perle_checker':
+                    perle_menu()
                 case 'back':
                     break
     

@@ -4,7 +4,7 @@
 
 Заголовки:
   private_key, proxy, reserve_proxy, wallet_address, mnemonic,
-  sol_address, discord_token, email, email_password, email_imap
+  sol_address, sol_private_key, discord_token, email, email_password, email_imap
 
 Файлы данных ОБЯЗАНЫ начинаться с 'data_' и заканчиваться на '.csv'.
 Если в data/ несколько таких файлов — пользователю предлагается выбор.
@@ -20,7 +20,7 @@ DATA_DIR = PROJECT_ROOT / 'data'
 
 HEADERS = [
     'private_key', 'proxy', 'reserve_proxy',
-    'wallet_address', 'mnemonic', 'sol_address',
+    'wallet_address', 'mnemonic', 'sol_address', 'sol_private_key',
     'discord_token', 'email', 'email_password', 'email_imap',
 ]
 DEFAULT_DATA_FILE = DATA_DIR / 'data.csv'
@@ -177,6 +177,12 @@ def get_sol_addresses(filepath: Path = None) -> List[str]:
     """Возвращает список SOL-адресов (непустых)."""
     rows = load_data(filepath)
     return [r['sol_address'] for r in rows if r['sol_address']]
+
+
+def get_sol_private_keys(filepath: Path = None) -> List[str]:
+    """Возвращает список приватных ключей SOL (непустых)."""
+    rows = load_data(filepath)
+    return [r['sol_private_key'] for r in rows if r['sol_private_key']]
 
 
 def get_discord_tokens(filepath: Path = None) -> List[str]:
