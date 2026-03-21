@@ -36,7 +36,8 @@ def load_wallets() -> list[dict]:
         try:
             account = Account.from_key(pk)
             proxy = row.get('proxy', '').strip() or None
-            wallets.append({"private_key": pk, "address": account.address, "proxy": proxy})
+            account_name = row.get('name', '').strip() or None
+            wallets.append({"private_key": pk, "address": account.address, "account_name": account_name, "proxy": proxy})
         except Exception as e:
             logger.log(f"Ошибка ключа #{i + 1}: {e}", "error")
     return wallets
@@ -163,6 +164,8 @@ def pharos_menu():
                 Choice('🔄 Краны (цикл)                🌟 Автоматические краны', 'loop_faucet'),
                 Choice('🔄 Faucet + Check-in (цикл)    🌟 Всё в цикле', 'loop_all_faucet'),
                 Choice('🔄 Квесты (цикл)               🌟 Автоматические квесты', 'loop_quests'),
+                Choice('──── ПРИВЯЗКИ ────', disabled=True),
+                Choice('🔗 Discord Connect              🌟 Авторизация + привязка Discord', 'discord_connect'),
                 Choice('──── ДОПОЛНИТЕЛЬНО ────', disabled=True),
                 Choice('📊 Статистика XP + Level → CSV 🌟 Экспорт в result/statistics/', 'stats'),
                 Choice('🔙 Назад', 'back'),
@@ -248,6 +251,11 @@ def pharos_menu():
                     asyncio.run(run_loop("quests", cycle_delay, workers))
                 except KeyboardInterrupt:
                     logger.log("Цикл остановлен (Ctrl+C)", "warning")
+
+            # ПРИВЯЗКИ
+            case 'discord_connect':
+                from modules.pharos.discord_connect.menu import discord_connect_menu
+                discord_connect_menu()
 
             # ДОПОЛНИТЕЛЬНО
             case 'stats':

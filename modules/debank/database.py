@@ -30,6 +30,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS debank_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wallet_address TEXT NOT NULL UNIQUE,
+                    account_name TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     attempts INTEGER DEFAULT 0,
                     error_message TEXT,
@@ -37,6 +38,12 @@ def init_database():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # Миграция: добавить account_name если таблица уже существует
+            try:
+                cursor.execute("ALTER TABLE debank_tasks ADD COLUMN account_name TEXT")
+            except Exception:
+                pass
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS debank_balances (

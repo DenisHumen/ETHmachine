@@ -140,7 +140,8 @@ def check_and_create_files():
         'backups',
         'log',
         'result/discord',
-        'result/email'
+        'result/email',
+        'result/pharos_discord'
     ]
 
     for directory in required_directories:

@@ -26,6 +26,7 @@ def create_database(wallets_data: list[dict]):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 private_key TEXT NOT NULL UNIQUE,
                 address TEXT NOT NULL,
+                account_name TEXT,
                 proxy TEXT,
                 jwt_token TEXT,
                 last_faucet_claim TEXT,
@@ -40,8 +41,8 @@ def create_database(wallets_data: list[dict]):
             )
         """)
 
-        # Миграция: добавить колонки faroswap если таблица уже существует без них
-        for col, default in [("faroswap_faucet_status", "'pending'"), ("last_faroswap_claim", "NULL")]:
+        # Миграция: добавить колонки если таблица уже существует без них
+        for col, default in [("faroswap_faucet_status", "'pending'"), ("last_faroswap_claim", "NULL"), ("account_name", "NULL")]:
             try:
                 cursor.execute(f"ALTER TABLE wallets ADD COLUMN {col} TEXT DEFAULT {default}")
             except Exception:
@@ -51,10 +52,10 @@ def create_database(wallets_data: list[dict]):
             try:
                 pk = w["private_key"]
                 cursor.execute("""
-                    INSERT OR REPLACE INTO wallets (private_key, address, proxy, jwt_token,
+                    INSERT OR REPLACE INTO wallets (private_key, address, account_name, proxy, jwt_token,
                         last_faucet_claim, faucet_status, last_faroswap_claim, faroswap_faucet_status,
                         checkin_status, quests_completed, total_points)
-                    VALUES (?, ?, ?,
+                    VALUES (?, ?, ?, ?,
                         COALESCE((SELECT jwt_token FROM wallets WHERE private_key = ?), NULL),
                         COALESCE((SELECT last_faucet_claim FROM wallets WHERE private_key = ?), NULL),
                         COALESCE((SELECT faucet_status FROM wallets WHERE private_key = ?), 'pending'),
@@ -63,7 +64,7 @@ def create_database(wallets_data: list[dict]):
                         COALESCE((SELECT checkin_status FROM wallets WHERE private_key = ?), 'pending'),
                         COALESCE((SELECT quests_completed FROM wallets WHERE private_key = ?), '[]'),
                         COALESCE((SELECT total_points FROM wallets WHERE private_key = ?), 0))
-                """, (pk, w["address"], w["proxy"], pk, pk, pk, pk, pk, pk, pk, pk))
+                """, (pk, w["address"], w.get("account_name"), w["proxy"], pk, pk, pk, pk, pk, pk, pk, pk))
             except Exception as e:
                 print(f"  [!] Ошибка добавления {w['address'][:10]}...: {e}")
 

@@ -31,6 +31,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS claim_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wallet_address TEXT NOT NULL,
+                    account_name TEXT,
                     network TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
                     claimable_wei TEXT DEFAULT '0',
@@ -50,6 +51,12 @@ def init_database():
                     UNIQUE(wallet_address, network)
                 )
             ''')
+
+            # Миграция: добавить account_name если таблица уже существует
+            try:
+                cursor.execute("ALTER TABLE claim_tasks ADD COLUMN account_name TEXT")
+            except Exception:
+                pass
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS claim_statistics (

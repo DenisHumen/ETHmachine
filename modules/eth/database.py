@@ -25,6 +25,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS eth_balance_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wallet_address TEXT NOT NULL,
+                    account_name TEXT,
                     task_type TEXT NOT NULL,
                     network TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
@@ -39,6 +40,12 @@ def init_database():
                     UNIQUE(wallet_address, task_type, network)
                 )
             ''')
+
+            # Миграция: добавить account_name если таблица уже существует
+            try:
+                cursor.execute("ALTER TABLE eth_balance_tasks ADD COLUMN account_name TEXT")
+            except Exception:
+                pass
             
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_wallet_task 

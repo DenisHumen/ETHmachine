@@ -45,7 +45,7 @@ _STATUS_DISPATCH = {
 def _format_record(record) -> str:
     """
     Формат строки лога:
-      HH:MM:SS │ ██ LABEL ██ │ [i/N] │ wallet │ message
+      HH:MM:SS │ account_name │ ██ LABEL ██ │ [i/N] │ wallet │ message
     Бейдж — сплошной цветной прямоугольник (ANSI bg) с белым
     жирным текстом внутри.  [i/N] — белый, wallet — синий,
     сообщение — цвет уровня.
@@ -57,7 +57,12 @@ def _format_record(record) -> str:
     badge = f"{bg}{_WB} {label} {_RST}"
     extra = record["extra"]
 
-    parts: list[str] = [f"<white>{ts}</white>", badge]
+    parts: list[str] = [f"<white>{ts}</white>"]
+
+    account_name = extra.get("account_name") or "null"
+    parts.append(f"<white>{account_name}</white>")
+
+    parts.append(badge)
 
     idx = extra.get("task_index")
     tot = extra.get("task_total")
@@ -94,25 +99,28 @@ def _emit(
     index: Optional[int] = None,
     total: Optional[int] = None,
     wallet: Optional[str] = None,
+    account_name: Optional[str] = None,
 ) -> None:
     """Единая точка отправки лога с контекстом."""
-    bound = logger.bind(task_index=index, task_total=total, wallet=wallet)
+    bound = logger.bind(task_index=index, task_total=total, wallet=wallet, account_name=account_name)
     method = _STATUS_DISPATCH.get(status, "info")
     getattr(bound, method)(message)
 
 
 def log_wallet_task(
     wallet: str, index: int, total: int, message: str, status: str = "info",
+    account_name: Optional[str] = None,
 ) -> None:
-    _emit(message, status, index=index, total=total, wallet=wallet)
+    _emit(message, status, index=index, total=total, wallet=wallet, account_name=account_name)
 
 
-def log_task(index: int, total: int, message: str, status: str = "info") -> None:
-    _emit(message, status, index=index, total=total)
+def log_task(index: int, total: int, message: str, status: str = "info",
+             account_name: Optional[str] = None) -> None:
+    _emit(message, status, index=index, total=total, account_name=account_name)
 
 
-def log_simple(message: str, status: str = "info") -> None:
-    _emit(message, status)
+def log_simple(message: str, status: str = "info", account_name: Optional[str] = None) -> None:
+    _emit(message, status, account_name=account_name)
 
 
 def setup_file_logging(log_file: str):

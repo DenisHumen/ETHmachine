@@ -3,7 +3,7 @@
 Все данные хранятся в одном CSV файле data/data_<profile>.csv
 
 Заголовки:
-  private_key, proxy, reserve_proxy, wallet_address, mnemonic,
+  name, private_key, proxy, reserve_proxy, wallet_address, mnemonic,
   sol_address, sol_private_key, discord_token, email, email_password, email_imap
 
 Файлы данных ОБЯЗАНЫ начинаться с 'data_' и заканчиваться на '.csv'.
@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / 'data'
 
 HEADERS = [
-    'private_key', 'proxy', 'reserve_proxy',
+    'name', 'private_key', 'proxy', 'reserve_proxy',
     'wallet_address', 'mnemonic', 'sol_address', 'sol_private_key',
     'discord_token', 'email', 'email_password', 'email_imap',
 ]

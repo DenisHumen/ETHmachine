@@ -30,6 +30,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS neura_wallet_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wallet_address TEXT NOT NULL,
+                    account_name TEXT,
                     private_key_hash TEXT NOT NULL,
                     task_type TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
@@ -42,6 +43,12 @@ def init_database():
                     UNIQUE(wallet_address, task_type)
                 )
             ''')
+
+            # Миграция: добавить account_name если таблица уже существует
+            try:
+                cursor.execute("ALTER TABLE neura_wallet_tasks ADD COLUMN account_name TEXT")
+            except Exception:
+                pass
             
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_wallet_task 

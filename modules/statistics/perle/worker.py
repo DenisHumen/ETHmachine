@@ -138,6 +138,7 @@ def _process_single_wallet(
     total: int,
     sol_private_key: str,
     proxy: Optional[str] = None,
+    account_name: Optional[str] = None,
 ) -> dict:
     """Обработка одного кошелька с ретраями из конфига."""
     sol_address = _derive_sol_address(sol_private_key)
@@ -162,7 +163,7 @@ def _process_single_wallet(
 
             status = "success" if eligible else "warning"
             label  = f"✅ ELIGIBLE │ Total: {total_amount}" if eligible else "❌ NOT ELIGIBLE"
-            log_wallet_task(sol_address, index, total, f"{label}{proxy_info}", status)
+            log_wallet_task(sol_address, index, total, f"{label}{proxy_info}", status, account_name=account_name)
 
             return {
                 'address': sol_address,
@@ -184,6 +185,7 @@ def _process_single_wallet(
                     index, total,
                     f"⚠️ Попытка {attempt}/{max_retries}: {last_error} │ Повтор через {retry_delay:.1f}с",
                     "warning",
+                    account_name=account_name,
                 )
                 time.sleep(retry_delay)
             else:
@@ -192,6 +194,7 @@ def _process_single_wallet(
                 log_wallet_task(
                     sol_address, index, total,
                     f"{tag} после {max_retries} попыток: {last_error}{proxy_info}", "error",
+                    account_name=account_name,
                 )
 
     return {'address': sol_address, 'error': last_error}
@@ -199,14 +202,14 @@ def _process_single_wallet(
 
 def _thread_worker(args: Tuple) -> dict:
     """Обёртка для потока: добавляет задержку между аккаунтами"""
-    index, total, sol_pk, proxy = args
+    index, total, sol_pk, proxy, account_name = args
 
     # Задержка между стартом аккаунтов (кроме первого)
     if index > 1:
         delay = random.uniform(*DELAY_BETWEEN_ACCOUNTS)
         time.sleep(delay)
 
-    return _process_single_wallet(index, total, sol_pk, proxy)
+    return _process_single_wallet(index, total, sol_pk, proxy, account_name=account_name)
 
 
 def run_checker():
@@ -219,16 +222,17 @@ def run_checker():
         logger.error("Нет данных в data.csv")
         return
 
-    # Собираем пары (sol_private_key, proxy, sol_address) из data
+    # Собираем пары (sol_private_key, proxy, sol_address, account_name) из data
     wallets = []
     for row in rows:
         sol_pk = row.get('sol_private_key', '').strip()
         if not sol_pk:
             continue
         proxy = row.get('proxy', '').strip() or None
+        account_name = row.get('name', '').strip() or None
         sol_address = _derive_sol_address(sol_pk)
         if sol_address:
-            wallets.append((sol_pk, proxy, sol_address))
+            wallets.append((sol_pk, proxy, sol_address, account_name))
 
     if not wallets:
         logger.error("Нет SOL приватных ключей в data.csv (поле sol_private_key)")
@@ -265,8 +269,8 @@ def run_checker():
 
     # Подготавливаем аргументы для потоков
     tasks = [
-        (idx, total, sol_pk, proxy)
-        for idx, (sol_pk, proxy, sol_address) in enumerate(wallets_to_process, 1)
+        (idx, total, sol_pk, proxy, account_name)
+        for idx, (sol_pk, proxy, sol_address, account_name) in enumerate(wallets_to_process, 1)
     ]
 
     # Мультипоточное выполнение

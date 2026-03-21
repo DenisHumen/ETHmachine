@@ -94,6 +94,7 @@ class TwitterTaskDatabase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_id INTEGER NOT NULL,
                 account_nickname TEXT NOT NULL,
+                account_name TEXT,
                 account_auth_token TEXT NOT NULL,
                 account_proxy TEXT,
                 account_index INTEGER,
@@ -106,6 +107,12 @@ class TwitterTaskDatabase:
                 FOREIGN KEY (task_id) REFERENCES tasks (id)
             )
         ''')
+
+        # Миграция: добавить account_name если таблица уже существует
+        try:
+            cursor.execute("ALTER TABLE operations ADD COLUMN account_name TEXT")
+        except Exception:
+            pass
         
         # Таблица результатов
         cursor.execute('''

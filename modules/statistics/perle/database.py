@@ -31,6 +31,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS check_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     sol_address TEXT NOT NULL UNIQUE,
+                    account_name TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     eligible INTEGER DEFAULT 0,
                     total TEXT DEFAULT '0',
@@ -42,6 +43,12 @@ def init_database():
                     completed_at TIMESTAMP
                 )
             ''')
+
+            # Миграция: добавить account_name если таблица уже существует
+            try:
+                cursor.execute("ALTER TABLE check_tasks ADD COLUMN account_name TEXT")
+            except Exception:
+                pass
 
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_check_address
