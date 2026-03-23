@@ -290,8 +290,8 @@ def export_results_xlsx(output_path: str | None = None) -> str | None:
 
     # Заголовки
     headers = [
-        "#", "Address", "Status", "Discord Username", "Discord ID",
-        "Proxy", "Error", "Attempts", "Created", "Completed",
+        "#", "Name", "Address", "Status", "Discord Username", "Discord ID",
+        "Discord Token", "Proxy", "Error", "Attempts", "Created", "Completed",
     ]
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -306,10 +306,12 @@ def export_results_xlsx(output_path: str | None = None) -> str | None:
         proxy_display = mask_proxy(row_data.get("proxy")) if row_data.get("proxy") else ""
         values = [
             idx,
+            row_data.get("account_name", "") or "",
             row_data.get("address", ""),
             row_data.get("status", ""),
             row_data.get("discord_username", "") or "",
             row_data.get("discord_id", "") or "",
+            row_data.get("discord_token", "") or "",
             proxy_display,
             row_data.get("error_message", "") or "",
             row_data.get("attempts", 0),
@@ -326,7 +328,7 @@ def export_results_xlsx(output_path: str | None = None) -> str | None:
             cell.alignment = Alignment(vertical="center")
 
     # Ширина колонок
-    col_widths = [5, 44, 12, 22, 20, 22, 40, 8, 20, 20]
+    col_widths = [5, 16, 44, 12, 22, 20, 30, 22, 40, 8, 20, 20]
     for i, width in enumerate(col_widths, 1):
         letter = chr(64 + i) if i <= 26 else chr(64 + (i - 1) // 26) + chr(65 + (i - 1) % 26)
         ws.column_dimensions[letter].width = width

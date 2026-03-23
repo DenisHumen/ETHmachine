@@ -231,7 +231,7 @@ def get_all_results() -> list[dict]:
     with _db_lock:
         conn = _get_connection()
         rows = conn.execute("""
-            SELECT address, proxy, discord_token, status,
+            SELECT address, account_name, proxy, discord_token, status,
                    discord_username, discord_id,
                    error_message, attempts,
                    created_at, updated_at, completed_at
