@@ -96,7 +96,6 @@ from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.debank.debank_checker import debank_checker_menu
 from modules.debank.debank_protocol_checker import debank_protocol_menu
-from modules.neura.menu import neura_menu
 from modules.pharos.menu import pharos_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
 from modules.claim.zora_claimer.menu import claimer_menu
@@ -511,9 +510,7 @@ class MenuHandlers:
             qmark='🎮'
         )
         
-        if choice == 'neura':
-            neura_menu()
-        elif choice == 'pharos':
+        if choice == 'pharos':
             pharos_menu()
     
     @staticmethod

@@ -101,7 +101,7 @@ MENU_ITEMS = {
     'projects_menu': MenuItem(
         key='projects_menu',
         label='PROJECTS',
-        description='Автоматизация проектов (Neura и др.)',
+        description='Автоматизация проектов',
         icon='🎮',
         enabled=True,
     ),
@@ -281,7 +281,6 @@ PROJECTS_SUBMENU = SubMenu(
     icon='🎮',
     qmark='🎮',
     items=[
-        MenuItem(key='neura', label='Neura Protocol', description='Сбор пульсов и клейм задач', icon='🔮', enabled=True),
         MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты', icon='🔮', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]

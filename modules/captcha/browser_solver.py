@@ -16,9 +16,8 @@ from typing import Optional
 from modules.simple_logger import logger
 
 
-BROWSER_PROFILES_DIR = Path(__file__).parent.parent / "data" / "browser_profiles"
+BROWSER_PROFILES_DIR = Path(__file__).parent.parent.parent / "data" / "browser_profiles"
 
-# JS code to wait for hCaptcha token and call siwe/init
 _SOLVE_AND_INIT_JS = """
 async (args) => {
     const [walletAddress, privyAppId, privyBaseUrl, maxWait] = args;
@@ -73,7 +72,6 @@ class BrowserHCaptchaSolver:
         BROWSER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
     def _parse_proxy_for_playwright(self, proxy: str) -> dict:
-        """Parse proxy string into Playwright format."""
         proxy = proxy.strip()
         if not proxy.startswith(('http://', 'https://', 'socks')):
             proxy = f"http://{proxy}"
@@ -93,7 +91,6 @@ class BrowserHCaptchaSolver:
         return result
 
     async def _launch_context(self, p, profile_dir: str, ua: str):
-        """Launch a persistent browser context with stealth."""
         from playwright_stealth import Stealth
 
         launch_args = [
@@ -134,10 +131,6 @@ class BrowserHCaptchaSolver:
         user_agent: Optional[str] = None,
         timeout: int = 30,
     ) -> Optional[str]:
-        """
-        Load the page, solve hCaptcha, and call siwe/init from the browser.
-        Returns the nonce on success, None on failure.
-        """
         from playwright.async_api import async_playwright
 
         start_time = time.time()
@@ -202,8 +195,4 @@ class BrowserHCaptchaSolver:
 
     @property
     def session_stats(self) -> dict:
-        return {
-            "solves": self._solve_count,
-            "points_spent": 0,
-            "usdt_spent": 0,
-        }
+        return {"solves": self._solve_count, "points_spent": 0, "usdt_spent": 0}

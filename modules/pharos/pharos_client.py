@@ -20,7 +20,7 @@ from config.modules.cfg_pharos import (
 from config.modules.cfg_base import RETRY_COUNT
 from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS as DELAY_BETWEEN_ACTIONS
 from modules.pharos.pharos_proxy import PharosProxyManager
-from modules.captcha_solver import solve_turnstile
+from modules.captcha import get_captcha_solver
 from modules.pharos import pharos_logger as logger
 from modules.pharos import database as db
 
@@ -199,12 +199,16 @@ class PharosClient:
     async def claim_faroswap_faucet(self) -> bool:
         try:
             self.log("FaroSwap: решаем капчу...")
+            solver = get_captcha_solver(self.proxy)
+            if not solver:
+                self.log("FaroSwap: сервис капчи не настроен (нет API ключа)", "error")
+                db.update_faroswap_faucet_status(self.address, "captcha_fail")
+                return False
             turnstile_token = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: solve_turnstile(
-                    proxy=self.proxy,
-                    website_url=FAROSWAP_CAPTCHA_URL,
-                    website_key=FAROSWAP_WEBSITE_KEY,
+                lambda: solver.solve_turnstile(
+                    sitekey=FAROSWAP_WEBSITE_KEY,
+                    pageurl=FAROSWAP_CAPTCHA_URL,
                 )
             )
             if not turnstile_token:

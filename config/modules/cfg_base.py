@@ -12,13 +12,15 @@ RETRY_COUNT = 2  # Количество попыток в случае ошиб�
 # ========================================================================================
 # CAPTCHA SETTINGS
 # ========================================================================================
-astrum_CAPTCHA_API_KEY = ''  # API ключ для решения капчи (Astrum Solver) получать в https://t.me/astrumsolutionsbot
-CAPSOLVER_API_KEY = ''  # API ключ для CapSolver (альтернативный сервис) - https://www.capsolver.com/
-YESCAPTCHA_API_KEY = ''  # API ключ для YesCaptcha - https://yescaptcha.com/
+# Доступные сервисы: '2captcha', 'anticaptcha', 'capsolver', 'yescaptcha', 'capmonster'
+# Все сервисы поддерживают: hCaptcha, Turnstile, reCAPTCHA v2/v3
+CAPTCHA_SERVICE = 'yescaptcha'  # Выбранный сервис решения капчи
 
-# Выбор сервиса решения капчи: 'astrum', 'capsolver' или 'yescaptcha'
-# Если один не работает, попробуйте другой
-CAPTCHA_SERVICE = 'yescaptcha'  # 'astrum', 'capsolver' или 'yescaptcha'
+TWOCAPTCHA_API_KEY = ''     # API ключ для 2Captcha - https://2captcha.com/
+ANTICAPTCHA_API_KEY = ''    # API ключ для Anti-Captcha - https://anti-captcha.com/
+CAPSOLVER_API_KEY = ''      # API ключ для CapSolver - https://www.capsolver.com/
+YESCAPTCHA_API_KEY = ''     # API ключ для YesCaptcha - https://yescaptcha.com/
+CAPMONSTER_API_KEY = ''     # API ключ для CapMonster Cloud - https://capmonster.cloud/
 
 # ========================================================================================
 # ПРОВЕРКА СТАТУСА ТРАНЗАКЦИЙ

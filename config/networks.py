@@ -129,12 +129,6 @@ NETWORKS = {
         'tx_url': "https://atlantic.pharosscan.xyz/tx/",
         'type': 'testnet'
     },
-    '🚀 Kite Testnet': {
-        'rpc_urls': ['https://rpc-testnet.gokite.ai'],
-        'symbol': 'KITE',
-        'tx_url': "https://testnet.kitescan.ai/tx/",
-        'type': 'testnet'
-    },
     '🚀 Neura Testnet': {
         'rpc_urls': ['https://testnet.rpc.neuraprotocol.io'],
         'symbol': 'ANKR',
@@ -152,12 +146,6 @@ NETWORKS = {
         'rpc_urls': ['https://rpc.testnet.arc.network'],
         'symbol': 'USDC',
         'tx_url': "https://testnet.arcscan.app/tx/",
-        'type': 'testnet'
-    },
-    '🚀 Tempo Testnet': {
-        'rpc_urls': ['https://rpc.testnet.tempo.xyz/'],
-        'symbol': '???',
-        'tx_url': "https://explore.tempo.xyz/tx/",
         'type': 'testnet'
     },
 }
@@ -242,13 +230,3 @@ somnia = NETWORKS['🚀 Somnia']['rpc_urls']
 
 # Provide uppercase alias for Base
 BASE = base
-
-# sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
-# pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']
-# kite_testnet = NETWORKS['🚀 Kite Testnet']['rpc_urls']
-# neura_testnet = NETWORKS['🚀 Neura Testnet']['rpc_urls']
-# nexus_testnet = NETWORKS['🚀 Nexus Testnet']['rpc_urls']
-
-# # Старый словарь explorers (для обратной совместимости)
-# explorers = {name: {'symbol': data['symbol'], 'tx_url': data['tx_url']} 
-#              for name, data in NETWORKS.items()}
