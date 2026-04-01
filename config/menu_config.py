@@ -281,7 +281,7 @@ PROJECTS_SUBMENU = SubMenu(
     icon='🎮',
     qmark='🎮',
     items=[
-        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты', icon='🔮', enabled=True),
+        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты, Send & Verify', icon='🔮', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

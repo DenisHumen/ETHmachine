@@ -10,14 +10,17 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from fake_useragent import FakeUserAgent
 
+from web3 import Web3
 from config.modules.cfg_pharos import (
     BASE_URL, DEFAULT_HEADERS, REF_CODE, REQUEST_TIMEOUT,
     VERIFIABLE_TASK_IDS, ALL_TASK_IDS, FOLLOW_SUB_TASK_IDS,
     FAROSWAP_FAUCET_URL, FAROSWAP_CHAIN_ID,
     FAROSWAP_CAPTCHA_URL, FAROSWAP_WEBSITE_KEY,
     EXPLORER_URL,
+    ATLANTIC_RPC_URL, ATLANTIC_CHAIN_ID,
+    SEND_AMOUNT, SEND_REPEATS, VERIFY_TASK_IDS_AUTO, DELAY_INDEX,
 )
-from config.modules.cfg_base import RETRY_COUNT
+from config.modules.cfg_base import RETRY_COUNT, TX_SEND_ATTEMPTS
 from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS as DELAY_BETWEEN_ACTIONS
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.captcha import get_captcha_solver
@@ -441,6 +444,195 @@ class PharosClient:
 
         db.update_quests(self.address, list(all_completed))
         return stats
+
+    # ─────────────────── CHAIN (Send & Verify) ───────────────────
+    def _get_w3(self) -> Web3:
+        """Получить Web3 инстанс для Atlantic RPC."""
+        return Web3(Web3.HTTPProvider(ATLANTIC_RPC_URL))
+
+    async def _send_tx(self, w3: Web3, to: str, amount_ether: float) -> tuple[str | None, bool, int]:
+        """Отправить PHRS на адрес. Возвращает (tx_hash, success, block_number)."""
+        loop = asyncio.get_event_loop()
+        for attempt in range(TX_SEND_ATTEMPTS):
+            try:
+                def _do_send():
+                    value = w3.to_wei(amount_ether, "ether")
+                    tx = {
+                        "nonce": w3.eth.get_transaction_count(self.address),
+                        "to": Web3.to_checksum_address(to),
+                        "value": value,
+                        "gas": 21000,
+                        "gasPrice": w3.eth.gas_price,
+                        "chainId": ATLANTIC_CHAIN_ID,
+                    }
+                    signed = w3.eth.account.sign_transaction(tx, self.private_key)
+                    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                    return "0x" + tx_hash.hex(), receipt["status"] == 1, receipt["blockNumber"]
+
+                return await loop.run_in_executor(None, _do_send)
+            except Exception as e:
+                if attempt < TX_SEND_ATTEMPTS - 1:
+                    await asyncio.sleep(2)
+                else:
+                    self.log(f"TX ошибка ({TX_SEND_ATTEMPTS} попыток): {str(e)[:80]}", "error")
+                    return None, False, 0
+
+    async def _send_all_from(self, w3: Web3, temp_pk: str, to: str) -> tuple[str | None, bool, int]:
+        """Отправить весь баланс с временного кошелька (минус газ)."""
+        loop = asyncio.get_event_loop()
+        try:
+            def _do_send_all():
+                sender = Account.from_key(temp_pk).address
+                gas_price = w3.eth.gas_price
+                balance = w3.eth.get_balance(sender)
+                value = balance - 21000 * gas_price
+                if value <= 0:
+                    return None, False, 0
+                tx = {
+                    "nonce": w3.eth.get_transaction_count(sender),
+                    "to": Web3.to_checksum_address(to),
+                    "value": value,
+                    "gas": 21000,
+                    "gasPrice": gas_price,
+                    "chainId": ATLANTIC_CHAIN_ID,
+                }
+                signed = w3.eth.account.sign_transaction(tx, temp_pk)
+                tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                return "0x" + tx_hash.hex(), receipt["status"] == 1, receipt["blockNumber"]
+
+            return await loop.run_in_executor(None, _do_send_all)
+        except Exception as e:
+            self.log(f"Return TX ошибка: {str(e)[:80]}", "error")
+            return None, False, 0
+
+    async def run_send_verify_workflow(self) -> dict:
+        """Login → Profile → Check-in → Send PHRS → Verify task 401 → Return.
+        Кран (faucet) НЕ запускается — он запускается отдельным модулем."""
+        result = {
+            "address": self.address,
+            "account_name": "",
+            "success": False,
+            "xp_before": 0,
+            "xp_after": 0,
+            "xp_gained": 0,
+            "balance_before": 0.0,
+            "balance_after": 0.0,
+            "sends": 0,
+            "verifies": 0,
+            "checkin_done": False,
+            "temp_wallets": [],  # [{address, private_key}]
+            "tx_hashes": [],
+            "error": "",
+        }
+
+        try:
+            # Login
+            if not await self.login():
+                result["error"] = "auth_failed"
+                return result
+
+            # Profile
+            profile = await self.get_profile()
+            if profile:
+                user_info = profile.get("user_info", {})
+                result["xp_before"] = user_info.get("TotalPoints", 0)
+                result["account_name"] = user_info.get("UserName", "")
+
+            # Web3
+            w3 = self._get_w3()
+            balance = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: float(w3.from_wei(w3.eth.get_balance(self.address), "ether"))
+            )
+            result["balance_before"] = balance
+            self.log(f"Баланс: {balance:.6f} PHRS | XP: {result['xp_before']}")
+
+            # Check-in
+            await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACTIONS))
+            checkin_ok = await self.check_in()
+            result["checkin_done"] = checkin_ok
+
+            # Send + Verify
+            if balance < SEND_AMOUNT * 2:
+                self.log(f"Баланс слишком мал для отправки ({balance:.6f} PHRS)", "warning")
+            else:
+                for n in range(SEND_REPEATS):
+                    temp_acc = Account.create()
+                    temp_addr = temp_acc.address
+                    temp_pk = "0x" + temp_acc.key.hex()
+                    result["temp_wallets"].append({"address": temp_addr, "private_key": temp_pk})
+
+                    self.log(f"Send [{n + 1}/{SEND_REPEATS}] {SEND_AMOUNT} PHRS → {temp_addr[:10]}...")
+                    await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACTIONS))
+
+                    tx_hash, success, block = await self._send_tx(w3, temp_addr, SEND_AMOUNT)
+                    if success and tx_hash:
+                        self.log(f"TX {tx_hash[:18]}… block {block}", "success")
+                        result["sends"] += 1
+                        result["tx_hashes"].append(tx_hash)
+
+                        # Ждём индексации
+                        await asyncio.sleep(DELAY_INDEX)
+
+                        # Verify tasks
+                        for tid in VERIFY_TASK_IDS_AUTO:
+                            self.log(f"Verify task {tid}…")
+                            ok, msg = await self._verify_task_auto(tid, tx_hash)
+                            if ok:
+                                self.log(f"Task {tid} верифицирован!", "success")
+                                result["verifies"] += 1
+                            else:
+                                self.log(f"Task {tid}: {msg}", "warning")
+
+                        # Return funds
+                        self.log(f"Возврат PHRS с {temp_addr[:10]}...")
+                        tx_back, ok_back, blk_back = await self._send_all_from(w3, temp_pk, self.address)
+                        if tx_back and ok_back:
+                            self.log(f"Возврат TX {tx_back[:18]}… block {blk_back}", "success")
+                        elif not tx_back:
+                            self.log("Нечего возвращать (баланс ≤ газ)", "warning")
+                        else:
+                            self.log("Возврат TX неудачен", "warning")
+                    elif tx_hash:
+                        self.log(f"TX неудачна: {tx_hash}", "error")
+                    else:
+                        self.log("Отправка не удалась", "error")
+
+            # Final profile
+            profile_after = await self.get_profile()
+            if profile_after:
+                user_info = profile_after.get("user_info", {})
+                result["xp_after"] = user_info.get("TotalPoints", 0)
+            result["xp_gained"] = result["xp_after"] - result["xp_before"]
+
+            balance_after = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: float(w3.from_wei(w3.eth.get_balance(self.address), "ether"))
+            )
+            result["balance_after"] = balance_after
+            result["success"] = True
+
+            gained_str = f"+{result['xp_gained']}" if result["xp_gained"] > 0 else "без изменений"
+            self.log(f"XP: {result['xp_after']} ({gained_str}) | Sends: {result['sends']} | Verifies: {result['verifies']}", "success")
+
+        except Exception as e:
+            result["error"] = str(e)
+            self.log(f"Ошибка: {e}", "error")
+
+        return result
+
+    async def _verify_task_auto(self, task_id: int, tx_hash: str) -> tuple[bool, str]:
+        """Верификация задачи по tx_hash (для task 401)."""
+        url = f"{BASE_URL}/task/verify"
+        body = {"address": self.address, "task_id": task_id, "tx_hash": tx_hash}
+        result = await self._request("post", url, data=body)
+        if result:
+            code = result.get("code", -1)
+            msg = result.get("msg", "")
+            if code == 0 or msg in ("ok", "success"):
+                return True, msg
+            return False, msg
+        return False, "no response"
 
     # ─────────────────── WORKFLOWS ───────────────────
     async def run_checkin_workflow(self) -> bool:
