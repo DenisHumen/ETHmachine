@@ -177,7 +177,13 @@ def xstocks_menu():
 
             case 'register':
                 workers = _ask_workers()
-                results = asyncio.run(run_registration(workers))
+                print(f"  [DIAG] asyncio.run(run_registration({workers})) — СТАРТ", flush=True)
+                try:
+                    results = asyncio.run(run_registration(workers))
+                except BaseException as e:
+                    print(f"  [DIAG] asyncio.run() вызвал {type(e).__name__}: {e}", flush=True)
+                    results = []
+                print(f"  [DIAG] asyncio.run() — ФИНИШ, результатов: {len(results)}", flush=True)
                 if results:
                     filepath = export_results()
                     if filepath:

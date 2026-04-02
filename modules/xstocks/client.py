@@ -46,6 +46,14 @@ class XStocksClient:
         self.wallet_index = wallet_index
         self.proxy = proxy_manager.get_proxy_for_wallet(private_key, self.address, wallet_index)
 
+        # Логировать привязку прокси
+        if self.proxy:
+            # Скрываем пароль: показываем только IP:port
+            _masked = self.proxy.split('@')[-1] if '@' in self.proxy else self.proxy
+            _masked = _masked.replace('http://', '').replace('https://', '').replace('socks5://', '')
+        else:
+            _masked = 'НЕТ ПРОКСИ'
+
         # Загрузить сессию из БД (user_agent, cookies, browser_data)
         session_data = db.get_session(self.address)
         if session_data and session_data.get("user_agent"):
@@ -65,6 +73,7 @@ class XStocksClient:
             self._init_solana(sol_private_key)
 
         self.referral_code: str | None = None
+        self._proxy_masked = _masked
 
         # Logging context
         self.account_name = account_name
@@ -146,7 +155,8 @@ class XStocksClient:
                                 body = await resp.json()
                             except Exception:
                                 body = {}
-                            if "captcha" in str(body).lower():
+                            body_str = str(body).lower()
+                            if "captcha" in body_str and body.get("data", {}).get("turnstileSiteKey"):
                                 self.log("Требуется Turnstile капча, решаем...", "warning")
                                 captcha_token = await self._solve_turnstile()
                                 if captcha_token:
@@ -154,21 +164,34 @@ class XStocksClient:
                                 else:
                                     self.log("Не удалось решить капчу", "error")
                                     return None
-                            text = await resp.text()
-                            self.log(f"HTTP 403: {text[:200]}", "warning")
+                            # 403 без капчи — Cloudflare WAF или rate limit переход
+                            text = str(body) if body else await resp.text()
+                            self.log(f"HTTP 403 [{self._proxy_masked}]: {str(text)[:200]}", "warning")
+                            # Ротация прокси при 403
+                            if attempt < retries:
+                                self.proxy = self.proxy_manager.rotate_proxy(
+                                    self.private_key, self.address)
+                                proxy_config = self.proxy_manager.get_aiohttp_proxy_config(self.proxy)
+                                await asyncio.sleep(random.uniform(5, 10))
 
-                        elif resp.status == 400:
-                            # 400 = ошибка бизнес-логики, ретрай не поможет
+                        elif resp.status in (400, 404):
+                            # 400/404 = ошибка бизнес-логики, ретрай не поможет
                             try:
                                 return await resp.json()
                             except Exception:
                                 text = await resp.text()
-                                self.log(f"HTTP 400: {text[:200]}", "warning")
+                                self.log(f"HTTP {resp.status}: {text[:200]}", "warning")
                                 return None
 
                         elif resp.status == 429:
-                            self.log(f"Rate limit, ждём 30с (попытка {attempt+1})", "warning")
-                            await asyncio.sleep(30)
+                            wait = 30 + attempt * 15  # 30, 45, 60с ...
+                            self.log(f"Rate limit [{self._proxy_masked}], ждём {wait}с (попытка {attempt+1})", "warning")
+                            await asyncio.sleep(wait)
+                            # Ротация прокси при rate limit
+                            if attempt < retries:
+                                self.proxy = self.proxy_manager.rotate_proxy(
+                                    self.private_key, self.address)
+                                proxy_config = self.proxy_manager.get_aiohttp_proxy_config(self.proxy)
                             continue
 
                         else:
@@ -249,21 +272,74 @@ class XStocksClient:
 
     # ─────────────────── Solana Signing ───────────────────
 
-    def _sign_solana_with_timestamp(self, message: str) -> tuple[str, int] | tuple[None, None]:
-        """Подписать сообщение Solana кошельком с меткой времени."""
+    def _sign_solana_message(self, message: str) -> dict | None:
+        """Подписать сообщение Solana кошельком (signMessage, base64).
+        Возвращает dict {signature, signMethod, signTimestamp} или None."""
         if not self.sol_keypair:
-            return None, None
+            return None
         try:
-            import base58
+            import base64 as b64
             ts = int(time.time())
             full_msg = f"{message} | {ts}"
             msg_bytes = full_msg.encode('utf-8')
             signature = self.sol_keypair.sign_message(msg_bytes)
-            sig_b58 = base58.b58encode(bytes(signature)).decode()
-            return sig_b58, ts
+            sig_b64 = b64.b64encode(bytes(signature)).decode()
+            return {"signature": sig_b64, "signMethod": "message", "signTimestamp": ts}
         except Exception as e:
-            self.log(f"Ошибка подписи Solana: {e}", "error")
-            return None, None
+            self.log(f"Ошибка signMessage Solana: {e}", "warning")
+            return None
+
+    def _sign_solana_transaction(self, message: str) -> dict | None:
+        """Подписать как Memo-транзакцию (fallback для Solana).
+        Фронтенд использует этот метод когда signMessage недоступен.
+        Возвращает dict {signature, signMethod, serializedTransaction, signTimestamp} или None."""
+        if not self.sol_keypair:
+            return None
+        try:
+            import base64 as b64
+            from solders.pubkey import Pubkey
+            from solders.hash import Hash
+            from solders.transaction import Transaction as SolTransaction
+            from solders.instruction import Instruction, AccountMeta
+
+            ts = int(time.time())
+            full_msg = f"{message} | {ts}"
+
+            # Memo Program v2
+            MEMO_PROGRAM_ID = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
+            memo_ix = Instruction(
+                program_id=MEMO_PROGRAM_ID,
+                accounts=[AccountMeta(pubkey=self.sol_keypair.pubkey(), is_signer=True, is_writable=False)],
+                data=full_msg.encode('utf-8'),
+            )
+            # recentBlockhash = "11111111111111111111111111111111" (как во фронтенде)
+            blockhash = Hash.from_string("11111111111111111111111111111111")
+            tx = SolTransaction.new_signed_with_payer(
+                [memo_ix],
+                self.sol_keypair.pubkey(),
+                [self.sol_keypair],
+                blockhash,
+            )
+            tx_bytes = bytes(tx)
+            tx_b64 = b64.b64encode(tx_bytes).decode()
+
+            return {
+                "signature": "tx-signed",
+                "signMethod": "transaction",
+                "serializedTransaction": tx_b64,
+                "signTimestamp": ts,
+            }
+        except Exception as e:
+            self.log(f"Ошибка Solana memo-транзакции: {e}", "error")
+            return None
+
+    def _sign_solana_for_api(self, message: str) -> dict | None:
+        """signForApi для Solana: сначала signMessage, потом memo-транзакция."""
+        result = self._sign_solana_message(message)
+        if result:
+            return result
+        self.log("Fallback на memo-транзакцию...", "warning")
+        return self._sign_solana_transaction(message)
 
     # ─────────────────── Задержка ───────────────────
 
@@ -384,10 +460,85 @@ class XStocksClient:
             return resp.get("data", {})
         return None
 
+    @staticmethod
+    def _generate_referral_code(address: str) -> str:
+        """Генерировать реферальный код как фронтенд: address[-8:].upper() + random(4).upper()."""
+        import string
+        suffix = address[-8:].upper()
+        chars = string.ascii_uppercase + string.digits
+        rand_part = ''.join(random.choices(chars, k=4))
+        return suffix + rand_part
+
+    async def _update_referral_code(self, new_code: str) -> str | None:
+        """PUT /xdrop-user/referral-code — Установить реферальный код через API."""
+        msg_to_sign = SIGN_MESSAGES["REFERRAL_CODE_UPDATE_PREFIX"] + new_code
+        signature, ts = self._sign_with_timestamp(msg_to_sign)
+
+        payload = {
+            "walletAddress": self.address,
+            "newReferralCode": new_code,
+            "signature": signature,
+            "signMethod": "message",
+            "signTimestamp": ts,
+        }
+        resp = await self._put(f"{API_BASE_URL}/xdrop-user/referral-code", data=payload)
+        if resp and resp.get("success"):
+            data = resp.get("data", {})
+            return data.get("referralCode") or new_code
+        self.log(f"Ошибка обновления реф. кода: {resp}", "warning")
+        return None
+
+    async def _wait_for_user_available(self, max_wait: int = 90) -> dict | None:
+        """Ожидать пока GET /xdrop-user/{addr} вернёт данные (eventual consistency).
+        Polling каждые 5с, до max_wait секунд."""
+        intervals = [5, 5, 10, 10, 15, 15, 15, 15]  # ~90с суммарно
+        elapsed = 0
+        for i, wait in enumerate(intervals):
+            if elapsed >= max_wait:
+                break
+            await asyncio.sleep(wait)
+            elapsed += wait
+            user_info = await self.get_user_info()
+            if user_info:
+                self.log(f"Пользователь доступен в API (через ~{elapsed}с)")
+                return user_info
+            self.log(f"Ожидание API... ({elapsed}с/{max_wait}с)", "info")
+        return None
+
+    async def _ensure_referral_code(self) -> str | None:
+        """Получить или создать реферальный код для кошелька.
+        1. Ждём пока пользователь появится в API (eventual consistency).
+        2. Если referralCode уже есть — возвращаем.
+        3. Если нет — генерируем и сохраняем через PUT (с ретраями)."""
+        user_info = await self._wait_for_user_available(max_wait=90)
+
+        if user_info and user_info.get("referralCode"):
+            return user_info["referralCode"]
+
+        if not user_info:
+            self.log("Пользователь не появился в API после ожидания", "error")
+            return None
+
+        # Пользователь есть, но referralCode нет — генерируем и сохраняем
+        new_code = self._generate_referral_code(self.address)
+        self.log(f"Генерируем реф. код: {new_code}")
+
+        # Ретраи на PUT (API может быть ещё не полностью готов)
+        for attempt in range(3):
+            saved = await self._update_referral_code(new_code)
+            if saved:
+                return saved
+            delay = 5 * (attempt + 1)
+            self.log(f"Повтор обновления реф. кода через {delay}с (попытка {attempt+2}/3)", "warning")
+            await asyncio.sleep(delay)
+
+        self.log("Не удалось сохранить реф. код после всех попыток", "error")
+        return None
+
     async def register_evm(self, referral_code: str = None) -> bool:
         """POST /xdrop-user — Регистрация EVM кошелька.
         Подписывает REGISTRATION сообщение и создаёт пользователя."""
-        self.log("Регистрация EVM кошелька...")
+        self.log(f"Регистрация EVM кошелька... [proxy: {self._proxy_masked}]")
 
         signature, ts = self._sign_with_timestamp(SIGN_MESSAGES["REGISTRATION"])
 
@@ -408,11 +559,9 @@ class XStocksClient:
             data = resp.get("data", {})
             ref_code = data.get("referralCode")
 
-            # POST /xdrop-user не возвращает referralCode — подгружаем через GET
+            # Если referralCode нет в ответе — генерируем и сохраняем через API
             if not ref_code:
-                user_info = await self.get_user_info()
-                if user_info:
-                    ref_code = user_info.get("referralCode")
+                ref_code = await self._ensure_referral_code()
 
             ref_link = f"{BASE_URL}/points?ref={ref_code}" if ref_code else None
             db.mark_evm_registered(self.address, referral_link=ref_link, referral_code=ref_code)
@@ -443,18 +592,20 @@ class XStocksClient:
 
         self.log(f"Регистрация Solana: {self.sol_address[:8]}...")
 
-        signature, ts = self._sign_solana_with_timestamp(SIGN_MESSAGES["REGISTRATION"])
-        if not signature:
+        sign_data = self._sign_solana_for_api(SIGN_MESSAGES["REGISTRATION"])
+        if not sign_data:
             self.log("Не удалось подписать Solana сообщение", "error")
             return False
 
         payload = {
             "walletAddress": self.sol_address,
             "walletType": "Svm",
-            "signature": signature,
-            "signMethod": "message",
-            "signTimestamp": ts,
+            "signature": sign_data["signature"],
+            "signMethod": sign_data["signMethod"],
+            "signTimestamp": sign_data["signTimestamp"],
         }
+        if sign_data.get("serializedTransaction"):
+            payload["serializedTransaction"] = sign_data["serializedTransaction"]
         if referral_code:
             payload["referredBy"] = referral_code
 
@@ -672,7 +823,7 @@ class XStocksClient:
         return True
 
     async def run_gm_workflow(self) -> dict:
-        """Воркфлоу Say GM: проверка сессии -> GM -> dashboard update."""
+        """Воркфлоу Say GM: проверка сессии -> GM -> daily spin -> dashboard update."""
         # Валидация сессии перед GM
         if not await self.validate_session():
             self.log("Сессия невалидна, переавторизация...", "warning")
@@ -685,7 +836,11 @@ class XStocksClient:
 
         if result.get("success"):
             await self._delay("после GM")
-            await self.get_dashboard()
+            # Dashboard для проверки доступности spin
+            dashboard = await self.get_dashboard()
+            await self._delay("после dashboard")
+            # Daily spin (буст) — раскрывается после GM
+            await self.reveal_daily_spin(dashboard)
 
         return result
 

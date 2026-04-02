@@ -51,37 +51,48 @@ async def _process_registration(
     index: int,
     total: int,
     proxy_mgr: XStocksProxyManager,
+    max_workers: int = 1,
 ) -> dict:
     """Зарегистрировать один кошелёк."""
-    async with semaphore:
-        client = XStocksClient(
-            private_key=wallet["private_key"],
-            proxy_manager=proxy_mgr,
-            wallet_index=index,
-            sol_private_key=wallet.get("sol_private_key"),
-            account_name=wallet.get("account_name"),
-            task_index=index + 1,
-            task_total=total,
-        )
+    result = {"address": wallet.get("address", "?"), "success": False}
+    try:
+        async with semaphore:
+            # Разнос старта параллельных воркеров (2-5с на каждый слот)
+            slot = index % max_workers
+            if slot > 0:
+                await asyncio.sleep(random.uniform(2, 5) * slot)
 
-        referral_code = _get_referral_for_wallet(wallet["private_key"])
-        result = {"address": wallet["address"], "success": False}
+            client = XStocksClient(
+                private_key=wallet["private_key"],
+                proxy_manager=proxy_mgr,
+                wallet_index=index,
+                sol_private_key=wallet.get("sol_private_key"),
+                account_name=wallet.get("account_name"),
+                task_index=index + 1,
+                task_total=total,
+            )
 
-        try:
-            ok = await client.run_registration_workflow(referral_code)
-            result["success"] = ok
-        except Exception as e:
-            logger.log(f"Ошибка регистрации: {e}", "error", client._short(),
-                       index=index + 1, total=total, account_name=wallet.get("account_name"))
-            result["error"] = str(e)
-            db.log_action(wallet["address"], "registration", "failed", error=str(e))
+            referral_code = _get_referral_for_wallet(wallet["private_key"])
+            result["address"] = wallet["address"]
 
-        # Задержка между аккаунтами
-        if index < total - 1:
-            delay = random.uniform(DELAY_BETWEEN_ACCOUNTS[0], DELAY_BETWEEN_ACCOUNTS[1])
-            await asyncio.sleep(delay)
+            try:
+                ok = await client.run_registration_workflow(referral_code)
+                result["success"] = ok
+            except Exception as e:
+                logger.log(f"Ошибка регистрации: {e}", "error", client._short(),
+                           index=index + 1, total=total, account_name=wallet.get("account_name"))
+                result["error"] = str(e)
+                db.log_action(wallet["address"], "registration", "failed", error=str(e))
 
-        return result
+            # Задержка между аккаунтами
+            if index < total - 1:
+                delay = random.uniform(DELAY_BETWEEN_ACCOUNTS[0], DELAY_BETWEEN_ACCOUNTS[1])
+                await asyncio.sleep(delay)
+
+    except Exception as e:
+        result["error"] = f"Task crashed: {type(e).__name__}: {e}"
+
+    return result
 
 
 async def _process_gm(
@@ -90,36 +101,47 @@ async def _process_gm(
     index: int,
     total: int,
     proxy_mgr: XStocksProxyManager,
+    max_workers: int = 1,
 ) -> dict:
-    """Say GM для одного кошелька."""
-    async with semaphore:
-        client = XStocksClient(
-            private_key=wallet["private_key"],
-            proxy_manager=proxy_mgr,
-            wallet_index=wallet.get("id", index),
-            sol_private_key=wallet.get("sol_private_key"),
-            account_name=wallet.get("account_name"),
-            task_index=index + 1,
-            task_total=total,
-        )
+    """Саy GM для одного кошелька."""
+    result = {"address": wallet.get("address", "?"), "success": False}
+    try:
+        async with semaphore:
+            # Разнос старта параллельных воркеров
+            slot = index % max_workers
+            if slot > 0:
+                await asyncio.sleep(random.uniform(2, 5) * slot)
 
-        result = {"address": wallet["address"], "success": False}
+            client = XStocksClient(
+                private_key=wallet["private_key"],
+                proxy_manager=proxy_mgr,
+                wallet_index=wallet.get("id", index),
+                sol_private_key=wallet.get("sol_private_key"),
+                account_name=wallet.get("account_name"),
+                task_index=index + 1,
+                task_total=total,
+            )
 
-        try:
-            gm_result = await client.run_gm_workflow()
-            result["success"] = gm_result.get("success", False)
-            result["next_gm_at"] = gm_result.get("next_gm_at")
-        except Exception as e:
-            logger.log(f"Ошибка GM: {e}", "error", client._short(),
-                       index=index + 1, total=total, account_name=wallet.get("account_name"))
-            result["error"] = str(e)
-            db.log_action(wallet["address"], "gm", "failed", error=str(e))
+            result["address"] = wallet["address"]
 
-        if index < total - 1:
-            delay = random.uniform(DELAY_BETWEEN_ACCOUNTS[0], DELAY_BETWEEN_ACCOUNTS[1])
-            await asyncio.sleep(delay)
+            try:
+                gm_result = await client.run_gm_workflow()
+                result["success"] = gm_result.get("success", False)
+                result["next_gm_at"] = gm_result.get("next_gm_at")
+            except Exception as e:
+                logger.log(f"Ошибка GM: {e}", "error", client._short(),
+                           index=index + 1, total=total, account_name=wallet.get("account_name"))
+                result["error"] = str(e)
+                db.log_action(wallet["address"], "gm", "failed", error=str(e))
 
-        return result
+            if index < total - 1:
+                delay = random.uniform(DELAY_BETWEEN_ACCOUNTS[0], DELAY_BETWEEN_ACCOUNTS[1])
+                await asyncio.sleep(delay)
+
+    except Exception as e:
+        result["error"] = f"Task crashed: {type(e).__name__}: {e}"
+
+    return result
 
 
 async def _process_sol_connect(
@@ -198,6 +220,8 @@ async def _process_stats(
 
 async def run_registration(max_workers: int = None) -> list[dict]:
     """Зарегистрировать все незарегистрированные кошельки."""
+    import sys
+
     wallets = db.get_wallets_needing_registration()
     if not wallets:
         logger.log("Все кошельки уже зарегистрированы!", "success")
@@ -212,24 +236,67 @@ async def run_registration(max_workers: int = None) -> list[dict]:
         random.shuffle(indexed)
         logger.log("Порядок кошельков перемешан", "info")
 
-    logger.log(f"Регистрация: {len(wallets)} кошельков | {workers} потоков", "cycle")
+    total = len(wallets)
+    logger.log(f"Регистрация: {total} кошельков | {workers} потоков", "cycle")
 
-    tasks = [
-        _process_registration(semaphore, w, i, len(wallets), proxy_mgr)
-        for i, w in indexed
-    ]
+    # Счётчик завершённых задач (для диагностики)
+    completed_counter = {"value": 0}
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    async def _tracked_task(i, w):
+        """Обёртка вокруг _process_registration с трекингом завершения."""
+        result = await _process_registration(semaphore, w, i, total, proxy_mgr, workers)
+        completed_counter["value"] += 1
+        done = completed_counter["value"]
+        # Логировать каждые 50 задач и последнюю
+        if done % 50 == 0 or done == total:
+            print(f"  [DIAG] Завершено задач: {done}/{total}", flush=True)
+        return result
 
-    success = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
-    failed = len(results) - success
+    print(f"  [DIAG] Создание {total} задач...", flush=True)
+    tasks = [_tracked_task(i, w) for i, w in indexed]
+    print(f"  [DIAG] {len(tasks)} задач создано, запускаем gather...", flush=True)
+
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except BaseException as e:
+        print(f"  [DIAG] !!! asyncio.gather вызвал BaseException: {type(e).__name__}: {e}", flush=True)
+        raise
+
+    print(f"  [DIAG] gather завершён, результатов: {len(results)}, завершено задач: {completed_counter['value']}", flush=True)
+
+    # Подсчёт результатов с логированием ошибок
+    success = 0
+    failed = 0
+    exceptions = 0
+    error_types = {}
+    for r in results:
+        if isinstance(r, BaseException):
+            exceptions += 1
+            etype = type(r).__name__
+            error_types[etype] = error_types.get(etype, 0) + 1
+            if exceptions <= 5:
+                logger.log(f"Исключение в таске: {etype}: {r}", "error")
+        elif isinstance(r, dict) and r.get("success"):
+            success += 1
+        else:
+            failed += 1
+            # Логировать ошибки из dict
+            if isinstance(r, dict) and r.get("error") and failed <= 5:
+                logger.log(f"Ошибка задачи: {r['error']}", "warning")
+
+    if exceptions > 5:
+        logger.log(f"... и ещё {exceptions - 5} исключений", "error")
+    if error_types:
+        print(f"  [DIAG] Типы исключений: {error_types}", flush=True)
 
     logger.stats_block({
-        "Всего": len(wallets),
+        "Всего": total,
         "Успешно": success,
         "Неудачно": failed,
+        "Исключений": exceptions,
     })
 
+    print(f"  [DIAG] run_registration завершён", flush=True)
     return [r for r in results if isinstance(r, dict)]
 
 
@@ -289,7 +356,7 @@ async def run_gm_once(max_workers: int = None) -> list[dict]:
     logger.log(f"Say GM: {len(wallets)} кошельков | {workers} потоков", "cycle")
 
     tasks = [
-        _process_gm(semaphore, w, i, len(wallets), proxy_mgr)
+        _process_gm(semaphore, w, i, len(wallets), proxy_mgr, workers)
         for i, w in enumerate(wallets)
     ]
 
