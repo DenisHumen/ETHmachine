@@ -206,7 +206,8 @@ class XStocksClient:
                         continue
 
             except Exception as e:
-                self.log(f"Ошибка запроса: {e} (попытка {attempt+1})", "error")
+                err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+                self.log(f"Ошибка запроса: {err_msg} (попытка {attempt+1})", "error")
                 if attempt < retries:
                     self.proxy = self.proxy_manager.rotate_proxy(self.private_key, self.address)
                     proxy_config = self.proxy_manager.get_aiohttp_proxy_config(self.proxy)

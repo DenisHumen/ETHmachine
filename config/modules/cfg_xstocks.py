@@ -34,7 +34,7 @@ GM_COOLDOWN_HOURS = 24  # Кулдаун Say GM (часы) — SAY_GM_DAILY_CLIC
 GM_CHECK_INTERVAL_MINUTES = 5  # Интервал проверки готовности GM (минуты)
 
 # Режим работы
-SHUFFLE_WALLETS = False  # Перемешивать кошельки
+SHUFFLE_WALLETS = True  # Перемешивать кошельки
 INFINITE_LOOP = True  # Бесконечный цикл (GM farming)
 LOOP_CHECK_INTERVAL = [300, 600]  # Проверка состояния цикла (секунды) [min, max]
 
