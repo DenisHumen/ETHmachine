@@ -97,6 +97,7 @@ from modules.sol.sol_get_balances import solana_balance_checker
 from modules.debank.debank_checker import debank_checker_menu
 from modules.debank.debank_protocol_checker import debank_protocol_menu
 from modules.pharos.menu import pharos_menu
+from modules.xstocks.menu import xstocks_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
 from modules.claim.zora_claimer.menu import claimer_menu
 from modules.statistics.perle.menu import perle_menu
@@ -510,9 +511,11 @@ class MenuHandlers:
             build_submenu_choices(PROJECTS_SUBMENU),
             qmark='🎮'
         )
-        
+
         if choice == 'pharos':
             pharos_menu()
+        elif choice == 'xstocks':
+            xstocks_menu()
     
     @staticmethod
     def handle_project_stats():

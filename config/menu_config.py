@@ -282,6 +282,7 @@ PROJECTS_SUBMENU = SubMenu(
     qmark='🎮',
     items=[
         MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты, Send & Verify', icon='🔮', enabled=True),
+        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='📈', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

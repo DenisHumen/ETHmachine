@@ -22,6 +22,7 @@ HEADERS = [
     'name', 'private_key', 'proxy', 'reserve_proxy',
     'wallet_address', 'mnemonic', 'sol_address', 'sol_private_key',
     'discord_token', 'email', 'email_password', 'email_imap',
+    'referral_code',
 ]
 DEFAULT_DATA_FILE = DATA_DIR / 'data.csv'
 
@@ -205,6 +206,15 @@ def get_emails(filepath: Path = None) -> List[Dict[str, str]]:
     return result
 
 
+def get_referral_code_for_key(private_key: str, filepath: Path = None) -> Optional[str]:
+    """Возвращает реферальный код, привязанный к приватному ключу."""
+    rows = load_data(filepath)
+    for r in rows:
+        if r['private_key'] == private_key.strip():
+            return r['referral_code'] if r.get('referral_code') else None
+    return None
+
+
 def get_proxy_for_key(private_key: str, filepath: Path = None) -> Optional[str]:
     """Возвращает прокси, привязанный к приватному ключу."""
     rows = load_data(filepath)
@@ -246,6 +256,7 @@ __all__ = [
     'get_private_keys', 'get_proxies', 'get_reserve_proxies',
     'get_wallet_addresses', 'get_mnemonics', 'get_sol_addresses',
     'get_discord_tokens', 'get_emails',
+    'get_referral_code_for_key',
     'get_proxy_for_key', 'get_reserve_proxy_for_key',
     'get_row_by_index', 'get_proxy_with_fallback',
 ]
