@@ -466,7 +466,7 @@ class PharosClient:
                         "chainId": ATLANTIC_CHAIN_ID,
                     }
                     signed = w3.eth.account.sign_transaction(tx, self.private_key)
-                    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
                     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
                     return "0x" + tx_hash.hex(), receipt["status"] == 1, receipt["blockNumber"]
 
@@ -498,7 +498,7 @@ class PharosClient:
                     "chainId": ATLANTIC_CHAIN_ID,
                 }
                 signed = w3.eth.account.sign_transaction(tx, temp_pk)
-                tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
                 receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
                 return "0x" + tx_hash.hex(), receipt["status"] == 1, receipt["blockNumber"]
 
@@ -508,8 +508,8 @@ class PharosClient:
             return None, False, 0
 
     async def run_send_verify_workflow(self) -> dict:
-        """Login → Profile → Check-in → Send PHRS → Verify task 401 → Return.
-        Кран (faucet) НЕ запускается — он запускается отдельным модулем."""
+        """Login → Profile → Send PHRS → Verify task 401 → Return.
+        Кран (faucet) и чек-ин НЕ запускаются — они запускаются отдельными модулями."""
         result = {
             "address": self.address,
             "account_name": "",
@@ -521,7 +521,6 @@ class PharosClient:
             "balance_after": 0.0,
             "sends": 0,
             "verifies": 0,
-            "checkin_done": False,
             "temp_wallets": [],  # [{address, private_key}]
             "tx_hashes": [],
             "error": "",
@@ -547,11 +546,6 @@ class PharosClient:
             )
             result["balance_before"] = balance
             self.log(f"Баланс: {balance:.6f} PHRS | XP: {result['xp_before']}")
-
-            # Check-in
-            await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACTIONS))
-            checkin_ok = await self.check_in()
-            result["checkin_done"] = checkin_ok
 
             # Send + Verify
             if balance < SEND_AMOUNT * 2:

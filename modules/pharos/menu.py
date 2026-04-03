@@ -16,7 +16,7 @@ from modules.pharos import database as db
 from modules.pharos import pharos_logger as logger
 from modules.pharos.worker import run_parallel, run_loop, run_stretched, run_stretched_loop
 from modules.pharos.stats import collect_stats, export_csv
-from modules.pharos.excel_export import export_send_verify_results, export_cycle_results
+from modules.pharos.excel_export import export_send_verify_results, export_cycle_results, export_wallet_stats_xlsx
 
 from modules.data_manager import load_data
 
@@ -28,7 +28,7 @@ from modules.data_manager import load_data
 PHAROS_MENU = SubMenu(
     key='pharos',
     label='Pharos Testnet',
-    description='Check-in, Квесты, Send & Verify',
+    description='Квесты, Send & Verify',
     icon='🔮',
     qmark='🔮',
     pointer='👉',
@@ -38,19 +38,20 @@ PHAROS_MENU = SubMenu(
         MenuItem(key='faucet', label='Краны (Pharos + FaroSwap)', description='Клейм тестовых токенов', icon='🚰'),
         MenuItem(key='all_faucet', label='Faucet + Check-in', description='Всё вместе', icon='🔥'),
         MenuItem(key='quests', label='Квесты', description='Верификация квестов', icon='🎯'),
-        MenuItem(key='send_verify', label='Send & Verify', description='Check-in + Send PHRS + Verify task (быстрый)', icon='🚀'),
+        MenuItem(key='send_verify', label='Send & Verify', description='Send PHRS + Verify task (быстрый)', icon='🚀'),
         # Циклы
         MenuItem(key='loop_checkin', label='Check-in (цикл 24ч)', description='Автоматический чек-ин', icon='🔄'),
         MenuItem(key='loop_faucet', label='Краны (цикл)', description='Автоматические краны', icon='🔄'),
         MenuItem(key='loop_all_faucet', label='Faucet + Check-in (цикл)', description='Всё в цикле', icon='🔄'),
         MenuItem(key='loop_quests', label='Квесты (цикл)', description='Автоматические квесты', icon='🔄'),
         # Авто-фарм 25ч
-        MenuItem(key='auto_farm', label='Авто-фарм (25ч цикл)', description='Check-in + Send + Verify растяжка на 25ч, бесконечный цикл', icon='♾️'),
+        MenuItem(key='auto_farm', label='Авто-фарм (25ч цикл)', description='Send + Verify растяжка на 25ч, бесконечный цикл', icon='♾️'),
         # Привязки
         MenuItem(key='discord_connect', label='Discord Connect', description='Авторизация + привязка Discord', icon='🔗'),
         # Дополнительно
-        MenuItem(key='stats', label='Статистика XP + Level', description='Экспорт в result/statistics/', icon='📊'),
-        MenuItem(key='export_results', label='Экспорт результатов', description='Экспорт завершённого цикла в XLSX', icon='📄'),
+        MenuItem(key='stats', label='Статистика', description='Сбор и вывод статистики (обновляет БД)', icon='📊'),
+        MenuItem(key='export_stats', label='Экспорт в XLSX', description='Экспорт статистики из БД в Excel', icon='📄'),
+        MenuItem(key='export_results', label='Экспорт цикла', description='Экспорт завершённого цикла в XLSX', icon='📋'),
         MenuItem(key='back', label='Назад', description='', icon='🔙'),
     ]
 )
@@ -174,7 +175,7 @@ def _menu_auto_farm():
     print(f"\n{Fore.CYAN}╔══════════════════════════════════════════════════╗")
     print(f"║{Fore.WHITE}       АВТО-ФАРМ — бесконечный цикл              {Fore.CYAN}║")
     print(f"╚══════════════════════════════════════════════════╝{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Режим: Check-in + Send + Verify")
+    print(f"  {Fore.WHITE}Режим: Send + Verify")
     print(f"  Растяжка: {STRETCH_HOURS}ч (равномерное распределение)")
     print(f"  После завершения цикла — автоматический перезапуск")
     print(f"  При остановке — прогресс сохраняется, продолжит с того же места{Style.RESET_ALL}\n")
@@ -199,7 +200,7 @@ def _menu_auto_farm():
 
 
 def _menu_stats():
-    """Статистика XP + Level -> CSV."""
+    """Статистика — сбор XP, Level, квестов и сохранение в БД."""
     wallets = load_wallets()
     if not wallets:
         logger.log("Нет кошельков. Добавьте приватные ключи в data/data.csv", "error")
@@ -222,8 +223,16 @@ def _menu_stats():
                 f"{q_color}{qd}/{qt}{Style.RESET_ALL}"
             )
         print(f"  {Fore.CYAN}{'=' * 70}{Style.RESET_ALL}")
+        print(f"\n  {Fore.GREEN}Данные сохранены в БД. Используйте 'Экспорт в XLSX' для экспорта.{Style.RESET_ALL}")
     else:
         logger.log("Не удалось собрать статистику", "error")
+
+
+def _menu_export_stats():
+    """Экспорт статистики из БД в XLSX."""
+    filepath = export_wallet_stats_xlsx()
+    if filepath:
+        print(f"\n  {Fore.GREEN}Экспорт: {filepath}{Style.RESET_ALL}")
 
 
 def _menu_export_results():
@@ -271,7 +280,7 @@ def pharos_menu():
             return
 
         # Автоматическая инициализация БД перед любым действием
-        if action not in ('stats', 'export_results', 'discord_connect'):
+        if action not in ('stats', 'export_stats', 'export_results', 'discord_connect'):
             if not _ensure_db():
                 continue
 
@@ -361,6 +370,9 @@ def pharos_menu():
             # ДОПОЛНИТЕЛЬНО
             case 'stats':
                 _menu_stats()
+
+            case 'export_stats':
+                _menu_export_stats()
 
             case 'export_results':
                 _menu_export_results()

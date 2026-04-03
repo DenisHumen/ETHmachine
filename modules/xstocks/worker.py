@@ -480,9 +480,14 @@ async def run_stats(max_workers: int = None) -> list[dict]:
 
     logger.log(f"Сбор статистики: {len(registered)} кошельков | {workers} потоков", "cycle")
 
+    indexed = list(enumerate(registered))
+    if SHUFFLE_WALLETS:
+        random.shuffle(indexed)
+        logger.log("Порядок кошельков перемешан", "info")
+
     tasks = [
         _process_stats(semaphore, w, i, len(registered), proxy_mgr)
-        for i, w in enumerate(registered)
+        for i, w in indexed
     ]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)

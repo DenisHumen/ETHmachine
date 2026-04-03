@@ -58,6 +58,11 @@ def _init_schema(conn):
         ("faroswap_faucet_status", "'pending'"),
         ("last_faroswap_claim", "NULL"),
         ("account_name", "NULL"),
+        ("level", "NULL"),
+        ("quests_done", "0"),
+        ("quests_total", "0"),
+        ("quests_not_done", "NULL"),
+        ("stats_updated_at", "NULL"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE wallets ADD COLUMN {col} TEXT DEFAULT {default}")
@@ -225,6 +230,35 @@ def update_checkin_status(address: str, status: str):
 
 def update_quests(address: str, completed_ids: list):
     update_wallet(address, quests_completed=json.dumps(completed_ids))
+
+
+def update_wallet_stats(address: str, xp: int, level: str,
+                        quests_done: int, quests_total: int,
+                        quests_not_done: list):
+    """Обновить статистику кошелька (XP, уровень, квесты)."""
+    update_wallet(
+        address,
+        total_points=xp,
+        level=level,
+        quests_done=quests_done,
+        quests_total=quests_total,
+        quests_not_done=json.dumps(quests_not_done),
+        stats_updated_at=datetime.now().isoformat(),
+    )
+
+
+def get_all_wallet_stats() -> list[dict]:
+    """Получить все кошельки со статистикой."""
+    with _db_lock:
+        conn = get_connection()
+        _init_schema(conn)
+        rows = conn.execute("""
+            SELECT address, account_name, total_points, level,
+                   quests_done, quests_total, quests_not_done, stats_updated_at
+            FROM wallets ORDER BY id
+        """).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
 
 def update_proxy(address: str, proxy: str):

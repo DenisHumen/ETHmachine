@@ -20,6 +20,7 @@ from config.modules.cfg_base import NUM_THREADS
 from config.modules.cfg_base import RETRY_COUNT
 from modules.pharos.pharos_proxy import PharosProxyManager
 from modules.pharos import pharos_logger as logger
+from modules.pharos import database as db
 
 # Путь для сохранения статистики
 STATS_DIR = Path(__file__).parent.parent.parent / "result" / "statistics"
@@ -254,7 +255,26 @@ async def collect_stats(wallets: list[dict], max_workers: int = NUM_THREADS) -> 
         tasks.append(t)
 
     results = await asyncio.gather(*tasks)
-    return [r for r in results if r is not None]
+    valid = [r for r in results if r is not None]
+
+    # Сохранить статистику в БД
+    for s in valid:
+        try:
+            db.update_wallet_stats(
+                address=s["address"],
+                xp=s["xp"],
+                level=s["lvl"],
+                quests_done=s.get("quests_done", 0),
+                quests_total=s.get("quests_total", 0),
+                quests_not_done=s.get("quests_not_done", []),
+            )
+        except Exception as e:
+            logger.log(f"Ошибка сохранения статистики {s['address'][:10]}...: {e}", "error")
+
+    if valid:
+        logger.log(f"Статистика обновлена в БД: {len(valid)} кошельков", "success")
+
+    return valid
 
 
 def export_csv(stats: list[dict], filename: str = None):

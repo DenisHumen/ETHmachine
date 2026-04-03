@@ -11,6 +11,7 @@ from modules.pharos import pharos_logger as logger
 from modules.pharos import database as db
 
 RESULT_DIR = Path(__file__).parent.parent.parent / "result" / "pharos_auto"
+STATS_DIR = Path(__file__).parent.parent.parent / "result" / "statistics"
 
 # ═══════════════════════════════════════════════════════════
 # Общие стили
@@ -294,4 +295,110 @@ def export_send_verify_results(results: list[dict], filename: str = None) -> str
 
     except Exception as e:
         logger.log(f"Ошибка экспорта XLSX: {e}", "error")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════
+# Экспорт статистики кошельков из БД в XLSX
+# ═══════════════════════════════════════════════════════════
+
+def export_wallet_stats_xlsx(filename: str = None) -> str | None:
+    """Экспортировать статистику кошельков (XP, Level, Квесты) из БД в XLSX."""
+    import json as _json
+
+    wallets = db.get_all_wallet_stats()
+    if not wallets:
+        logger.log("Нет данных для экспорта. Сначала запустите 'Статистика'", "warning")
+        return None
+
+    # Проверить, есть ли вообще собранная статистика
+    has_stats = any(w.get("stats_updated_at") for w in wallets)
+    if not has_stats:
+        logger.log("Статистика ещё не собиралась. Сначала запустите 'Статистика'", "warning")
+        return None
+
+    os.makedirs(STATS_DIR, exist_ok=True)
+
+    if filename is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"pharos_stats_{ts}.xlsx"
+    filepath = str(STATS_DIR / filename)
+
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Statistics"
+
+        headers = [
+            "№", "Account Name", "Address", "XP", "Level",
+            "Quests Done", "Quests Total", "Quests Not Done", "Updated At",
+        ]
+        _write_headers(ws, headers)
+
+        total_xp = 0
+        for i, w in enumerate(wallets, 1):
+            row_num = i + 1
+            xp = w.get("total_points") or 0
+            total_xp += xp
+
+            quests_not_done_str = ""
+            if w.get("quests_not_done"):
+                try:
+                    ids = _json.loads(w["quests_not_done"])
+                    quests_not_done_str = ", ".join(str(x) for x in ids)
+                except (TypeError, _json.JSONDecodeError):
+                    quests_not_done_str = str(w["quests_not_done"])
+
+            qd = w.get("quests_done") or 0
+            qt = w.get("quests_total") or 0
+
+            values = [
+                i,
+                w.get("account_name") or "",
+                w.get("address", ""),
+                xp,
+                w.get("level") or "",
+                qd,
+                qt,
+                quests_not_done_str,
+                w.get("stats_updated_at") or "",
+            ]
+
+            for col, val in enumerate(values, 1):
+                cell = ws.cell(row=row_num, column=col, value=val)
+                cell.border = _THIN_BORDER
+                if col == 5:  # Level
+                    cell.alignment = Alignment(horizontal="center")
+                if col == 6 and qt > 0:  # Quests Done
+                    cell.fill = _SUCCESS_FILL if qd == qt else _FAIL_FILL
+
+        _auto_width(ws, len(headers), len(wallets) + 1)
+
+        # Лист 2: Сводка
+        ws2 = wb.create_sheet("Summary")
+        summary = [
+            ("Дата экспорта", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            ("Всего кошельков", len(wallets)),
+            ("Суммарный XP", total_xp),
+            ("С полными квестами", sum(
+                1 for w in wallets
+                if (w.get("quests_done") or 0) == (w.get("quests_total") or 0)
+                and (w.get("quests_total") or 0) > 0
+            )),
+        ]
+        for row_n, (label, value) in enumerate(summary, 1):
+            cell_l = ws2.cell(row=row_n, column=1, value=label)
+            cell_l.font = _LABEL_FONT
+            cell_l.border = _THIN_BORDER
+            cell_v = ws2.cell(row=row_n, column=2, value=value)
+            cell_v.border = _THIN_BORDER
+        ws2.column_dimensions["A"].width = 25
+        ws2.column_dimensions["B"].width = 30
+
+        wb.save(filepath)
+        logger.log(f"Статистика экспортирована: {filepath} ({len(wallets)} кошельков)", "success")
+        return filepath
+
+    except Exception as e:
+        logger.log(f"Ошибка экспорта статистики XLSX: {e}", "error")
         return None
