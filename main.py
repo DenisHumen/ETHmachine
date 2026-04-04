@@ -31,7 +31,7 @@ from config.menu_config import (
     CEX_SUBMENU, OKX_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, MEXC_SUBMENU,
     TOOLS_SUBMENU, GENERATE_WALLETS_SUBMENU, ETH_WALLETS_SUBMENU, SOL_WALLETS_SUBMENU,
     CONVERT_TOOL_SUBMENU, DISCORD_OS_SUBMENU, RUST_IMPL_SUBMENU,
-    PROJECT_STATS_SUBMENU, WALLET_COUNT_OPTIONS,
+    WALLET_COUNT_OPTIONS,
 )
 
 from modules.backup import create_backup, list_backups, backup_menu
@@ -98,6 +98,7 @@ from modules.debank.debank_checker import debank_checker_menu
 from modules.debank.debank_protocol_checker import debank_protocol_menu
 from modules.pharos.menu import pharos_menu
 from modules.xstocks.menu import xstocks_menu
+from modules.abs.menu import abs_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
 from modules.claim.zora_claimer.menu import claimer_menu
 from modules.statistics.perle.menu import perle_menu
@@ -506,45 +507,28 @@ class MenuHandlers:
     @staticmethod
     def handle_projects():
         """Обработчик меню проектов"""
-        choice = show_menu(
-            "🎮 Выберите проект для автоматизации:",
-            build_submenu_choices(PROJECTS_SUBMENU),
-            qmark='🎮'
-        )
-
-        if choice == 'pharos':
-            pharos_menu()
-        elif choice == 'xstocks':
-            xstocks_menu()
-    
-    @staticmethod
-    def handle_project_stats():
-        """Обработчик статистики проектов"""
         while True:
-            stats_choices = []
-            if neura_statistics is not None:
-                stats_choices.append(Choice('📊 Neura         🌟 Статистика по ETHmachine', 'neura_stat'))
-            else:
-                current_os = get_os_type()
-                stats_choices.append(Choice(f'📊 Neura         ⚠️  Доступно только на Windows (текущая ОС: {current_os})', 'neura_stat_unavailable'))
-            
-            stats_choices.append(Choice('� Perle         🌟 Проверка элигибельности SOL кошельков', 'perle_checker'))
-            stats_choices.append(Choice('🔙 Back', 'back'))
-            
-            action = show_menu("Выберите действие (статистика по проектам):", stats_choices)
-            
-            match action:
-                case 'neura_stat':
-                    if neura_statistics is not None:
-                        neura_statistics()
-                    else:
-                        MenuHandlers._show_neura_unavailable()
-                case 'neura_stat_unavailable':
+            choice = show_menu(
+                "🎮 Выберите проект:",
+                build_submenu_choices(PROJECTS_SUBMENU),
+                qmark='🎮'
+            )
+
+            if choice == 'pharos':
+                pharos_menu()
+            elif choice == 'xstocks':
+                xstocks_menu()
+            elif choice == 'abs_portal':
+                abs_menu()
+            elif choice == 'neura_stat':
+                if neura_statistics is not None:
+                    neura_statistics()
+                else:
                     MenuHandlers._show_neura_unavailable()
-                case 'perle_checker':
-                    perle_menu()
-                case 'back':
-                    break
+            elif choice == 'perle_checker':
+                perle_menu()
+            elif choice == 'back' or choice is None:
+                break
     
     @staticmethod
     def _show_neura_unavailable():
@@ -877,8 +861,6 @@ def main_menu():
                     MenuHandlers.handle_transactions()
                 case 'twitter':
                     MenuHandlers.handle_twitter()
-                case 'project_stats':
-                    MenuHandlers.handle_project_stats()
                 case 'projects_menu':
                     MenuHandlers.handle_projects()
                 case 'CEX_menu':

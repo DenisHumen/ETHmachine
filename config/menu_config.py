@@ -53,7 +53,6 @@ MAIN_MENU_ORDER = [
     'transactions',
     'claimer',
     'twitter',
-    'project_stats',
     'projects_menu',
     'CEX_menu',
     'miscellaneous',
@@ -89,13 +88,6 @@ MENU_ITEMS = {
         label='Twitter',
         description='Сбор данных по твиттерам',
         icon='🐦',
-        enabled=True,
-    ),
-    'project_stats': MenuItem(
-        key='project_stats',
-        label='Check project stats',
-        description='Проверка статистики по проектам',
-        icon='📊',
         enabled=True,
     ),
     'projects_menu': MenuItem(
@@ -276,13 +268,16 @@ TWITTER_SUBMENU = SubMenu(
 
 PROJECTS_SUBMENU = SubMenu(
     key='projects_menu',
-    label='Выберите проект для автоматизации',
+    label='Выберите проект',
     description='',
     icon='🎮',
     qmark='🎮',
     items=[
-        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты, Send & Verify', icon='🔮', enabled=True),
-        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='📈', enabled=True),
+        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты, Send & Verify', icon='🟢', enabled=True),
+        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='🟢', enabled=True),
+        MenuItem(key='abs_portal', label='Abstract Portal', description='Stats, Badges, XP Recap', icon='🟢', enabled=True),
+        MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='🟢', enabled=True, requires_os='windows'),
+        MenuItem(key='perle_checker', label='Perle', description='Проверка элигибельности SOL кошельков', icon='🟢', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )
@@ -429,22 +424,6 @@ CONVERT_TOOL_SUBMENU = SubMenu(
         MenuItem(key='eth_mnemonic_to_privkey', label='ETH >> Mnemonic to Private Key', description='Конвертировать мнемонику в приватный ключ', icon='⚡', enabled=True),
         MenuItem(key='eth_privkey_to_wallet', label='ETH >> Private Key to Wallet', description='Конвертировать приватный ключ в адрес кошелька', icon='⚡', enabled=True),
         MenuItem(key='sol_mnemonic_to_privkey', label='SOL >> Mnemonic to Private Key', description='Конвертировать мнемонику в приватный ключ', icon='☀️', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
-)
-
-# =============================================================================
-# ПОДМЕНЮ: PROJECT STATS
-# =============================================================================
-
-PROJECT_STATS_SUBMENU = SubMenu(
-    key='project_stats',
-    label='Выберите действие (статистика по проектам)',
-    description='',
-    icon='📊',
-    items=[
-        MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='📊', enabled=True, requires_os='windows'),
-        MenuItem(key='perle_checker', label='Perle', description='Проверка элигибельности SOL кошельков', icon='📊', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )
