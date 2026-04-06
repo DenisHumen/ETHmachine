@@ -255,6 +255,72 @@ def export_stats(filename: str = None) -> str | None:
         _auto_width(ws2, len(badge_headers), badge_row)
 
         # ═══════════════════════════════════════════════
+        # Лист 2.5: Badge Summary (сводка по бейджам)
+        # ═══════════════════════════════════════════════
+        ws_bs = wb.create_sheet("Badge Summary")
+
+        bs_headers = [
+            "#", "Account", "Address",
+            "Claimed (qty)", "Claimed Badges",
+            "Claimable (qty)", "Claimable Badges",
+            "Not Done (qty)", "Not Done Badges",
+        ]
+        _write_headers(ws_bs, bs_headers)
+
+        # Цвета для ячеек с названиями бейджей
+        _GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        _GREEN_FONT = Font(bold=True, color="006100", size=10)
+        _YELLOW_FILL = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        _YELLOW_FONT = Font(bold=True, color="9C6500", size=10)
+        _RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        _RED_FONT = Font(bold=True, color="9C0006", size=10)
+
+        for idx, w in enumerate(wallets, 1):
+            bs_row = idx + 1
+            badges = db.get_badges(w["address"])
+            acct_name = w.get("account_name") or f"Wallet_{idx}"
+
+            claimed_names = [b["badge_name"] for b in badges if b.get("claimed")]
+            claimable_names = [b["badge_name"] for b in badges if not b.get("claimed") and b.get("claim_available")]
+            not_done_names = [b["badge_name"] for b in badges if not b.get("claimed") and not b.get("claim_available")]
+
+            ws_bs.cell(row=bs_row, column=1, value=idx).border = _THIN_BORDER
+            ws_bs.cell(row=bs_row, column=2, value=acct_name).border = _THIN_BORDER
+            ws_bs.cell(row=bs_row, column=3, value=w["address"]).border = _THIN_BORDER
+
+            # Claimed — зелёный
+            c_qty = ws_bs.cell(row=bs_row, column=4, value=len(claimed_names))
+            c_qty.border = _THIN_BORDER
+            c_qty.fill = _GREEN_FILL
+            c_qty.font = _GREEN_FONT
+            c_names = ws_bs.cell(row=bs_row, column=5, value=", ".join(claimed_names) if claimed_names else "—")
+            c_names.border = _THIN_BORDER
+            c_names.fill = _GREEN_FILL
+            c_names.font = _GREEN_FONT
+
+            # Claimable — жёлтый
+            a_qty = ws_bs.cell(row=bs_row, column=6, value=len(claimable_names))
+            a_qty.border = _THIN_BORDER
+            a_qty.fill = _YELLOW_FILL
+            a_qty.font = _YELLOW_FONT
+            a_names = ws_bs.cell(row=bs_row, column=7, value=", ".join(claimable_names) if claimable_names else "—")
+            a_names.border = _THIN_BORDER
+            a_names.fill = _YELLOW_FILL
+            a_names.font = _YELLOW_FONT
+
+            # Not done — красный
+            n_qty = ws_bs.cell(row=bs_row, column=8, value=len(not_done_names))
+            n_qty.border = _THIN_BORDER
+            n_qty.fill = _RED_FILL
+            n_qty.font = _RED_FONT
+            n_names = ws_bs.cell(row=bs_row, column=9, value=", ".join(not_done_names) if not_done_names else "—")
+            n_names.border = _THIN_BORDER
+            n_names.fill = _RED_FILL
+            n_names.font = _RED_FONT
+
+        _auto_width(ws_bs, len(bs_headers), len(wallets) + 1)
+
+        # ═══════════════════════════════════════════════
         # Лист 3: XP Recap
         # ═══════════════════════════════════════════════
         ws3 = wb.create_sheet("XP Recap")
