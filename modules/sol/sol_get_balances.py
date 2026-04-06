@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 
 import requests
-from colorama import Fore, Style, init
+from colorama import init
 
 init()
 

@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from modules.simple_logger import logger, setup_file_logging
 from modules.data_manager import get_private_keys, get_proxies
 from modules.proxy_manager import parse_proxy
-from pathlib import Path
 
 init()
 

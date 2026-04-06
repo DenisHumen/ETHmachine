@@ -7,10 +7,9 @@
   actions_log      — лог всех действий (для расширяемости)
 """
 import sqlite3
-import json
 import random
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 DB_FILE = str(Path(__file__).parent.parent.parent / "db" / "xstocks.db")

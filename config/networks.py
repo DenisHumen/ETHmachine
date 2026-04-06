@@ -205,9 +205,6 @@ def get_network_type(network_name):
     return network['type'] if network else None
 
 
-def is_mainnet_network(network_name):
-    return get_network_type(network_name) == 'mainnet'
-
 
 # === ОБРАТНАЯ СОВМЕСТИМОСТЬ ===
 # Для совместимости со старым кодом создаем переменные

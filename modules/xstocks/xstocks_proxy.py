@@ -1,6 +1,5 @@
 """Адаптер прокси для xStocks — обёртка над modules.proxy_manager."""
 import random
-from modules.proxy_manager import ProxyManager as BaseProxyManager
 from modules.data_manager import load_data
 
 

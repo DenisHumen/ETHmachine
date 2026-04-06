@@ -15,9 +15,8 @@ import ssl
 import socket
 import urllib.request
 import urllib.parse
-from urllib.parse import urlparse
 
-from colorama import Fore, Style, init
+from colorama import Fore, init
 from modules.simple_logger import logger, setup_file_logging
 
 # Импорт настроек

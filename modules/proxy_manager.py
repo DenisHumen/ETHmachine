@@ -1,7 +1,7 @@
 import random
 from typing import Optional, Dict, List
 from modules.simple_logger import logger
-from modules.data_manager import get_proxies, get_reserve_proxies
+from modules.data_manager import get_proxies
 
 
 class ProxyManager:

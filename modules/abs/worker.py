@@ -7,10 +7,9 @@
 """
 import asyncio
 import random
-from datetime import datetime
 
 from config.modules.cfg_abs import SHUFFLE_WALLETS
-from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
 from modules.abs.abs_proxy import AbsProxyManager
 from modules.abs.abs_client import AbsClient
 from modules.abs import database as db

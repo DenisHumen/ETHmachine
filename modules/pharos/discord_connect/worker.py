@@ -16,7 +16,7 @@ from config.modules.cfg_base import (
 )
 from config.modules.cfg_pharos_discord import RESULT_DIR
 from modules.simple_logger import log_wallet_task, log_simple
-from modules.proxy_manager import parse_proxy, mask_proxy
+from modules.proxy_manager import mask_proxy
 from modules.data_manager import load_data
 from modules.pharos.discord_connect import database as db
 from modules.pharos.discord_connect.client import PharosDiscordClient

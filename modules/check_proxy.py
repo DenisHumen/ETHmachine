@@ -14,7 +14,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from modules.simple_logger import logger, setup_file_logging
-from modules.proxy_manager import load_proxies, get_proxy_dict, mask_proxy
+from modules.proxy_manager import load_proxies, get_proxy_dict
 from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
 
 

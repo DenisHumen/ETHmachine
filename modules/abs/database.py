@@ -8,9 +8,7 @@
   actions_log      — лог всех действий
 """
 import sqlite3
-import json
 import threading
-from datetime import datetime
 from pathlib import Path
 
 DB_FILE = str(Path(__file__).parent.parent.parent / "db" / "abs_portal.db")

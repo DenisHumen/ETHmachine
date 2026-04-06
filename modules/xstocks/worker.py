@@ -8,20 +8,19 @@
   - run_stats(...)         — сбор статистики
 """
 import asyncio
-import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from config.modules.cfg_xstocks import (
     SHUFFLE_WALLETS, LOOP_CHECK_INTERVAL,
     REFERRAL_MAX_USAGE_DIFF_PERCENT,
 )
-from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
 from modules.xstocks.xstocks_proxy import XStocksProxyManager
 from modules.xstocks.client import XStocksClient
 from modules.xstocks import database as db
 from modules.xstocks import xstocks_logger as logger
-from modules.data_manager import load_data, get_referral_code_for_key
+from modules.data_manager import get_referral_code_for_key
 
 
 # ---------------------------------------------------------------
@@ -220,8 +219,6 @@ async def _process_stats(
 
 async def run_registration(max_workers: int = None) -> list[dict]:
     """Зарегистрировать все незарегистрированные кошельки."""
-    import sys
-
     wallets = db.get_wallets_needing_registration()
     if not wallets:
         logger.log("Все кошельки уже зарегистрированы!", "success")

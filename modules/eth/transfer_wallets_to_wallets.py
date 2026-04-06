@@ -4,7 +4,6 @@ Transfer Wallets to Wallets — прямой перевод нативных т�
 """
 
 import csv
-import os
 import random
 import sqlite3
 import time
@@ -15,7 +14,7 @@ from threading import Lock
 from typing import Dict, List, Optional, Tuple
 
 import requests
-from colorama import Fore, Style
+from colorama import Fore
 from eth_account import Account
 from questionary import Choice, select
 from web3 import Web3
@@ -36,7 +35,7 @@ from config.modules.cfg_transfer import (
 )
 from config.networks import get_explorer_url, get_network_rpc_urls, get_network_symbol
 from modules.notifications import send_telegram_notification
-from modules.proxy_manager import ProxyManager, get_proxy_dict, parse_proxy
+from modules.proxy_manager import ProxyManager, parse_proxy
 from modules.simple_logger import logger
 
 # ═══════════════════════════════════════════════════════════════════════════════

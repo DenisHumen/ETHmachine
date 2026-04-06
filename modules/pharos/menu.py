@@ -14,7 +14,7 @@ from config.modules.cfg_base import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS, SLEEP_B
 from config.menu_config import SubMenu, MenuItem, build_submenu_choices
 from modules.pharos import database as db
 from modules.pharos import pharos_logger as logger
-from modules.pharos.worker import run_parallel, run_loop, run_stretched, run_stretched_loop
+from modules.pharos.worker import run_parallel, run_loop, run_stretched_loop
 from modules.pharos.stats import collect_stats, export_csv
 from modules.pharos.excel_export import export_send_verify_results, export_cycle_results, export_wallet_stats_xlsx
 

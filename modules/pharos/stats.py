@@ -3,7 +3,6 @@ import csv
 import ssl
 import asyncio
 import os
-from datetime import datetime
 from pathlib import Path
 
 import aiohttp

@@ -2,10 +2,10 @@
 import asyncio
 
 from colorama import Fore, Style
-from questionary import Choice, select
+from questionary import select
 from eth_account import Account
 
-from config.modules.cfg_base import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS, SLEEP_BETWEEN_ACTIONS
+from config.modules.cfg_base import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS
 from config.menu_config import SubMenu, MenuItem, build_submenu_choices
 from modules.abs import database as db
 from modules.abs import abs_logger as logger
@@ -16,7 +16,7 @@ from modules.data_manager import load_data
 
 
 # ---------------------------------------------------------------
-# Подменю Abstract Portal
+# Подменю Abstract Portal — категории
 # ---------------------------------------------------------------
 
 ABS_MENU = SubMenu(
@@ -27,12 +27,63 @@ ABS_MENU = SubMenu(
     qmark='🟢',
     pointer='👉',
     items=[
-        MenuItem(key='stats', label='Check Stats', description='Сбор статистики (профиль, бейджи, XP)', icon='📊'),
-        MenuItem(key='resume', label='Resume', description='Продолжить незавершённые кошельки', icon='▶️'),
-        MenuItem(key='export', label='Export XLSX', description='Экспорт всех данных в Excel', icon='📄'),
-        MenuItem(key='db_info', label='Database Info', description='Показать состояние базы данных', icon='🗄️'),
-        MenuItem(key='reset', label='Reset & Start Over', description='Очистить задачи и начать заново', icon='🔄'),
-        MenuItem(key='back', label='Назад', description='', icon='🔙'),
+        MenuItem(key='statistics', label='Statistics', description='Check Stats, Resume, Export, DB Info', icon='📊'),
+        MenuItem(key='unstake', label='Unstake', description='Unstake tokens (coming soon)', icon='🔓'),
+        MenuItem(key='claim_badges', label='Claim Badges', description='Claim available badges (coming soon)', icon='🏅'),
+        MenuItem(key='back', label='Back', description='', icon='🔙'),
+    ]
+)
+
+# ---------------------------------------------------------------
+# Подкатегория: Statistics
+# ---------------------------------------------------------------
+
+ABS_STATS_MENU = SubMenu(
+    key='abs_statistics',
+    label='Statistics',
+    description='Check Stats, Resume, Export, DB Info',
+    icon='📊',
+    qmark='📊',
+    pointer='👉',
+    items=[
+        MenuItem(key='stats', label='Check Stats', description='Collect stats (profile, badges, XP)', icon='📊'),
+        MenuItem(key='resume', label='Resume', description='Continue unfinished wallets', icon='▶️'),
+        MenuItem(key='export', label='Export XLSX', description='Export all data to Excel', icon='📄'),
+        MenuItem(key='db_info', label='Database Info', description='Show database status', icon='🗄️'),
+        MenuItem(key='reset', label='Reset & Start Over', description='Clear tasks and start over', icon='🔄'),
+        MenuItem(key='back', label='Back', description='', icon='🔙'),
+    ]
+)
+
+# ---------------------------------------------------------------
+# Подкатегория: Unstake
+# ---------------------------------------------------------------
+
+ABS_UNSTAKE_MENU = SubMenu(
+    key='abs_unstake',
+    label='Unstake',
+    description='Unstake tokens',
+    icon='🔓',
+    qmark='🔓',
+    pointer='👉',
+    items=[
+        MenuItem(key='back', label='Back', description='', icon='🔙'),
+    ]
+)
+
+# ---------------------------------------------------------------
+# Подкатегория: Claim Badges
+# ---------------------------------------------------------------
+
+ABS_CLAIM_BADGES_MENU = SubMenu(
+    key='abs_claim_badges',
+    label='Claim Badges',
+    description='Claim available badges',
+    icon='🏅',
+    qmark='🏅',
+    pointer='👉',
+    items=[
+        MenuItem(key='back', label='Back', description='', icon='🔙'),
     ]
 )
 
@@ -170,16 +221,14 @@ def _show_stats_table(results: list[dict]):
 # Главное меню Abstract Portal
 # ---------------------------------------------------------------
 
-def abs_menu():
-    """Главное меню Abstract Portal — вызывается из projects_menu ETHmachine."""
-    logger.banner()
-
+def _handle_statistics():
+    """Подменю Statistics."""
     while True:
         action = _show_menu(
-            "Abstract Portal — выберите действие:",
-            build_submenu_choices(ABS_MENU),
-            qmark=ABS_MENU.qmark,
-            pointer=ABS_MENU.pointer,
+            "Abstract Portal — Statistics:",
+            build_submenu_choices(ABS_STATS_MENU),
+            qmark=ABS_STATS_MENU.qmark,
+            pointer=ABS_STATS_MENU.pointer,
         )
 
         if action is None or action == 'back':
@@ -246,3 +295,59 @@ def abs_menu():
                     logger.log("Все задачи очищены. Можно начинать заново.", "success")
                 else:
                     logger.log("Отменено", "info")
+
+
+def _handle_unstake():
+    """Подменю Unstake (заготовка)."""
+    while True:
+        action = _show_menu(
+            "Abstract Portal — Unstake:",
+            build_submenu_choices(ABS_UNSTAKE_MENU),
+            qmark=ABS_UNSTAKE_MENU.qmark,
+            pointer=ABS_UNSTAKE_MENU.pointer,
+        )
+
+        if action is None or action == 'back':
+            return
+
+        # TODO: добавить обработчики unstake
+
+
+def _handle_claim_badges():
+    """Подменю Claim Badges (заготовка)."""
+    while True:
+        action = _show_menu(
+            "Abstract Portal — Claim Badges:",
+            build_submenu_choices(ABS_CLAIM_BADGES_MENU),
+            qmark=ABS_CLAIM_BADGES_MENU.qmark,
+            pointer=ABS_CLAIM_BADGES_MENU.pointer,
+        )
+
+        if action is None or action == 'back':
+            return
+
+        # TODO: добавить обработчики claim badges
+
+
+def abs_menu():
+    """Главное меню Abstract Portal — вызывается из projects_menu ETHmachine."""
+    logger.banner()
+
+    while True:
+        action = _show_menu(
+            "Abstract Portal — Select category:",
+            build_submenu_choices(ABS_MENU),
+            qmark=ABS_MENU.qmark,
+            pointer=ABS_MENU.pointer,
+        )
+
+        if action is None or action == 'back':
+            return
+
+        match action:
+            case 'statistics':
+                _handle_statistics()
+            case 'unstake':
+                _handle_unstake()
+            case 'claim_badges':
+                _handle_claim_badges()

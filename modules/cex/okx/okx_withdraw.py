@@ -17,7 +17,7 @@ from web3 import Web3
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from modules.simple_logger import logger
-from modules.proxy_manager import load_proxies, get_random_proxy_dict
+from modules.proxy_manager import get_random_proxy_dict
 
 def _get_okx_settings():
     """Получить настройки OKX с обработкой ошибок"""

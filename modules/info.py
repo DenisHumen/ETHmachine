@@ -58,39 +58,6 @@ MODULES_IN_DEVELOPMENT = {
     "📊 Project Stats": "Модуль отключен в main.py, папка stats_modules пуста",
 }
 
-def show_guide(feature_name):
-    """
-    Показывает гайд для указанной функции
-    
-    Args:
-        feature_name (str): Название функции для поиска гайда
-    """
-    print(Fore.CYAN + "=" * 60)
-    print(Fore.CYAN + f"📖 ГАЙД ДЛЯ: {Style.BRIGHT}{feature_name}")
-    print(Fore.CYAN + "=" * 60)
-    
-    guide_url = GUIDES_DICT.get(feature_name)
-    dev_reason = MODULES_IN_DEVELOPMENT.get(feature_name)
-    
-    if guide_url and guide_url.strip():
-        print(Fore.GREEN + "✅ Гайд найден!")
-        print(Fore.YELLOW + f"🔗 Ссылка: {Style.BRIGHT}{guide_url}")
-        print(Fore.WHITE + "\n📝 Описание:")
-        print(Fore.WHITE + f"   Подробная инструкция по использованию функции '{feature_name}'")
-        print(Fore.BLUE + "\n💡 Совет: Скопируйте ссылку и откройте в браузере")
-    elif dev_reason:
-        print(Fore.CYAN + "🚧 Модуль в разработке")
-        print(Fore.YELLOW + f"📝 Функция: {feature_name}")
-        print(Fore.WHITE + f"📋 Статус: {dev_reason}")
-        print(Fore.BLUE + "\n💬 Есть вопросы? Обращайтесь в Telegram: https://t.me/DenisHumen")
-    else:
-        print(Fore.RED + "❌ Гайд еще не написан")
-        print(Fore.YELLOW + f"📝 Функция: {feature_name}")
-        print(Fore.WHITE + "⏳ Гайд находится в разработке и будет добавлен в ближайшее время")
-        print(Fore.BLUE + "\n💬 Есть вопросы? Обращайтесь в Telegram: https://t.me/DenisHumen")
-    
-    print(Fore.CYAN + "=" * 60)
-
 def list_all_guides():
     """
     Показывает список всех доступных гайдов

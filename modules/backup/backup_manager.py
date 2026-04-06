@@ -10,10 +10,8 @@ import zipfile
 import time
 import hashlib
 import threading
-import json
 import getpass
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes

@@ -20,13 +20,12 @@ import sys
 import os
 import csv
 import time
-import json
 import random
 import requests
 from web3 import Web3
 from eth_account import Account
 from colorama import Fore, Style
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from itertools import cycle
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -212,26 +211,6 @@ def get_network_rpc(network):
     if not rpc_urls:
         raise Exception(f"Неизвестная сеть: {network}")
     return random.choice(rpc_urls)
-
-def get_token_address(network, token_symbol):
-    """Получение адреса токена для конкретной сети"""
-    network_mapping = {
-        '🚀 Base': base,
-        '🚀 Pharos Testnet': pharos_testnet,
-        # Добавьте другие сети по мере необходимости
-    }
-    
-    network_tokens = network_mapping.get(network)
-    if not network_tokens:
-        raise Exception(f"Сеть {network} не поддерживается для переводов токенов")
-    
-    # Поиск токена по символу (регистронезависимый)
-    token_symbol_lower = token_symbol.lower()
-    for symbol, address in network_tokens.items():
-        if symbol.lower() == token_symbol_lower or token_symbol_lower in symbol.lower():
-            return address
-    
-    raise Exception(f"Токен {token_symbol} не найден в сети {network}")
 
 def get_proxy_list():
     """Получение списка прокси"""

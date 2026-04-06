@@ -19,7 +19,7 @@ from questionary import Choice, select
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from modules.simple_logger import logger
-from modules.proxy_manager import get_random_proxy, get_proxy_dict, load_proxies, parse_proxy
+from modules.proxy_manager import get_random_proxy, load_proxies, parse_proxy
 from config.modules.cfg_base import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
 )
@@ -416,17 +416,6 @@ def initialize_all_wallets(wallets: List[str]):
                     ''', (wallet_address, private_key_hash, datetime.now(), datetime.now()))
             
             conn.commit()
-
-
-def has_pending_tasks() -> bool:
-    with sqlite3.connect(str(DB_FILE)) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*) FROM processing_progress 
-            WHERE status IN ('pending', 'processing', 'error')
-        ''')
-        count = cursor.fetchone()[0]
-        return count > 0
 
 
 def get_progress_stats() -> Dict[str, int]:

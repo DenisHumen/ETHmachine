@@ -14,10 +14,8 @@ from config.modules.cfg_nice_address import (
 import re
 import sys
 from pathlib import Path
-from colorama import Fore 
-from eth_account import Account  
+from eth_account import Account
 import random
-import time
 
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))

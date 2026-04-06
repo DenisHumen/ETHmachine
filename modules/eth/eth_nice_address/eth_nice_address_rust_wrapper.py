@@ -3,9 +3,7 @@ Python wrapper для Rust версии генератора nice адресов
 Автоматически компилирует и запускает Rust бинарник
 """
 import os
-import sys
 import subprocess
-import shutil
 from pathlib import Path
 from colorama import Fore, Style
 import questionary

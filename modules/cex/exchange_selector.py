@@ -200,17 +200,6 @@ def select_mexc_account():
     return select_exchange_account(specific_exchange='MEXC')
 
 
-def get_exchange_module_path(exchange_name):
-    """Получить путь к модулю биржи"""
-    exchange_paths = {
-        'OKX': 'modules.cex.okx',
-        'Binance': 'modules.cex.binance', 
-        'Bitget': 'modules.cex.bitget',
-        'MEXC': 'modules.cex.mexc',
-    }
-    return exchange_paths.get(exchange_name)
-
-
 if __name__ == "__main__":
     # Тест модуля
     print("🧪 Тестирование модуля выбора биржи")

@@ -19,8 +19,7 @@ import base64
 import json
 import time
 import requests
-from datetime import datetime
-from colorama import Fore, Style, init
+from colorama import Fore, init
 import sys
 from pathlib import Path
 import math

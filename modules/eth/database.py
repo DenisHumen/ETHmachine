@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from threading import Lock
 
 DB_DIR = Path(__file__).parent.parent.parent / "db"

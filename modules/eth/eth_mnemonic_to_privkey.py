@@ -1,7 +1,6 @@
 import binascii
 import csv
 from itertools import cycle
-from colorama import Fore, Style
 import sys
 from pathlib import Path
 from .eth_wallet_generator import (

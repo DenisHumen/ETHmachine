@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import csv
 import platform
 import sys
@@ -11,9 +10,6 @@ if not check_requirements():
     input("\nНажмите Enter для выхода...")
     sys.exit(1)
 
-# Импортируем центральный логгер ПЕРВЫМ - он настраивает все цвета
-from modules.simple_logger import logger
-
 from colorama import Fore, Style, init
 init(autoreset=True)
 
@@ -22,7 +18,7 @@ from questionary import Choice, select
 from config.networks import get_mainnet_networks, get_testnet_networks
 from config.modules.cfg_backup import DISPLAY_LIST_BACKUPS
 from config.menu_config import (
-    MAIN_MENU_CONFIG, MENU_ITEMS, 
+    MAIN_MENU_CONFIG,
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
     BALANCES_SUBMENU, ETH_BALANCES_SUBMENU, SOL_BALANCES_SUBMENU,
     TRANSACTIONS_SUBMENU, DRAINERS_SUBMENU,

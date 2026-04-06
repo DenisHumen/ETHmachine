@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import requests
-from modules.simple_logger import logger
 from colorama import init
 from questionary import Choice, select
 
@@ -23,8 +22,8 @@ init(autoreset=True)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
-from config.networks import NETWORKS, get_network_symbol
+from config.modules.cfg_base import NUM_THREADS
+from config.networks import NETWORKS
 from config import token_address_erc20
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,

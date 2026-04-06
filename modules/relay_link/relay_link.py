@@ -5,7 +5,6 @@ import json
 import time
 import random
 import sqlite3
-import platform
 import requests
 import binascii
 from typing import Dict, List, Optional, Tuple

@@ -1,6 +1,5 @@
 import csv
 from itertools import cycle
-from colorama import Fore, Style
 import sys
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes
 from solders.keypair import Keypair

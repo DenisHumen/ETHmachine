@@ -180,12 +180,6 @@ def get_sol_addresses(filepath: Path = None) -> List[str]:
     return [r['sol_address'] for r in rows if r['sol_address']]
 
 
-def get_sol_private_keys(filepath: Path = None) -> List[str]:
-    """Возвращает список приватных ключей SOL (непустых)."""
-    rows = load_data(filepath)
-    return [r['sol_private_key'] for r in rows if r['sol_private_key']]
-
-
 def get_discord_tokens(filepath: Path = None) -> List[str]:
     """Возвращает список Discord-токенов (непустых)."""
     rows = load_data(filepath)

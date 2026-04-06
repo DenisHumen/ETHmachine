@@ -3,7 +3,7 @@ import time
 import random
 import ccxt
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from modules.simple_logger import logger
 from typing import List, Dict, Optional
 import sys

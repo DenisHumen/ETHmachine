@@ -20,11 +20,10 @@ import ssl
 import asyncio
 import json
 import random
-import time
 import uuid
 from datetime import datetime
 
-from aiohttp import ClientSession, ClientTimeout, TCPConnector, CookieJar
+from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fake_useragent import FakeUserAgent

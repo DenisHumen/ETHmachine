@@ -3,7 +3,6 @@ Zora Claimer Worker
 Мультипоточная обработка клейма наград
 """
 
-import os
 import random
 import time
 from pathlib import Path

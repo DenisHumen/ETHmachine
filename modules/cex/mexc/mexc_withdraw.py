@@ -1,5 +1,4 @@
 import requests
-import base64
 import random
 import time
 import hmac
@@ -20,18 +19,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from modules.simple_logger import logger
 from modules.proxy_manager import get_random_proxy_dict
-
-def _get_mexc_settings():
-    """Получить настройки MEXC с обработкой ошибок"""
-    try:
-        from config.cex_settings import MEXC_ACCOUNTS
-        return MEXC_ACCOUNTS
-    except ImportError:
-        logger.error("Файл config/cex_settings.py не найден. Запустите main.py для создания.")
-        return []
-    except Exception as e:
-        logger.error(f"Ошибка в настройках MEXC: {e}")
-        return []
 
 from config.modules.cfg_cex import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
 from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS, NUM_THREADS

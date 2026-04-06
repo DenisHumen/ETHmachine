@@ -1,6 +1,6 @@
 """Адаптер прокси для Pharos — обёртка над modules.proxy_manager."""
 import random
-from modules.proxy_manager import ProxyManager as BaseProxyManager, parse_proxy
+from modules.proxy_manager import ProxyManager as BaseProxyManager
 
 
 class PharosProxyManager:

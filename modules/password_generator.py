@@ -2,10 +2,6 @@ import random
 import string
 import csv
 import os
-import sys
-import time
-from datetime import datetime
-from pathlib import Path
 from modules.simple_logger import logger, setup_file_logging
 
 # Импорт параметров из config/modules/cfg_password.py

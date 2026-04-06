@@ -7,7 +7,6 @@ from ecdsa.curves import SECP256k1
 from eth_utils import to_checksum_address, keccak as eth_utils_keccak
 import csv
 from itertools import cycle
-from colorama import Fore, Style
 import sys
 
 BIP39_PBKDF2_ROUNDS = 2048

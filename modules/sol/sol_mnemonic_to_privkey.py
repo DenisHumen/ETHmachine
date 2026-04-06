@@ -1,4 +1,3 @@
-import binascii
 import csv
 from itertools import cycle
 from colorama import Fore, Style
