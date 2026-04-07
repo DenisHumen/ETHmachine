@@ -9,7 +9,7 @@ from config.modules.cfg_base import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS
 from config.menu_config import SubMenu, MenuItem, build_submenu_choices
 from modules.abs import database as db
 from modules.abs import abs_logger as logger
-from modules.abs.worker import run_stats
+from modules.abs.worker import run_stats, run_claim_badges
 from modules.abs.excel_export import export_stats
 
 from modules.data_manager import load_data
@@ -29,7 +29,7 @@ ABS_MENU = SubMenu(
     items=[
         MenuItem(key='statistics', label='Statistics', description='Check Stats, Resume, Export, DB Info', icon='📊'),
         MenuItem(key='unstake', label='Unstake', description='Unstake tokens (coming soon)', icon='🔓'),
-        MenuItem(key='claim_badges', label='Claim Badges', description='Claim available badges (coming soon)', icon='🏅'),
+        MenuItem(key='claim_badges', label='Claim Badges', description='Claim available badges', icon='🏅'),
         MenuItem(key='back', label='Back', description='', icon='🔙'),
     ]
 )
@@ -83,6 +83,7 @@ ABS_CLAIM_BADGES_MENU = SubMenu(
     qmark='🏅',
     pointer='👉',
     items=[
+        MenuItem(key='claim', label='Claim All Available', description='Check & claim badges for all wallets', icon='🏅'),
         MenuItem(key='back', label='Back', description='', icon='🔙'),
     ]
 )
@@ -313,8 +314,59 @@ def _handle_unstake():
         # TODO: добавить обработчики unstake
 
 
+def _show_claim_results(results: list[dict]):
+    """Вывести таблицу результатов клейма."""
+    print(f"\n{Fore.GREEN}{'=' * 85}{Style.RESET_ALL}")
+    print(
+        f"  {Fore.WHITE}{'Address':<44} {'Claimed':>8} {'Failed':>8} "
+        f"{'Skipped':>8} {'Status':>10}{Style.RESET_ALL}"
+    )
+    print(f"  {Fore.GREEN}{'=' * 85}{Style.RESET_ALL}")
+
+    total_claimed = 0
+    total_failed = 0
+    total_skipped = 0
+
+    for r in results:
+        addr = r.get("address", "?")
+        claimed = len(r.get("claimed", []))
+        failed = len(r.get("failed", []))
+        skipped = len(r.get("skipped", []))
+
+        total_claimed += claimed
+        total_failed += failed
+        total_skipped += skipped
+
+        if not r.get("success") and r.get("error"):
+            print(
+                f"  {Fore.RED}{addr:<44} {'—':>8} {'—':>8} "
+                f"{'—':>8} {'ERROR':>10}{Style.RESET_ALL}"
+            )
+            continue
+
+        status_color = Fore.GREEN if failed == 0 else Fore.YELLOW
+        status = "OK" if failed == 0 else "PARTIAL"
+
+        print(
+            f"  {Fore.WHITE}{addr:<44} "
+            f"{Fore.GREEN}{claimed:>8} "
+            f"{Fore.RED if failed else Fore.WHITE}{failed:>8} "
+            f"{Fore.YELLOW if skipped else Fore.WHITE}{skipped:>8} "
+            f"{status_color}{status:>10}{Style.RESET_ALL}"
+        )
+
+    print(f"  {Fore.GREEN}{'─' * 85}{Style.RESET_ALL}")
+    print(
+        f"  {Fore.WHITE}{'TOTAL':<44} "
+        f"{Fore.GREEN}{total_claimed:>8} "
+        f"{Fore.RED if total_failed else Fore.WHITE}{total_failed:>8} "
+        f"{Fore.YELLOW if total_skipped else Fore.WHITE}{total_skipped:>8}{Style.RESET_ALL}"
+    )
+    print(f"  {Fore.GREEN}{'=' * 85}{Style.RESET_ALL}")
+
+
 def _handle_claim_badges():
-    """Подменю Claim Badges (заготовка)."""
+    """Подменю Claim Badges."""
     while True:
         action = _show_menu(
             "Abstract Portal — Claim Badges:",
@@ -326,7 +378,24 @@ def _handle_claim_badges():
         if action is None or action == 'back':
             return
 
-        # TODO: добавить обработчики claim badges
+        match action:
+            case 'claim':
+                if not _ensure_db():
+                    continue
+
+                print(f"\n{Fore.GREEN}╔══════════════════════════════════════════════════╗")
+                print(f"║{Fore.WHITE}       ABSTRACT PORTAL — CLAIM BADGES             {Fore.GREEN}║")
+                print(f"╚══════════════════════════════════════════════════╝{Style.RESET_ALL}")
+                print(f"  {Fore.WHITE}Режим: Проверка и клейм доступных бейджей")
+                print(f"  Потоки: {NUM_THREADS} | Задержка: {DELAY_BETWEEN_ACCOUNTS}с{Style.RESET_ALL}\n")
+
+                workers = _ask_workers()
+                try:
+                    results = asyncio.run(run_claim_badges(workers))
+                    if results:
+                        _show_claim_results(results)
+                except KeyboardInterrupt:
+                    logger.log("Клейм бейджей остановлен (Ctrl+C)", "warning")
 
 
 def abs_menu():

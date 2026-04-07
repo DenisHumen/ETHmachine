@@ -44,5 +44,8 @@ PRIVY_HEADERS = {
 # privy-client-id из реального браузера (общий для всех)
 PRIVY_CLIENT_ID = "client-WY5amHUxxFHMHHMmPJvBQgGPJQ1WuMFjP57qUmHcbu4g2"
 
+# Бейджи
+MIN_CLAIM_BALANCE = 0.0001  # Минимальный баланс ETH для клейма бейджа
+
 # Режим работы
 SHUFFLE_WALLETS = True  # Перемешивать кошельки

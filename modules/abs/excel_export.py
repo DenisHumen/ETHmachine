@@ -321,6 +321,63 @@ def export_stats(filename: str = None) -> str | None:
         _auto_width(ws_bs, len(bs_headers), len(wallets) + 1)
 
         # ═══════════════════════════════════════════════
+        # Лист 2.6: Badge Matrix (универсальная матрица бейджей)
+        # Колонки = все уникальные бейджи из БД, строки = кошельки
+        # Зелёный = заклеймлен, Жёлтый = готов к клейму, Красный = не готов
+        # ═══════════════════════════════════════════════
+        ws_bm = wb.create_sheet("Badge Matrix")
+
+        all_unique_badges = db.get_all_unique_badges()
+
+        bm_headers = ["#", "Account", "Address"]
+        for ub in all_unique_badges:
+            bm_headers.append(ub["badge_name"] or f"Badge #{ub['badge_id']}")
+        _write_headers(ws_bm, bm_headers)
+
+        _CLAIMED_FILL = PatternFill(start_color="00B050", end_color="00B050", fill_type="solid")
+        _CLAIMED_FONT = Font(bold=True, color="FFFFFF", size=10)
+        _CLAIMABLE_FILL = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
+        _CLAIMABLE_FONT = Font(bold=True, color="000000", size=10)
+        _NOT_READY_FILL = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+        _NOT_READY_FONT = Font(bold=True, color="FFFFFF", size=10)
+
+        for idx, w in enumerate(wallets, 1):
+            bm_row = idx + 1
+            ws_bm.cell(row=bm_row, column=1, value=idx).border = _THIN_BORDER
+            ws_bm.cell(row=bm_row, column=2,
+                        value=w.get("account_name") or f"Wallet_{idx}").border = _THIN_BORDER
+            ws_bm.cell(row=bm_row, column=3, value=w["address"]).border = _THIN_BORDER
+
+            # Получить бейджи этого кошелька, индексировать по badge_id
+            wallet_badges = db.get_badges(w["address"])
+            badges_by_id = {b["badge_id"]: b for b in wallet_badges}
+
+            for col_offset, ub in enumerate(all_unique_badges):
+                col = col_offset + 4
+                b = badges_by_id.get(ub["badge_id"])
+
+                if b and b.get("claimed"):
+                    status_text = "Claimed"
+                    fill = _CLAIMED_FILL
+                    font = _CLAIMED_FONT
+                elif b and b.get("claim_available"):
+                    status_text = "Claimable"
+                    fill = _CLAIMABLE_FILL
+                    font = _CLAIMABLE_FONT
+                else:
+                    status_text = "Not Ready"
+                    fill = _NOT_READY_FILL
+                    font = _NOT_READY_FONT
+
+                cell = ws_bm.cell(row=bm_row, column=col, value=status_text)
+                cell.border = _THIN_BORDER
+                cell.fill = fill
+                cell.font = font
+                cell.alignment = Alignment(horizontal="center")
+
+        _auto_width(ws_bm, len(bm_headers), len(wallets) + 1)
+
+        # ═══════════════════════════════════════════════
         # Лист 3: XP Recap
         # ═══════════════════════════════════════════════
         ws3 = wb.create_sheet("XP Recap")

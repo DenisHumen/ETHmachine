@@ -31,6 +31,7 @@ from fake_useragent import FakeUserAgent
 from config.modules.cfg_abs import (
     PORTAL_URL, BACKEND_URL, PRIVY_APP_ID, PRIVY_API_URL,
     DEFAULT_HEADERS, PRIVY_HEADERS, PRIVY_CLIENT_ID, REQUEST_TIMEOUT, CHAIN_ID,
+    RPC_URL, MIN_CLAIM_BALANCE,
 )
 from config.modules.cfg_base import RETRY_COUNT, SLEEP_BETWEEN_ACTIONS
 from modules.abs.abs_proxy import AbsProxyManager
@@ -208,7 +209,12 @@ class AbsClient:
 
                         elif resp.status in (400, 404):
                             try:
-                                return await resp.json()
+                                body = await resp.json()
+                                # Пометить как ошибочный ответ чтобы вызывающий код
+                                # не спутал с успешным ответом
+                                if isinstance(body, dict):
+                                    body["_http_status"] = resp.status
+                                return body
                             except Exception:
                                 text = await resp.text()
                                 self.log(f"HTTP {resp.status}: {text[:200]}", "warning")
@@ -403,6 +409,43 @@ class AbsClient:
             return float(resp["price"])
         return None
 
+    async def get_eth_balance(self, wallet_address: str) -> float | None:
+        """Получить баланс ETH внутреннего кошелька через RPC Abstract Chain.
+
+        Args:
+            wallet_address: Внутренний Abstract wallet address (из профиля)
+
+        Returns:
+            Баланс в ETH (float) или None
+        """
+        if not wallet_address:
+            return None
+
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "eth_getBalance",
+                "params": [wallet_address, "latest"],
+                "id": 1,
+            }
+            # RPC запрос без авторизации — простые JSON-RPC заголовки
+            rpc_headers = {
+                "Content-Type": "application/json",
+                "User-Agent": self.user_agent,
+            }
+            resp = await self._post(
+                RPC_URL, data=payload, headers=rpc_headers,
+                auto_reauth=False, retries=1,
+            )
+            if resp and "result" in resp:
+                balance_wei = int(resp["result"], 16)
+                balance_eth = balance_wei / 10**18
+                return balance_eth
+        except Exception as e:
+            self.log(f"Ошибка получения баланса ETH: {e}", "warning")
+
+        return None
+
     # ─────────────────── Tiers / Ranks ───────────────────
 
     async def get_tiers(self) -> list[dict] | None:
@@ -447,15 +490,534 @@ class AbsClient:
         Returns: {badgeId, isClaimed, account?}
         """
         resp = await self._post(f"{BACKEND_URL}/api/badge/{badge_id}/validate", data={})
+        self.log(f"[DEBUG] validate_badge({badge_id}) response: {resp}", "info")
+        if resp and isinstance(resp, dict):
+            resp.pop("_http_status", None)
         return resp
+
+    # ─────────────────── On-chain Badge Mint ───────────────────
+
+    # SignatureMinter контракт на Abstract Chain
+    BADGE_MINTER_CONTRACT = "0xAC5f79757A785579b9C593018efD6AB27cF8821F"
+    # mintBadge(address account, uint256 tokenId, bytes signature)
+    MINT_BADGE_SELECTOR = "0x29efcf80"  # keccak256("mintBadge(address,uint256,bytes)")[:4]
+
+    async def mint_badge_onchain(self, agw_account: str, token_id: int,
+                                  badge_signature: str) -> str | None:
+        """Отправить on-chain транзакцию mintBadge через AGW (ZKSync EIP-712, тип 113).
+
+        Args:
+            agw_account: AGW адрес (smart contract wallet, отправитель и получатель)
+            token_id: ID бейджа (badgeId)
+            badge_signature: Подпись от бэкенда для mintBadge
+
+        Returns:
+            tx_hash при успехе, None при ошибке
+        """
+        from eth_abi import encode
+        from eth_account.messages import encode_defunct
+        import rlp
+        from web3 import Web3
+
+        GAS_PER_PUBDATA_BYTE_LIMIT = 50000  # стандарт ZKSync
+
+        try:
+            # 1. Encode calldata: mintBadge(address, uint256, bytes)
+            sig_bytes = bytes.fromhex(badge_signature.replace("0x", ""))
+            calldata = bytes.fromhex(self.MINT_BADGE_SELECTOR.replace("0x", ""))
+            calldata += encode(
+                ["address", "uint256", "bytes"],
+                [agw_account, token_id, sig_bytes],
+            )
+
+            # 2. Get nonce для AGW (from = AGW)
+            nonce_resp = await self._rpc_call(
+                "eth_getTransactionCount", [agw_account, "latest"])
+            if nonce_resp is None:
+                self.log("Не удалось получить nonce AGW", "error")
+                return None
+            nonce = int(nonce_resp, 16)
+
+            # 3. Get gas price
+            gas_price_resp = await self._rpc_call("eth_gasPrice", [])
+            if gas_price_resp is None:
+                self.log("Не удалось получить gas price", "error")
+                return None
+            gas_price = int(gas_price_resp, 16)
+
+            # 4. Estimate gas (from = AGW)
+            estimate_tx = {
+                "from": agw_account,
+                "to": self.BADGE_MINTER_CONTRACT,
+                "data": "0x" + calldata.hex(),
+                "value": "0x0",
+            }
+            gas_resp = await self._rpc_call("eth_estimateGas", [estimate_tx])
+            if gas_resp is None:
+                self.log("Не удалось оценить газ", "error")
+                return None
+            gas_limit = int(int(gas_resp, 16) * 1.2)
+
+            # 5. Build EIP-712 typed data hash (ZKSync Transaction)
+            to_addr = bytes.fromhex(self.BADGE_MINTER_CONTRACT[2:])
+            from_addr = bytes.fromhex(agw_account[2:].lower())
+
+            # EIP-712 domain
+            domain_type_hash = Web3.keccak(
+                text="EIP712Domain(string name,string version,uint256 chainId)"
+            )
+            domain_hash = Web3.keccak(
+                domain_type_hash
+                + Web3.keccak(text="zkSync")
+                + Web3.keccak(text="2")
+                + encode(["uint256"], [CHAIN_ID])
+            )
+
+            # Transaction type hash
+            tx_type_hash = Web3.keccak(
+                text="Transaction(uint256 txType,uint256 from,uint256 to,"
+                     "uint256 gasLimit,uint256 gasPerPubdataByteLimit,"
+                     "uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,"
+                     "uint256 paymaster,uint256 nonce,uint256 value,"
+                     "bytes data,bytes32[] factoryDeps,bytes paymasterInput)"
+            )
+
+            # Encode transaction struct
+            from_int = int(agw_account, 16)
+            to_int = int(self.BADGE_MINTER_CONTRACT, 16)
+            struct_encoded = encode(
+                ["bytes32",
+                 "uint256", "uint256", "uint256",
+                 "uint256", "uint256",
+                 "uint256", "uint256",
+                 "uint256", "uint256", "uint256",
+                 "bytes32", "bytes32", "bytes32"],
+                [tx_type_hash,
+                 113, from_int, to_int,
+                 gas_limit, GAS_PER_PUBDATA_BYTE_LIMIT,
+                 gas_price, gas_price,
+                 0, nonce, 0,
+                 Web3.keccak(calldata),
+                 Web3.keccak(encode(["bytes32[]"], [[]])),
+                 Web3.keccak(b"")]
+            )
+            struct_hash = Web3.keccak(struct_encoded)
+
+            # EIP-712 final hash
+            sign_hash = Web3.keccak(
+                b"\x19\x01" + domain_hash + struct_hash
+            )
+
+            # 6. Sign with EOA private key
+            signed = self.account.signHash(sign_hash)
+            custom_signature = bytes([signed.v]) if signed.v < 256 else b""
+            custom_signature = (
+                signed.r.to_bytes(32, "big")
+                + signed.s.to_bytes(32, "big")
+                + bytes([signed.v])
+            )
+
+            # 7. RLP encode ZKSync type 113 transaction
+            rlp_fields = [
+                nonce,                          # nonce
+                gas_price,                      # maxPriorityFeePerGas
+                gas_price,                      # maxFeePerGas
+                gas_limit,                      # gasLimit
+                to_addr,                        # to
+                0,                              # value
+                calldata,                       # data
+            ]
+
+            # Encode main tx
+            tx_rlp = rlp.encode(rlp_fields)
+
+            # ZKSync EIP-712 serialization
+            # [nonce, maxPriorityFee, maxFee, gasLimit, to, value, data,
+            #  chainId, empty, empty,  # EIP-155 fields
+            #  chainId, from, gasPerPubdata, factoryDeps, customSignature, paymasterInput]
+            full_fields = [
+                nonce,
+                gas_price,                      # maxPriorityFeePerGas
+                gas_price,                      # maxFeePerGas
+                gas_limit,
+                to_addr,
+                0,                              # value
+                calldata,
+                CHAIN_ID,                       # chainId
+                b"",                            # empty (EIP-155)
+                b"",                            # empty (EIP-155)
+                CHAIN_ID,                       # chainId again
+                from_addr,                      # from (AGW)
+                GAS_PER_PUBDATA_BYTE_LIMIT,     # gasPerPubdataByteLimit
+                [],                             # factoryDeps
+                custom_signature,               # customSignature (EOA sig)
+                b"",                            # paymasterInput
+            ]
+            raw_tx = b"\x71" + rlp.encode(full_fields)
+            raw_tx_hex = "0x" + raw_tx.hex()
+
+            # 8. Send transaction
+            tx_hash = await self._rpc_call("eth_sendRawTransaction", [raw_tx_hex])
+            if not tx_hash:
+                self.log("Не удалось отправить транзакцию", "error")
+                return None
+
+            self.log(f"TX отправлена: {tx_hash}", "info")
+
+            # 9. Wait for receipt
+            for _ in range(30):
+                await asyncio.sleep(2)
+                receipt = await self._rpc_call(
+                    "eth_getTransactionReceipt", [tx_hash])
+                if receipt:
+                    status = int(receipt.get("status", "0x0"), 16)
+                    if status == 1:
+                        self.log(f"TX подтверждена: {tx_hash}", "success")
+                        return tx_hash
+                    else:
+                        self.log(f"TX ревёрнулась: {tx_hash}", "error")
+                        return None
+
+            self.log(f"Таймаут ожидания TX: {tx_hash}", "warning")
+            return tx_hash
+
+        except Exception as e:
+            self.log(f"Ошибка mint_badge_onchain: {e}", "error")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", "error")
+            return None
+
+    async def _rpc_call(self, method: str, params: list) -> str | dict | None:
+        """Вызов JSON-RPC метода на Abstract Chain."""
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "id": 1,
+        }
+        rpc_headers = {
+            "Content-Type": "application/json",
+            "User-Agent": self.user_agent,
+        }
+        resp = await self._post(
+            RPC_URL, data=payload, headers=rpc_headers,
+            auto_reauth=False, retries=2,
+        )
+        if resp and "result" in resp:
+            return resp["result"]
+        if resp and "error" in resp:
+            err = resp["error"]
+            self.log(f"RPC error: {err}", "warning")
+        return None
 
     async def claim_badge(self, badge_id: int) -> dict | None:
         """Заклеймить бейдж.
 
-        Returns: {account, badgeId, signature}
+        Returns: {account, badgeId, signature} при успехе
         """
         resp = await self._post(f"{BACKEND_URL}/api/badge/{badge_id}/claim", data={})
+        self.log(f"[DEBUG] claim_badge({badge_id}) raw response: {resp}", "info")
+        # Если HTTP 400/404 — это ошибка, не успех
+        if resp and isinstance(resp, dict) and resp.get("_http_status") in (400, 404):
+            status = resp.pop("_http_status")
+            self.log(f"[DEBUG] claim_badge({badge_id}) HTTP {status} error", "warning")
+            # Вернуть как ошибку — оставить message/error поля для обработки
+            if "badgeId" in resp:
+                resp.pop("badgeId")  # Убрать badgeId из ошибочного ответа
+            if "account" in resp:
+                resp.pop("account")  # Убрать account из ошибочного ответа
         return resp
+
+    # ─────────────────── Badge Claiming Workflow ───────────────────
+
+    async def claim_available_badges(self) -> dict:
+        """Проверить и заклеймить все доступные бейджи.
+
+        Выполняет:
+          1. Авторизация
+          2. Получить профиль (claimed badges)
+          3. Получить все бейджи + validate каждый
+          4. Клеймить доступные с ретраями
+
+        Возвращает: {address, success, claimed: [...], failed: [...], skipped: [...]}
+        """
+        result = {
+            "address": self.address,
+            "success": False,
+            "claimed": [],
+            "failed": [],
+            "skipped": [],
+            "total_badges": 0,
+            "already_claimed": 0,
+        }
+
+        # 1. Auth
+        if not await self.ensure_auth():
+            result["error"] = "Ошибка авторизации"
+            return result
+
+        await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+
+        # 2. Profile — получить список уже заклеймленных + бейджи из профиля
+        profile_resp = await self.get_profile()
+        if not profile_resp or "user" not in profile_resp:
+            result["error"] = "Не удалось получить профиль"
+            return result
+
+        user = profile_resp["user"]
+        user_badges = user.get("badges", [])
+        claimed_ids = set()
+        for ub in user_badges:
+            badge_info = ub.get("badge", {})
+            if ub.get("claimed"):
+                claimed_ids.add(badge_info.get("id"))
+
+        await asyncio.sleep(random.uniform(1, 2))
+
+        # 2.5. Проверка баланса ETH — нужно минимум MIN_CLAIM_BALANCE для клейма
+        abs_wallet = user.get("walletAddress", "")
+        if abs_wallet:
+            eth_balance = await self.get_eth_balance(abs_wallet)
+            if eth_balance is not None and eth_balance < MIN_CLAIM_BALANCE:
+                self.log(
+                    f"Недостаточный баланс: {eth_balance:.6f} ETH "
+                    f"(нужно минимум {MIN_CLAIM_BALANCE} ETH для клейма бейджа)",
+                    "error",
+                )
+                result["error"] = (
+                    f"Insufficient balance: {eth_balance:.6f} ETH "
+                    f"(need at least {MIN_CLAIM_BALANCE} ETH)"
+                )
+                return result
+
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # 3. Объединить бейджи из всех источников: /api/badge + flash + profile
+        api_badges = await self.get_badges() or []
+        await asyncio.sleep(random.uniform(0.5, 1))
+        flash_badge = await self.get_flash_badges()
+
+        merged: dict[int, dict] = {}
+
+        # 1) Бейджи из профиля (основной источник — все earned/claimed)
+        for ub in user_badges:
+            badge_info = ub.get("badge", {})
+            bid = badge_info.get("id")
+            if bid:
+                merged[bid] = {"id": bid, "name": badge_info.get("name", ""), "type": badge_info.get("type", "regular")}
+
+        # 2) Бейджи из /api/badge (regular)
+        for b in api_badges:
+            bid = b.get("id")
+            if bid not in merged:
+                merged[bid] = {"id": bid, "name": b.get("name", ""), "type": b.get("type", "regular")}
+
+        # 3) Flash бейдж
+        if flash_badge and isinstance(flash_badge, dict) and "id" in flash_badge:
+            fid = flash_badge["id"]
+            if fid not in merged:
+                merged[fid] = {"id": fid, "name": flash_badge.get("name", ""), "type": "flash"}
+
+        all_badges = list(merged.values())
+        result["total_badges"] = len(all_badges)
+        result["already_claimed"] = len(claimed_ids)
+
+        self.log(
+            f"Проверка бейджей: {len(all_badges)} всего, "
+            f"{len(claimed_ids)} из профиля уже заклеймлено",
+            "info",
+        )
+
+        # 4. Validate каждый незаклеймленный, собрать список для клейма
+        claimable_badges = []
+        for b in sorted(all_badges, key=lambda x: x["id"]):
+            badge_id = b.get("id")
+            badge_name = b.get("name", f"Badge #{badge_id}")
+
+            if badge_id in claimed_ids:
+                continue
+
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+
+            # Validate — account в ответе = бейдж заработан и готов к клейму
+            validate_resp = await self.validate_badge(badge_id)
+            if validate_resp:
+                if validate_resp.get("isClaimed"):
+                    claimed_ids.add(badge_id)
+                    self.log(f"  {badge_name}: уже заклеймлен", "info")
+                    continue
+                elif "account" in validate_resp:
+                    claimable_badges.append(b)
+                    self.log(f"  {badge_name}: готов к клейму ✓", "success")
+                    continue
+
+            result["skipped"].append({
+                "id": badge_id,
+                "name": badge_name,
+                "reason": "not ready",
+            })
+            self.log(f"  {badge_name}: не готов", "info")
+
+        result["already_claimed"] = len(claimed_ids)
+
+        if not claimable_badges:
+            self.log(
+                f"Нет бейджей для клейма ({len(claimed_ids)} уже заклеймлено, "
+                f"{len(result['skipped'])} не готовы)",
+                "info",
+            )
+            result["success"] = True
+            return result
+
+        self.log(
+            f"Найдено {len(claimable_badges)} бейджей для клейма",
+            "success",
+        )
+
+        # 5. Клеймить: получить подпись от API + mint on-chain
+        for b in claimable_badges:
+            badge_id = b.get("id")
+            badge_name = b.get("name", f"Badge #{badge_id}")
+
+            await asyncio.sleep(random.uniform(1, 2))
+
+            self.log(f"Клейм бейджа: {badge_name}...", "info")
+            claimed = False
+            last_error = None
+
+            for attempt in range(RETRY_COUNT + 1):
+                await asyncio.sleep(random.uniform(1, 3))
+
+                # Шаг 1: Получить подпись от бэкенда
+                claim_resp = await self.claim_badge(badge_id)
+
+                if not claim_resp:
+                    last_error = "Пустой ответ от API"
+                    self.log(
+                        f"Ошибка клейма {badge_name} (попытка {attempt + 1}): {last_error}",
+                        "warning",
+                    )
+                    if attempt < RETRY_COUNT:
+                        await asyncio.sleep(random.uniform(2, 5))
+                    continue
+
+                # Проверить ошибки от API
+                if claim_resp.get("error"):
+                    last_error = claim_resp.get("error")
+                    self.log(
+                        f"Ошибка клейма {badge_name} (попытка {attempt + 1}): {last_error}",
+                        "warning",
+                    )
+                    if attempt < RETRY_COUNT:
+                        await asyncio.sleep(random.uniform(2, 5))
+                    continue
+
+                if claim_resp.get("message"):
+                    last_error = claim_resp.get("message")
+                    msg_lower = str(last_error).lower()
+                    if "already" in msg_lower or "claimed" in msg_lower:
+                        self.log(f"Бейдж {badge_name} уже заклеймлен", "info")
+                        claimed = True
+                        break
+                    if "not earned" in msg_lower or "has not earned" in msg_lower:
+                        self.log(f"Бейдж {badge_name} не заработан, пропуск", "warning")
+                        break
+                    self.log(
+                        f"Ошибка клейма {badge_name} (попытка {attempt + 1}): {last_error}",
+                        "warning",
+                    )
+                    if attempt < RETRY_COUNT:
+                        await asyncio.sleep(random.uniform(2, 5))
+                    continue
+
+                # Шаг 2: Получены данные для минта
+                mint_account = claim_resp.get("account")
+                mint_signature = claim_resp.get("signature")
+                mint_badge_id = claim_resp.get("badgeId")
+
+                if not mint_account or not mint_signature:
+                    last_error = f"Неполный ответ: {claim_resp}"
+                    self.log(
+                        f"Ошибка клейма {badge_name} (попытка {attempt + 1}): {last_error}",
+                        "warning",
+                    )
+                    if attempt < RETRY_COUNT:
+                        await asyncio.sleep(random.uniform(2, 5))
+                    continue
+
+                # Если badgeId в ответе — число, использовать его; иначе badge_id
+                token_id = badge_id
+                if mint_badge_id:
+                    try:
+                        token_id = int(mint_badge_id)
+                    except (ValueError, TypeError):
+                        pass
+
+                self.log(
+                    f"Подпись получена, минт на контракт: "
+                    f"account={mint_account}, tokenId={token_id}",
+                    "info",
+                )
+
+                # Шаг 3: On-chain mint
+                tx_hash = await self.mint_badge_onchain(
+                    mint_account, token_id, mint_signature,
+                )
+
+                if tx_hash:
+                    claimed = True
+                    self.log(
+                        f"✓ Бейдж заминчен on-chain: {badge_name} (tx: {tx_hash})",
+                        "success",
+                    )
+                    break
+                else:
+                    last_error = "Ошибка on-chain mint транзакции"
+                    self.log(
+                        f"Ошибка минта {badge_name} (попытка {attempt + 1})",
+                        "warning",
+                    )
+                    if attempt < RETRY_COUNT:
+                        await asyncio.sleep(random.uniform(3, 6))
+
+            if claimed:
+                result["claimed"].append({"id": badge_id, "name": badge_name})
+                claimed_ids.add(badge_id)
+                db.update_badge_claimed(self.address, badge_id)
+                db.log_action(self.address, "claim_badge", "success",
+                              details=badge_name)
+            else:
+                self.log(f"✗ Не удалось заклеймить: {badge_name}", "error")
+                result["failed"].append({
+                    "id": badge_id,
+                    "name": badge_name,
+                    "error": str(last_error),
+                })
+                db.log_action(self.address, "claim_badge", "failed",
+                              details=badge_name, error=str(last_error))
+
+            await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+
+        # Итог
+        total_claimed = len(result["claimed"])
+        total_failed = len(result["failed"])
+        total_skipped = len(result["skipped"])
+
+        if total_claimed > 0 or total_failed == 0:
+            result["success"] = True
+
+        self.log(
+            f"Итого: +{total_claimed} заклеймлено, {total_failed} ошибок, "
+            f"{total_skipped} не готовы",
+            "success" if total_failed == 0 else "warning",
+        )
+
+        db.log_action(
+            self.address, "claim_badges", "success" if result["success"] else "partial",
+            details=f"claimed={total_claimed}, failed={total_failed}, skipped={total_skipped}",
+        )
+
+        return result
 
     # ─────────────────── XP / Experience ───────────────────
 
@@ -554,67 +1116,100 @@ class AbsClient:
 
         await asyncio.sleep(random.uniform(1, 2))
 
-        # 4. ETH balance (from oracle)
+        # 4. ETH balance через RPC (внутренний Abstract кошелёк)
         eth_price = await self.get_eth_price()
         result["eth_price"] = eth_price
 
+        eth_balance = None
+        if abs_wallet:
+            eth_balance = await self.get_eth_balance(abs_wallet)
+            if eth_balance is not None:
+                result["eth_balance"] = f"{eth_balance:.6f}"
+                self.log(f"Баланс: {eth_balance:.6f} ETH", "info")
+            else:
+                result["eth_balance"] = ""
+
         await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
 
-        # 5. Badges
-        all_badges = await self.get_badges()
+        # 5. Badges — объединяем 3 источника: /api/badge, /api/badge/flash, profile
+        api_badges = await self.get_badges() or []
         flash_badge = await self.get_flash_badges()
 
         user_badges = user.get("badges", [])
         # user_badges: [{badge: {id, name, ...}, claimed: bool}, ...]
-        claimed_ids = set()
+
+        # Собираем единый список бейджей из всех источников
+        merged_badges: dict[int, dict] = {}
+
+        # 1) Бейджи из профиля (основной источник — все earned/claimed)
         for ub in user_badges:
             badge_info = ub.get("badge", {})
-            if ub.get("claimed"):
-                claimed_ids.add(badge_info.get("id"))
+            bid = badge_info.get("id")
+            if bid:
+                merged_badges[bid] = {
+                    "id": bid,
+                    "name": badge_info.get("name", ""),
+                    "icon": badge_info.get("icon", ""),
+                    "description": badge_info.get("description", ""),
+                    "requirement": badge_info.get("requirement", ""),
+                    "type": badge_info.get("type", "regular"),
+                }
 
-        badges_result = []
-        if all_badges:
-            for b in all_badges:
-                badge_id = b.get("id")
-                is_claimed = badge_id in claimed_ids
-
-                # Validate unclaimed badges
-                claim_available = False
-                if not is_claimed:
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                    validate_resp = await self.validate_badge(badge_id)
-                    if validate_resp:
-                        claim_available = not validate_resp.get("isClaimed", True)
-                        if validate_resp.get("isClaimed"):
-                            is_claimed = True
-                            claimed_ids.add(badge_id)
-
-                badges_result.append({
-                    "id": badge_id,
+        # 2) Бейджи из /api/badge (regular — могут быть ещё не earned)
+        for b in api_badges:
+            bid = b.get("id")
+            if bid not in merged_badges:
+                merged_badges[bid] = {
+                    "id": bid,
                     "name": b.get("name", ""),
                     "icon": b.get("icon", ""),
                     "description": b.get("description", ""),
                     "requirement": b.get("requirement", ""),
                     "type": b.get("type", "regular"),
-                    "claimed": is_claimed,
-                    "claim_available": claim_available,
-                })
+                }
 
-        # Add flash badge if exists
+        # 3) Flash бейдж
         if flash_badge and isinstance(flash_badge, dict) and "id" in flash_badge:
-            flash_id = flash_badge.get("id")
-            if flash_id not in {b["id"] for b in badges_result}:
-                is_claimed = flash_id in claimed_ids
-                badges_result.append({
-                    "id": flash_id,
+            fid = flash_badge["id"]
+            if fid not in merged_badges:
+                merged_badges[fid] = {
+                    "id": fid,
                     "name": flash_badge.get("name", ""),
                     "icon": flash_badge.get("icon", ""),
                     "description": flash_badge.get("description", ""),
                     "requirement": flash_badge.get("requirement", ""),
                     "type": "flash",
-                    "claimed": is_claimed,
-                    "claim_available": False,
-                })
+                }
+
+        # Claimed из профиля
+        profile_claimed_ids = set()
+        for ub in user_badges:
+            badge_info = ub.get("badge", {})
+            if ub.get("claimed"):
+                profile_claimed_ids.add(badge_info.get("id"))
+
+        # Validate каждый бейдж
+        badges_result = []
+        for bid in sorted(merged_badges.keys()):
+            b = merged_badges[bid]
+            is_claimed = bid in profile_claimed_ids
+            claim_available = False
+
+            if not is_claimed:
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+                validate_resp = await self.validate_badge(bid)
+                if validate_resp:
+                    if validate_resp.get("isClaimed"):
+                        is_claimed = True
+                        profile_claimed_ids.add(bid)
+                    elif "account" in validate_resp:
+                        claim_available = True
+
+            badges_result.append({
+                **b,
+                "claimed": is_claimed,
+                "claim_available": claim_available,
+            })
 
         result["badges"] = badges_result
         claimed_count = sum(1 for b in badges_result if b["claimed"])
@@ -655,6 +1250,7 @@ class AbsClient:
             voted_today=False,
             twitter=twitter, discord=discord,
             abs_wallet=abs_wallet,
+            eth_balance=result.get("eth_balance") or None,
         )
 
         result["success"] = True

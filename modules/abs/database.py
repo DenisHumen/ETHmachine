@@ -382,6 +382,52 @@ def get_badges(address: str) -> list[dict]:
             conn.close()
 
 
+def update_badge_claimed(address: str, badge_id: int):
+    """Пометить бейдж как заклеймленный."""
+    with _db_lock:
+        conn = get_connection()
+        try:
+            conn.execute("""
+                UPDATE badges SET claimed = 1, claim_available = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE wallet_address = ? AND badge_id = ?
+            """, (address, badge_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def get_wallets_with_claimable_badges() -> list[dict]:
+    """Получить кошельки, у которых есть бейджи доступные для клейма."""
+    with _db_lock:
+        conn = get_connection()
+        try:
+            _init_schema(conn)
+            rows = conn.execute("""
+                SELECT DISTINCT w.* FROM wallets w
+                INNER JOIN badges b ON w.address = b.wallet_address
+                WHERE b.claim_available = 1 AND b.claimed = 0
+                ORDER BY w.id
+            """).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+
+def get_all_unique_badges() -> list[dict]:
+    """Получить список всех уникальных бейджей (id + name) из БД."""
+    with _db_lock:
+        conn = get_connection()
+        try:
+            _init_schema(conn)
+            rows = conn.execute(
+                "SELECT DISTINCT badge_id, badge_name FROM badges ORDER BY badge_id"
+            ).fetchall()
+            return [{"badge_id": r["badge_id"], "badge_name": r["badge_name"]} for r in rows]
+        finally:
+            conn.close()
+
+
 # ---------------------------------------------------------------
 # XP History
 # ---------------------------------------------------------------
