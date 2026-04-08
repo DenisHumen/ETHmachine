@@ -267,8 +267,9 @@ class XStocksClient:
         full_msg = f"{message} | {ts}"
         msg_encoded = encode_defunct(text=full_msg)
         signed = self.account.sign_message(msg_encoded)
-        sig = signed.signature.hex()
-        # API ожидает подпись С 0x префиксом (HexBytes.hex() уже включает его)
+        raw_hex = signed.signature.hex()
+        # Гарантируем 0x префикс (в hexbytes>=1.0 .hex() возвращает без него)
+        sig = raw_hex if raw_hex.startswith("0x") else "0x" + raw_hex
         return sig, ts
 
     # ─────────────────── Solana Signing ───────────────────
