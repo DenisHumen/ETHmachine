@@ -367,6 +367,7 @@ TOOLS_SUBMENU = SubMenu(
         MenuItem(key='last_transactions', label='Last Transactions', description='Проверить последние транзакции', icon='🗂️', enabled=True),
         MenuItem(key='check_age_discord', label='Check age discord', description='Проверить возраст аккаунта Discord', icon='🗂️', enabled=True),
         MenuItem(key='email_checker', label='Email IMAP Checker', description='Проверить почтовые аккаунты через IMAP', icon='📧', enabled=True),
+        MenuItem(key='pinterest_downloader', label='Pinterest Downloader', description='Скачать рандомные картинки из Pinterest', icon='📌', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )

@@ -157,6 +157,13 @@ def check_and_create_files():
     from modules.data_manager import _ensure_data_file
     _ensure_data_file()
 
+    # Автосоздание config/modules/cfg_pinterest.py
+    pinterest_cfg = 'config/modules/cfg_pinterest.py'
+    if not os.path.exists(pinterest_cfg):
+        with open(pinterest_cfg, 'w', encoding='utf-8') as f:
+            f.write(_get_default_pinterest_settings())
+        print(Fore.GREEN + f"File created: {pinterest_cfg}")
+
 
 def _write_default_file_content(f, file_path: str):
     """Записывает содержимое по умолчанию для файла"""
@@ -227,6 +234,28 @@ MEXC_ACCOUNTS = [
         'enabled': False,
     },
 ]
+'''
+
+
+def _get_default_pinterest_settings() -> str:
+    """Возвращает содержимое по умолчанию для cfg_pinterest.py"""
+    return '''# ========================================================================================
+# PINTEREST DOWNLOADER
+# ========================================================================================
+# Настройки для скачивания рандомных картинок с Pinterest
+# Требуется аккаунт Pinterest для авторизации
+
+PINTEREST_EMAIL = ''              # Email аккаунта Pinterest
+PINTEREST_PASSWORD = ''           # Пароль аккаунта Pinterest
+
+# Максимальное количество картинок за одну сессию
+PINTEREST_MAX_IMAGES = 500
+
+# Задержка между скачиванием картинок [мин, макс] в секундах
+PINTEREST_DOWNLOAD_DELAY = [0.2, 0.6]
+
+# Качество картинок: 'originals' (максимальное), '736x' (среднее), '564x' (сжатое)
+PINTEREST_IMAGE_QUALITY = 'originals'
 '''
 
 
@@ -657,6 +686,9 @@ class MenuHandlers:
                 MenuHandlers._handle_discord_check()
             case 'email_checker':
                 run_email_checker()
+            case 'pinterest_downloader':
+                from modules.pinterest_downloader import pinterest_downloader_menu
+                pinterest_downloader_menu()
     
     @staticmethod
     def _handle_generate_wallets():
