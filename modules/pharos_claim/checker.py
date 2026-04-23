@@ -89,7 +89,13 @@ def _parse_airdrop_info(body: dict) -> ClaimCheckResult:
     """Разобрать ответ GET /airdrop/airdrop_info.
 
     Известные формы:
-      eligible:     {"code":0, "success":true, "data":{...allocation/tiers...}}
+      eligible:     {"code":0, "success":true, "data":{
+                        "airdrop_amount":"9228637895000000000",  # wei
+                        "airdrop_token":"0x0",
+                        "claim_tier":"now",
+                        "is_checked":0,
+                        ...
+                    }}
       not eligible: {"code":40001, "message":"no data", "data":null, "success":true}
     """
     if not isinstance(body, dict):
@@ -109,24 +115,57 @@ def _parse_airdrop_info(body: dict) -> ClaimCheckResult:
     claimed: Optional[bool] = None
     tiers: Optional[list] = None
 
-    for k in ("amount", "allocation", "total", "reward", "points", "phrs", "total_amount"):
-        v = data.get(k)
-        if v not in (None, "", 0, "0"):
-            amount = str(v)
-            break
+    # ── amount: приоритет у airdrop_amount (wei, 18 decimals → PHRS) ──
+    raw_amount = data.get("airdrop_amount")
+    if raw_amount not in (None, "", 0, "0"):
+        try:
+            wei = int(str(raw_amount))
+            # Человекочитаемо: 4 знака после запятой, без хвостовых нулей.
+            amt = wei / 10 ** 18
+            amount = f"{amt:.4f}".rstrip("0").rstrip(".") or "0"
+            amount = f"{amount} PHRS"
+        except (TypeError, ValueError):
+            amount = str(raw_amount)
 
-    for k in ("claimed", "is_claimed", "isClaimed", "has_claimed", "hasClaimed"):
+    # ── fallback на старые/альтернативные ключи ──
+    if amount is None:
+        for k in ("amount", "allocation", "total", "reward", "points", "phrs", "total_amount"):
+            v = data.get(k)
+            if v not in (None, "", 0, "0"):
+                amount = str(v)
+                break
+
+    # ── claimed: is_checked (1/0) — признак того что награду уже забрали ──
+    if "is_checked" in data and data["is_checked"] is not None:
+        try:
+            claimed = bool(int(data["is_checked"]))
+        except (TypeError, ValueError):
+            claimed = bool(data["is_checked"])
+    else:
+        for k in ("claimed", "is_claimed", "isClaimed", "has_claimed", "hasClaimed"):
+            if k in data and data[k] is not None:
+                claimed = bool(data[k])
+                break
+
+    # ── tiers: сохраняем claim_tier/airdrop_type/claim_total как структурированный список ──
+    tier_entry: dict = {}
+    for k in ("claim_tier", "airdrop_type", "claim_total", "airdrop_token", "gas_sent"):
         if k in data and data[k] is not None:
-            claimed = bool(data[k])
-            break
+            tier_entry[k] = data[k]
+    if tier_entry:
+        tiers = [tier_entry]
+    else:
+        for k in ("tiers", "tier_list", "allocations", "breakdown"):
+            v = data.get(k)
+            if isinstance(v, list) and v:
+                tiers = v
+                break
 
-    for k in ("tiers", "tier_list", "allocations", "breakdown"):
-        v = data.get(k)
-        if isinstance(v, list) and v:
-            tiers = v
-            break
-
-    eligible = bool(amount or tiers or data.get("eligible") or data.get("is_eligible"))
+    eligible = bool(
+        amount or tiers
+        or data.get("eligible") or data.get("is_eligible")
+        or data.get("airdrop_amount") or data.get("airdrop_account")
+    )
 
     return ClaimCheckResult(
         eligible=eligible,

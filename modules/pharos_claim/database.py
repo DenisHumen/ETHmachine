@@ -60,6 +60,25 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_claim_tasks_run ON claim_tasks(run_id, status)")
+    # ── Колонки для on-chain клейма (ALTER TABLE с защитой от повторного добавления)
+    existing_cols = {r["name"] for r in conn.execute("PRAGMA table_info(claim_tasks)").fetchall()}
+    for col, ddl in (
+        ("claim_status",        "TEXT"),    # pending / claimed / failed / skipped
+        ("claim_tx_hash",       "TEXT"),
+        ("claim_amount",        "TEXT"),
+        ("claim_tier",          "TEXT"),
+        ("claim_error",         "TEXT"),
+        ("claim_attempted_at",  "TEXT"),
+        ("claim_finished_at",   "TEXT"),
+        # ── Колонки для регистрации tier (Instant Airdrop — до даты клейма)
+        ("register_status",       "TEXT"),  # registered / already / failed / not_eligible
+        ("register_tier",         "TEXT"),  # сохранённый tier по ответу сервера
+        ("register_error",        "TEXT"),
+        ("register_attempted_at", "TEXT"),
+        ("register_finished_at",  "TEXT"),
+    ):
+        if col not in existing_cols:
+            conn.execute(f"ALTER TABLE claim_tasks ADD COLUMN {col} {ddl}")
     conn.commit()
 
 
@@ -323,3 +342,276 @@ def reset_all() -> None:
         conn.commit()
         _init_schema(conn)
         conn.close()
+
+
+# ─────────────────── claim (on-chain) ───────────────────
+
+def get_claim_candidates(run_id: int, *, include_failed: bool = True) -> list[dict]:
+    """Eligible + НЕ заклеймленные задачи в run_id, кандидаты для клеймера.
+
+    Условия:
+      • completed чекером (status='completed') и eligible=1;
+      • claimed != 1 (т.е. is_checked != 1 в API-ответе);
+      • claim_status НЕ 'claimed' (или 'skipped');
+      • если include_failed=False — также пропускаем 'failed'.
+    """
+    bad_statuses = ("claimed", "skipped")
+    if not include_failed:
+        bad_statuses = bad_statuses + ("failed",)
+    placeholders = ",".join("?" * len(bad_statuses))
+    with _db_lock:
+        conn = _connect()
+        rows = conn.execute(
+            f"""SELECT * FROM claim_tasks
+                WHERE run_id = ?
+                  AND status = 'completed'
+                  AND eligible = 1
+                  AND (claimed IS NULL OR claimed = 0)
+                  AND (claim_status IS NULL OR claim_status NOT IN ({placeholders}))
+                ORDER BY wallet_index""",
+            (run_id, *bad_statuses),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+
+def mark_claim_running(task_id: int) -> None:
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET claim_status = 'running',
+                   claim_attempted_at = ?,
+                   claim_error = NULL
+               WHERE id = ?""",
+            (datetime.now().isoformat(timespec="seconds"), task_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+def mark_claim_done(
+    task_id: int,
+    *,
+    tx_hash: Optional[str],
+    amount: Optional[str],
+    tier: Optional[str],
+    already_claimed: bool = False,
+) -> None:
+    """Успех клейма (или skipped, если already_claimed)."""
+    status = "skipped" if already_claimed else "claimed"
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET claim_status = ?,
+                   claim_tx_hash = ?,
+                   claim_amount = ?,
+                   claim_tier = ?,
+                   claim_error = NULL,
+                   claim_finished_at = ?,
+                   claimed = 1
+               WHERE id = ?""",
+            (
+                status, tx_hash, amount, tier,
+                datetime.now().isoformat(timespec="seconds"), task_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def mark_claim_failed(
+    task_id: int,
+    error: str,
+    *,
+    tx_hash: Optional[str] = None,
+    tier: Optional[str] = None,
+) -> None:
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET claim_status = 'failed',
+                   claim_tx_hash = COALESCE(?, claim_tx_hash),
+                   claim_tier = COALESCE(?, claim_tier),
+                   claim_error = ?,
+                   claim_finished_at = ?
+               WHERE id = ?""",
+            (
+                tx_hash, tier, error[:500],
+                datetime.now().isoformat(timespec="seconds"), task_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def mark_claim_not_ready(
+    task_id: int,
+    reason: str,
+    *,
+    tier: Optional[str] = None,
+) -> None:
+    """Proof ещё не опубликован сервером — будет автоматически повторено позже."""
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET claim_status = 'not_ready',
+                   claim_tier = COALESCE(?, claim_tier),
+                   claim_error = ?,
+                   claim_finished_at = ?
+               WHERE id = ?""",
+            (
+                tier, reason[:500],
+                datetime.now().isoformat(timespec="seconds"), task_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def reset_claim_state(run_id: int) -> int:
+    """Сбросить ВСЕ claim_* колонки в run_id (для перезапуска клеймера).
+
+    Возвращает количество затронутых задач.
+    """
+    with _db_lock:
+        conn = _connect()
+        cur = conn.execute(
+            """UPDATE claim_tasks
+               SET claim_status = NULL,
+                   claim_tx_hash = NULL,
+                   claim_amount = NULL,
+                   claim_tier = NULL,
+                   claim_error = NULL,
+                   claim_attempted_at = NULL,
+                   claim_finished_at = NULL
+               WHERE run_id = ?""",
+            (run_id,),
+        )
+        changed = cur.rowcount or 0
+        conn.commit()
+        conn.close()
+    return int(changed)
+
+
+# ─────────────────── registrar helpers ───────────────────
+
+def get_register_candidates(
+    run_id: int,
+    *,
+    include_failed: bool = True,
+) -> list[dict]:
+    """Eligible задачи в run_id, кандидаты для регистрации tier.
+
+    Условия:
+      • status='completed' и eligible=1 (прошли чекер как eligible);
+      • register_status NOT IN ('registered', 'already')
+        (если include_failed=False — также пропускаем 'failed' и 'not_eligible').
+    """
+    bad_statuses: tuple[str, ...] = ("registered", "already")
+    if not include_failed:
+        bad_statuses = bad_statuses + ("failed", "not_eligible")
+    placeholders = ",".join("?" * len(bad_statuses))
+    with _db_lock:
+        conn = _connect()
+        rows = conn.execute(
+            f"""SELECT * FROM claim_tasks
+                WHERE run_id = ?
+                  AND status = 'completed'
+                  AND eligible = 1
+                  AND (register_status IS NULL OR register_status NOT IN ({placeholders}))
+                ORDER BY wallet_index""",
+            (run_id, *bad_statuses),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+
+def mark_register_running(task_id: int) -> None:
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET register_status = 'running',
+                   register_attempted_at = ?,
+                   register_error = NULL
+               WHERE id = ?""",
+            (datetime.now().isoformat(timespec="seconds"), task_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+def mark_register_done(
+    task_id: int,
+    *,
+    tier: Optional[str],
+    already_registered: bool = False,
+) -> None:
+    status = "already" if already_registered else "registered"
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET register_status = ?,
+                   register_tier = ?,
+                   register_error = NULL,
+                   register_finished_at = ?
+               WHERE id = ?""",
+            (
+                status, tier,
+                datetime.now().isoformat(timespec="seconds"), task_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def mark_register_failed(
+    task_id: int,
+    error: str,
+    *,
+    tier: Optional[str] = None,
+    not_eligible: bool = False,
+) -> None:
+    status = "not_eligible" if not_eligible else "failed"
+    with _db_lock:
+        conn = _connect()
+        conn.execute(
+            """UPDATE claim_tasks
+               SET register_status = ?,
+                   register_tier = COALESCE(?, register_tier),
+                   register_error = ?,
+                   register_finished_at = ?
+               WHERE id = ?""",
+            (
+                status, tier, error[:500],
+                datetime.now().isoformat(timespec="seconds"), task_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def reset_register_state(run_id: int) -> int:
+    """Сбросить ВСЕ register_* колонки в run_id."""
+    with _db_lock:
+        conn = _connect()
+        cur = conn.execute(
+            """UPDATE claim_tasks
+               SET register_status = NULL,
+                   register_tier = NULL,
+                   register_error = NULL,
+                   register_attempted_at = NULL,
+                   register_finished_at = NULL
+               WHERE run_id = ?""",
+            (run_id,),
+        )
+        changed = cur.rowcount or 0
+        conn.commit()
+        conn.close()
+    return int(changed)
+

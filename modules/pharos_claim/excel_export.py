@@ -71,7 +71,8 @@ def export_run(run_id: int, filename: Optional[str] = None) -> Optional[str]:
 
     headers = [
         "№", "Account", "Address", "Status", "Eligible",
-        "Amount", "Claimed", "Proxy", "Endpoint", "Error", "Finished",
+        "Amount", "Claimed", "Claim Status", "TX Hash", "Claim Tier",
+        "Claim Error", "Proxy", "Endpoint", "Error", "Finished",
     ]
     _write_header(ws, headers)
 
@@ -94,6 +95,10 @@ def export_run(run_id: int, filename: Optional[str] = None) -> Optional[str]:
             eligible_str,
             t.get("amount") or "",
             claimed_str,
+            t.get("claim_status") or "",
+            t.get("claim_tx_hash") or "",
+            t.get("claim_tier") or "",
+            t.get("claim_error") or "",
             _mask_proxy(t.get("proxy")),
             t.get("endpoint") or "",
             t.get("error") or "",
@@ -117,6 +122,17 @@ def export_run(run_id: int, filename: Optional[str] = None) -> Optional[str]:
         elif eligible_str == "NO":
             el_cell.fill = _WARN_FILL
         el_cell.alignment = Alignment(horizontal="center")
+
+        # подсветка Claim Status (колонка 8)
+        cs_cell = ws.cell(row=row, column=8)
+        cs = (t.get("claim_status") or "").lower()
+        if cs == "claimed":
+            cs_cell.fill = _OK_FILL
+        elif cs in ("skipped", "not_ready"):
+            cs_cell.fill = _WARN_FILL
+        elif cs == "failed":
+            cs_cell.fill = _FAIL_FILL
+        cs_cell.alignment = Alignment(horizontal="center")
 
     _auto_width(ws, len(headers), len(tasks) + 1)
 

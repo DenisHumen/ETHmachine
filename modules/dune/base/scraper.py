@@ -5,14 +5,21 @@ https://dune.com/nvthao/base-network-analytics-dashboard в патченом Chr
 (``patchright`` — обходит Cloudflare challenge), вводит адрес в строку поиска
 каждой таблицы и парсит найденную строку (или «No results match»).
 
-Окно запускается *offscreen* (позиция −32000,−32000) — визуально незаметно
-для пользователя, но браузер остаётся "видимым" для Cloudflare, что нужно
-для успешного прохождения JS-проверки.
+По умолчанию окно запускается видимым (пользователь видит, что происходит).
+Чтобы уводить окно offscreen (−32000,−32000) — задайте переменную окружения
+``DUNE_BASE_OFFSCREEN=1`` или передайте ``offscreen=True`` в конструктор.
+
+Подробное логирование каждого шага (nav → ожидание таблиц → ввод адреса →
+парсинг) идёт через ``modules.simple_logger.logger`` — если чекер «застрял»,
+в консоли будет видно, на каком именно шаге.
 """
 
 from __future__ import annotations
 
+import os
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from patchright.sync_api import (
@@ -22,18 +29,42 @@ from patchright.sync_api import (
     sync_playwright,
 )
 
+from modules.simple_logger import logger
+
 DASHBOARD_URL = "https://dune.com/nvthao/base-network-analytics-dashboard"
 
 # По заголовкам таблиц из дашборда
 RANKING_HEADER = "rank_tx"
 VOLUME_HEADER = "rank_native_vl"
 
-_BROWSER_ARGS = [
-    "--window-position=-32000,-32000",
-    "--window-size=1366,900",
-    "--no-first-run",
-    "--no-default-browser-check",
-]
+_DEBUG_DIR = Path(__file__).resolve().parents[3] / "result" / "dune" / "debug"
+
+# Сентинел «точно нет в лидерборде» (дашборд показал «No results match …»).
+# Отличается от None (который означает «не удалось определить, можно ретрайнуть»).
+# На границе публичного API (search()) конвертируется обратно в None.
+_NO_RESULTS: Any = object()
+
+
+def _offscreen_args() -> list[str]:
+    return [
+        "--window-position=-32000,-32000",
+        "--window-size=1366,900",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+
+
+def _visible_args() -> list[str]:
+    return [
+        "--window-size=1366,900",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+
+
+def _env_truthy(name: str) -> bool:
+    val = (os.environ.get(name) or "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
 
 
 def _parse_proxy_for_browser(proxy_raw: Optional[str]) -> Optional[Dict[str, str]]:
@@ -58,7 +89,7 @@ def _parse_proxy_for_browser(proxy_raw: Optional[str]) -> Optional[Dict[str, str
 
 
 class DuneBaseScraper:
-    """Один offscreen-браузер Chrome + одна вкладка.
+    """Один браузер Chrome + одна вкладка.
 
     Для каждого прокси создаётся новый browser-context (Cloudflare-сессия
     пере-инициализируется). Если прокси не меняется между кошельками,
@@ -67,10 +98,12 @@ class DuneBaseScraper:
 
     def __init__(
         self,
-        headless_offscreen: bool = True,
-        nav_timeout_ms: int = 90_000,
+        offscreen: Optional[bool] = None,
+        nav_timeout_ms: int = 60_000,
+        dashboard_ready_timeout_ms: int = 45_000,
         search_debounce_sec: float = 1.2,
         search_wait_sec: float = 10.0,
+        verbose: Optional[bool] = None,
     ) -> None:
         self._pw: Optional[Playwright] = None
         self._browser = None
@@ -78,20 +111,44 @@ class DuneBaseScraper:
         self._page: Optional[Page] = None
         self._current_proxy: Optional[str] = None
 
-        self._headless_offscreen = headless_offscreen
+        # По умолчанию показываем окно, чтобы пользователь видел прогресс.
+        # Уводим offscreen только по явному запросу (env/конструктор).
+        if offscreen is None:
+            offscreen = _env_truthy("DUNE_BASE_OFFSCREEN")
+        self._offscreen = offscreen
+        # Подробные info-логи скрейпера выключены по умолчанию, чтобы не
+        # шуметь поверх прогресс-бара. Включаются через DUNE_BASE_VERBOSE=1.
+        if verbose is None:
+            verbose = _env_truthy("DUNE_BASE_VERBOSE")
+        self._verbose = verbose
         self._nav_timeout_ms = nav_timeout_ms
+        self._dashboard_ready_timeout_ms = dashboard_ready_timeout_ms
         self._search_debounce_sec = search_debounce_sec
         self._search_wait_sec = search_wait_sec
+
+    def _vlog(self, msg: str) -> None:
+        """Информационный лог только в verbose-режиме."""
+        if self._verbose:
+            logger.info(msg)
 
     # ───────────────────────── lifecycle ─────────────────────────
 
     def start(self) -> None:
+        t0 = time.time()
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(
-            headless=False,
-            channel="chrome",
-            args=_BROWSER_ARGS if self._headless_offscreen else [],
-        )
+        args = _offscreen_args() if self._offscreen else _visible_args()
+        try:
+            self._browser = self._pw.chromium.launch(
+                headless=False,
+                channel="chrome",
+                args=args,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"[scraper] channel=chrome недоступен ({exc}) — fallback на bundled Chromium"
+            )
+            self._browser = self._pw.chromium.launch(headless=False, args=args)
+        self._vlog(f"[scraper] Chromium запущен за {time.time() - t0:.1f}с")
 
     def close(self) -> None:
         for obj_name in ("_context", "_browser"):
@@ -135,32 +192,110 @@ class DuneBaseScraper:
         proxy = _parse_proxy_for_browser(proxy_raw)
         if proxy:
             ctx_kwargs["proxy"] = proxy
+            self._vlog(f"[scraper] proxy = {proxy.get('server')}")
+        else:
+            self._vlog("[scraper] proxy = none (direct)")
 
         if self._browser is None:
             raise RuntimeError("Scraper не запущен — вызовите .start() перед search()")
 
         self._context = self._browser.new_context(**ctx_kwargs)
         self._page = self._context.new_page()
+        self._page.set_default_timeout(self._nav_timeout_ms)
+        self._page.set_default_navigation_timeout(self._nav_timeout_ms)
         self._current_proxy = proxy_raw
 
-        self._page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=self._nav_timeout_ms)
+        t0 = time.time()
+        try:
+            self._page.goto(
+                DASHBOARD_URL, wait_until="domcontentloaded",
+                timeout=self._nav_timeout_ms,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._dump_debug("goto_failed")
+            raise RuntimeError(f"Не удалось открыть дашборд: {exc}") from exc
 
-        # Ждём, пока Cloudflare отпустит и таблицы отрендерятся
-        self._page.wait_for_selector(
-            f"thead th:has-text('{RANKING_HEADER}')", timeout=self._nav_timeout_ms
-        )
-        self._page.wait_for_selector(
-            f"thead th:has-text('{VOLUME_HEADER}')", timeout=self._nav_timeout_ms
-        )
-        # Ждём, пока в каждой таблице появятся реальные строки (не только заголовки)
+        self._wait_past_cloudflare()
+        self._wait_dashboard_ready()
+        logger.success(f"[scraper] Dune дашборд готов ({time.time() - t0:.1f}с)")
+
+    def _wait_past_cloudflare(self, timeout_sec: float = 25.0) -> None:
+        """Ждём, пока страница перестанет быть Cloudflare challenge page."""
+        if self._page is None:
+            return
+        deadline = time.time() + timeout_sec
+        seen_cf = False
+        while time.time() < deadline:
+            try:
+                title = (self._page.title() or "").lower()
+            except Exception:  # noqa: BLE001
+                title = ""
+            if "just a moment" not in title and "attention required" not in title:
+                if seen_cf:
+                    self._vlog("[scraper] Cloudflare challenge пройден")
+                return
+            seen_cf = True
+            self._vlog(f"[scraper] Ожидание Cloudflare… '{title[:60]}'")
+            time.sleep(1.5)
+        logger.warning("[scraper] Cloudflare challenge висит слишком долго — продолжаем")
+
+    def _wait_dashboard_ready(self) -> None:
+        """Ждёт, что таблицы дашборда отрисовались."""
+        assert self._page is not None
+        try:
+            self._page.wait_for_selector(
+                f"thead th:has-text('{RANKING_HEADER}')",
+                timeout=self._dashboard_ready_timeout_ms,
+            )
+        except PWTimeoutError:
+            self._dump_debug("no_ranking_header")
+            raise RuntimeError(
+                f"Не дождался заголовка '{RANKING_HEADER}' за "
+                f"{self._dashboard_ready_timeout_ms / 1000:.0f}с — "
+                f"дашборд мог измениться или заблокирован Cloudflare. "
+                f"Скриншот: result/dune/debug/"
+            )
+        try:
+            self._page.wait_for_selector(
+                f"thead th:has-text('{VOLUME_HEADER}')",
+                timeout=self._dashboard_ready_timeout_ms,
+            )
+        except PWTimeoutError:
+            self._dump_debug("no_volume_header")
+            raise RuntimeError(
+                f"Не дождался заголовка '{VOLUME_HEADER}' за "
+                f"{self._dashboard_ready_timeout_ms / 1000:.0f}с"
+            )
+        # Ждём, пока в таблицах появятся строки (не только заголовки)
         try:
             self._page.wait_for_function(
                 "() => document.querySelectorAll('table tbody tr').length >= 10",
-                timeout=30_000,
+                timeout=20_000,
             )
         except PWTimeoutError:
-            pass
-        time.sleep(1.5)
+            self._vlog("[scraper] Таблицы есть, но строк <10 — продолжаю")
+        time.sleep(1.2)
+
+    def _dump_debug(self, tag: str) -> None:
+        """Сохраняет скриншот + html текущей страницы в result/dune/debug/."""
+        if self._page is None:
+            return
+        try:
+            _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            png = _DEBUG_DIR / f"{tag}_{ts}.png"
+            html = _DEBUG_DIR / f"{tag}_{ts}.html"
+            try:
+                self._page.screenshot(path=str(png), full_page=True, timeout=5000)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                html.write_text(self._page.content(), encoding="utf-8", errors="ignore")
+            except Exception:  # noqa: BLE001
+                pass
+            logger.warning(f"[scraper] Debug dump сохранён: {png.name}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[scraper] Не удалось сохранить debug dump: {exc}")
 
     # ───────────────────────── public ─────────────────────────
 
@@ -174,12 +309,31 @@ class DuneBaseScraper:
         None для отсутствующего результата, dict {column: value} для найденного.
         """
         self._ensure_context(proxy_raw)
+        short = address[:8] + "…" + address[-4:]
+
+        def _label(res: Any) -> str:
+            if res is _NO_RESULTS:
+                return "NOT IN LEADERBOARD"
+            if res:
+                return "FOUND"
+            return "not found"
+
         try:
+            self._vlog(f"[scraper] {short}: поиск '{RANKING_HEADER}'")
             ranking = self._query_table(RANKING_HEADER, address)
+            self._vlog(f"[scraper] {short}: ranking → {_label(ranking)}")
+            self._vlog(f"[scraper] {short}: поиск '{VOLUME_HEADER}'")
             volume = self._query_table(VOLUME_HEADER, address)
+            self._vlog(f"[scraper] {short}: volume → {_label(volume)}")
         finally:
             # Сбрасываем поля поиска, чтобы следующий запрос стартовал с чистого виджета
             self._clear_all_searches()
+
+        # Нормализуем сентинел в None для внешнего API
+        if ranking is _NO_RESULTS:
+            ranking = None
+        if volume is _NO_RESULTS:
+            volume = None
         return ranking, volume
 
     def _clear_all_searches(self) -> None:
@@ -202,30 +356,68 @@ class DuneBaseScraper:
 
     # ───────────────────────── internals ─────────────────────────
 
-    def _query_table(self, header_text: str, address: str) -> Optional[Dict[str, str]]:
+    def _query_table(self, header_text: str, address: str) -> Any:
+        """Возвращает:
+        • dict — адрес найден в таблице;
+        • `_NO_RESULTS` — дашборд показал «No results match …» (точно не в лидерборде);
+        • None — не удалось определить (ретраиться не имеет смысла уже сверху).
+        """
         for attempt in range(2):
             result = self._query_table_once(header_text, address)
+            if result is _NO_RESULTS:
+                return _NO_RESULTS
             if result is not None:
                 return result
-            # Если None — проверим, действительно ли "No results", иначе повторим
-            if self._page is not None and self._has_no_results(header_text):
-                return None
+            # Последняя проверка через всю страницу: если где-то мелькнуло
+            # "No results match your search for "<address>"" — точно не в лидерборде.
+            if self._has_no_results(header_text, address):
+                return _NO_RESULTS
             # Лёгкий reset между попытками
             time.sleep(0.8)
         return None
 
-    def _has_no_results(self, header_text: str) -> bool:
-        assert self._page is not None
+    def _has_no_results(self, header_text: str, address: Optional[str] = None) -> bool:
+        """True, если виджет (или страница) содержит «No results match …».
+
+        Если передан `address`, дополнительно ищем фразу по всей странице —
+        так ловим случаи, когда локатор виджета перестал работать после
+        ре-рендера, но текст «No results match your search for "0x…"» уже виден.
+        """
+        if self._page is None:
+            return False
+        # 1) Проверяем конкретный виджет
         try:
             widget = self._page.locator(
                 f"xpath=//thead//th[contains(normalize-space(.), '{header_text}')]"
                 f"/ancestor::*[.//input[@placeholder='Search...']][1]"
             ).first
-            return "No results match" in widget.inner_text(timeout=2000)
+            txt = widget.inner_text(timeout=2000)
+            if "No results match" in txt:
+                return True
         except Exception:  # noqa: BLE001
-            return False
+            pass
+        # 2) Фоллбэк — ищем «No results match your search for "<address>"» во всей странице
+        if address:
+            try:
+                needle = f'No results match your search for "{address}"'
+                body_txt = self._page.locator("body").inner_text(timeout=3000)
+                if needle in body_txt or needle.lower() in body_txt.lower():
+                    return True
+                # допустим случай, когда Dune экранирует кавычки иначе
+                if "No results match" in body_txt and address.lower() in body_txt.lower():
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
 
-    def _query_table_once(self, header_text: str, address: str) -> Optional[Dict[str, str]]:
+    def _query_table_once(self, header_text: str, address: str) -> Any:
+        """Одна итерация поиска адреса в конкретной таблице.
+
+        Возвращает:
+          • dict — найдена строка (значения колонок);
+          • `_NO_RESULTS` — дашборд показал «No results match …» (точно нет);
+          • None — непонятное состояние, вызывающий код решает, ретраить или нет.
+        """
         assert self._page is not None
         page = self._page
         addr_l = address.lower()
@@ -239,17 +431,26 @@ class DuneBaseScraper:
         try:
             box.wait_for(state="visible", timeout=10_000)
         except PWTimeoutError:
+            # Перед reload — проверим, не «No results match» ли уже на странице
+            # (такое бывает после предыдущего поиска, если виджет схлопнулся).
+            if self._has_no_results(header_text, address):
+                self._vlog(
+                    f"[scraper] '{header_text}': already 'No results' для {address[:10]}…"
+                )
+                return _NO_RESULTS
             # Виджет в плохом состоянии — мягко перезагружаем страницу
+            logger.warning(
+                f"[scraper] Search-поле для '{header_text}' не появилось — reload"
+            )
             page.reload(wait_until="domcontentloaded", timeout=self._nav_timeout_ms)
-            page.wait_for_selector(
-                f"thead th:has-text('{RANKING_HEADER}')", timeout=self._nav_timeout_ms
-            )
-            page.wait_for_selector(
-                f"thead th:has-text('{VOLUME_HEADER}')", timeout=self._nav_timeout_ms
-            )
-            time.sleep(1.0)
+            self._wait_dashboard_ready()
             box = widget.locator("input[placeholder='Search...']").first
-            box.wait_for(state="visible", timeout=15_000)
+            try:
+                box.wait_for(state="visible", timeout=15_000)
+            except PWTimeoutError:
+                if self._has_no_results(header_text, address):
+                    return _NO_RESULTS
+                raise
 
         box.scroll_into_view_if_needed()
         box.click()
@@ -274,7 +475,7 @@ class DuneBaseScraper:
             except Exception:  # noqa: BLE001
                 continue
             if "No results match" in txt:
-                return None
+                return _NO_RESULTS
             if addr_l[:10] in txt.lower():
                 found = True
                 break
@@ -288,7 +489,10 @@ class DuneBaseScraper:
             except Exception:  # noqa: BLE001
                 pass
             if "No results match" in txt:
-                return None
+                return _NO_RESULTS
+            # Страничный фоллбэк на случай, если виджет-локатор сломался
+            if self._has_no_results(header_text, address):
+                return _NO_RESULTS
             if addr_l[:10] not in (txt or "").lower():
                 return None
 

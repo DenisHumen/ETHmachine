@@ -34,13 +34,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional, Tuple
 
 from colorama import Fore, Style
 from eth_account import Account
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from tqdm import tqdm
 
 from config.modules.cfg_base import (
     DELAY_BETWEEN_ACCOUNTS,
@@ -60,7 +61,7 @@ from modules.dune.base.database import (
 )
 from modules.dune.base.scraper import DuneBaseScraper
 from modules.proxy_manager import mask_proxy
-from modules.simple_logger import log_task, log_wallet_task, logger
+from modules.simple_logger import log_task, log_wallet_task, logger, tqdm_safe_logging
 
 # ──────────────────────────────────────────────────────────────────────────
 # Константы
@@ -70,6 +71,82 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RESULT_DIR = PROJECT_ROOT / "result" / "dune"
 
 _stop_event = Event()
+
+# ──────────────────────────────────────────────────────────────────────────
+# Прогресс-бар (pip-style), обновляется из worker-потоков
+# ──────────────────────────────────────────────────────────────────────────
+
+_pbar: Optional[tqdm] = None
+_pbar_lock = Lock()
+_counts: Dict[str, int] = {"found": 0, "empty": 0, "failed": 0, "stopped": 0}
+
+_current_lock = Lock()
+_current_wallets: set[str] = set()
+
+# Минималистичный pip-подобный формат:
+#   🟦 Dune Base  12.2% ━━━━━╸            6/49 │ ⏱ 00:42<05:01 │ 0xD72d9A…A8C7 │ ✓0 ○5 ✗1
+_BAR_FORMAT = (
+    "{desc}  "
+    "{percentage:5.1f}% "
+    "{bar:32} "
+    "{n_fmt}/{total_fmt} │ "
+    "⏱ {elapsed}<{remaining} │ "
+    "{current} │ "
+    "{stats}"
+)
+_BAR_ASCII = " ╸━"  # empty · half · full — «пип-стиль»
+
+_CURRENT_WIDTH = 15  # ширина поля current (0xabcdef…wxyz = 12) + запас
+
+
+def _format_current() -> str:
+    with _current_lock:
+        if not _current_wallets:
+            return "—".ljust(_CURRENT_WIDTH)
+        addrs = list(_current_wallets)
+        a = addrs[0]
+        short = f"{a[:6]}…{a[-4:]}" if len(a) >= 10 else a
+        if len(addrs) > 1:
+            short = f"{short} +{len(addrs) - 1}"
+        return short.ljust(_CURRENT_WIDTH)
+
+
+def _format_stats() -> str:
+    return f"✓{_counts['found']} ○{_counts['empty']} ✗{_counts['failed']}"
+
+
+class _DuneTqdm(tqdm):
+    """tqdm с дополнительными полями ``{current}`` и ``{stats}`` в bar_format."""
+
+    @property
+    def format_dict(self) -> Dict[str, Any]:
+        d = super().format_dict
+        d["current"] = _format_current()
+        d["stats"] = _format_stats()
+        return d
+
+
+def _pbar_tick(kind: str) -> None:
+    """Увеличивает счётчик ``kind`` и двигает прогресс-бар (потокобезопасно)."""
+    with _pbar_lock:
+        _counts[kind] = _counts.get(kind, 0) + 1
+        if _pbar is not None:
+            _pbar.update(1)
+
+
+def _wallet_begin(address: str) -> None:
+    with _current_lock:
+        _current_wallets.add(address)
+    if _pbar is not None:
+        try:
+            _pbar.refresh()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _wallet_end(address: str) -> None:
+    with _current_lock:
+        _current_wallets.discard(address)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -107,13 +184,13 @@ def _process_wallet(
     proxy: Optional[str],
     account_name: Optional[str],
 ) -> Dict[str, Any]:
-    proxy_info = f" │ proxy: {mask_proxy(proxy)}" if proxy else " │ proxy: none"
     max_retries = max(RETRY_COUNT, 1)
     last_error: Optional[str] = None
 
     for attempt in range(1, max_retries + 1):
         if _stop_event.is_set():
             update_task_failed(address, "Остановлено пользователем")
+            _pbar_tick("stopped")
             return {"address": address, "stopped": True}
 
         try:
@@ -131,17 +208,14 @@ def _process_wallet(
                 ) or "—"
                 log_wallet_task(
                     address, index, total,
-                    f"✅ FOUND │ rank={rank} │ native_volume={vol}{proxy_info}",
+                    f"✅ FOUND │ rank={rank} │ vol={vol}",
                     "success", account_name=account_name,
                 )
+                _pbar_tick("found")
             else:
-                log_wallet_task(
-                    address, index, total,
-                    f"⚪ NOT FOUND в Top 2.5M{proxy_info}",
-                    "warning", account_name=account_name,
-                )
+                # Большинство кошельков не в топе — не засоряем вывод, считаем только в бар.
+                _pbar_tick("empty")
 
-            # Небольшая пауза между кошельками, чтобы дашборд успевал «отдышаться»
             time.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
             return {"address": address, "ok": True}
 
@@ -151,7 +225,7 @@ def _process_wallet(
                 delay = random.uniform(*SLEEP_BETWEEN_ACTIONS) * 2
                 log_task(
                     index, total,
-                    f"⚠️ Попытка {attempt}/{max_retries}: {last_error} │ Повтор через {delay:.1f}с",
+                    f"⚠️ retry {attempt}/{max_retries} │ {last_error[:90]}",
                     "warning", account_name=account_name,
                 )
                 time.sleep(delay)
@@ -159,12 +233,14 @@ def _process_wallet(
                 update_task_failed(address, last_error or "unknown")
                 log_wallet_task(
                     address, index, total,
-                    f"❌ FAIL после {attempt} попыток: {last_error}{proxy_info}", "error",
+                    f"❌ FAIL │ {last_error[:140]}", "error",
                     account_name=account_name,
                 )
+                _pbar_tick("failed")
                 return {"address": address, "error": last_error}
 
     update_task_failed(address, last_error or "unknown")
+    _pbar_tick("failed")
     return {"address": address, "error": last_error}
 
 
@@ -186,10 +262,12 @@ def _worker_loop(
                     task = queue.get_nowait()
                 except Empty:
                     return
+                index, ttl, address, proxy, account_name = task
+                _wallet_begin(address)
                 try:
-                    index, ttl, address, proxy, account_name = task
                     _process_wallet(scraper, index, ttl, address, proxy, account_name)
                 finally:
+                    _wallet_end(address)
                     queue.task_done()
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Фатальная ошибка рабочего потока: {exc}")
@@ -259,36 +337,53 @@ def run_base_checker() -> List[Dict[str, Any]]:
     threads_count = max(1, min(NUM_THREADS, total))
 
     logger.info(
-        f"Dune Base Checker │ к проверке: {total} │ потоков: {threads_count} │ "
-        f"попыток: {RETRY_COUNT} │ задержки: {SLEEP_BETWEEN_ACTIONS}/{DELAY_BETWEEN_ACCOUNTS}"
+        f"Dune Base │ к проверке: {total} │ потоков: {threads_count} │ "
+        f"попыток: {RETRY_COUNT}"
     )
-    logger.info("Источник данных: публичный дашборд Dune через Chromium (без API-ключа)")
 
     q: "Queue[Tuple[int, int, str, Optional[str], Optional[str]]]" = Queue()
     for idx, w in enumerate(todo, 1):
         q.put((idx, total, w["wallet_address"], w["proxy"], w["account_name"]))
 
-    threads: List[Thread] = []
-    for i in range(threads_count):
-        stagger = random.uniform(*DELAY_BETWEEN_ACCOUNTS) * i
-        t = Thread(
-            target=_worker_loop,
-            args=(q, stagger),
-            name=f"dune-base-w{i + 1}",
-            daemon=True,
-        )
-        t.start()
-        threads.append(t)
+    global _pbar, _counts
+    _counts = {"found": 0, "empty": 0, "failed": 0, "stopped": 0}
 
-    try:
-        while any(t.is_alive() for t in threads):
+    # tqdm_safe_logging: loguru-логи идут через tqdm.write, чтобы не рвать бар.
+    with tqdm_safe_logging(), _DuneTqdm(
+        total=total,
+        desc=f"{Fore.CYAN}🟦 Dune Base{Style.RESET_ALL}",
+        bar_format=_BAR_FORMAT,
+        ascii=_BAR_ASCII,
+        colour="cyan",
+        dynamic_ncols=True,
+        leave=True,
+        mininterval=0.2,
+    ) as pbar:
+        _pbar = pbar
+
+        threads: List[Thread] = []
+        for i in range(threads_count):
+            stagger = random.uniform(*DELAY_BETWEEN_ACCOUNTS) * i
+            t = Thread(
+                target=_worker_loop,
+                args=(q, stagger),
+                name=f"dune-base-w{i + 1}",
+                daemon=True,
+            )
+            t.start()
+            threads.append(t)
+
+        try:
+            while any(t.is_alive() for t in threads):
+                for t in threads:
+                    t.join(timeout=0.5)
+        except KeyboardInterrupt:
+            _stop_event.set()
+            logger.warning("Прервано (Ctrl+C) — дожидаюсь потоков…")
             for t in threads:
-                t.join(timeout=0.5)
-    except KeyboardInterrupt:
-        _stop_event.set()
-        logger.warning("Прервано пользователем (Ctrl+C) — ожидание завершения потоков…")
-        for t in threads:
-            t.join()
+                t.join()
+
+        _pbar = None
 
     _print_summary()
     path = export_results_xlsx()
