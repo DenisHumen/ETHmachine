@@ -59,8 +59,14 @@ def _format_record(record) -> str:
 
     parts: list[str] = [f"<white>{ts}</white>"]
 
-    account_name = extra.get("account_name") or "null"
-    parts.append(f"<white>{account_name}</white>")
+    wallet = extra.get("wallet") or ""
+
+    # account_name показываем только если он задан и отличается от wallet
+    account_name = (extra.get("account_name") or "").strip()
+    if account_name and account_name.lower() not in {"null", "none", wallet.lower()}:
+        # Если это полный адрес — пропускаем (wallet уже короткий).
+        if not (account_name.startswith("0x") and len(account_name) == 42):
+            parts.append(f"<white>{account_name}</white>")
 
     parts.append(badge)
 
@@ -69,7 +75,6 @@ def _format_record(record) -> str:
     if idx is not None and tot is not None:
         parts.append(f"<white>[{idx}/{tot}]</white>")
 
-    wallet = extra.get("wallet")
     if wallet:
         parts.append(f"<blue>{wallet}</blue>")
 
@@ -88,6 +93,54 @@ _handler_id = logger.add(
     level="DEBUG",
     colorize=True,
 )
+
+
+# ═══════════════════════════════════════════════════════════
+# tqdm-safe контекст: временно направляет stderr-sink через tqdm.write,
+# чтобы progress-bar не рвался при печати логов.
+# ═══════════════════════════════════════════════════════════
+
+from contextlib import contextmanager  # noqa: E402
+
+
+@contextmanager
+def tqdm_safe_logging():
+    global _handler_id
+    try:
+        from tqdm import tqdm  # type: ignore
+    except Exception:
+        yield
+        return
+
+    def _safe_write(msg: str) -> None:
+        try:
+            tqdm.write(msg, end="")
+        except UnicodeEncodeError as exc:
+            enc = getattr(exc, "encoding", None) or "ascii"
+            safe = msg.encode(enc, errors="replace").decode(enc, errors="replace")
+            try:
+                tqdm.write(safe, end="")
+            except Exception:
+                # Последний резерв — печать в ASCII.
+                sys.stderr.write(msg.encode("ascii", errors="replace").decode("ascii"))
+
+    logger.remove(_handler_id)
+    tmp_id = logger.add(
+        _safe_write,
+        format=_format_record,
+        level="DEBUG",
+        colorize=True,
+    )
+    try:
+        yield
+    finally:
+        logger.remove(tmp_id)
+        _handler_id = logger.add(
+            sys.stderr,
+            format=_format_record,
+            level="DEBUG",
+            colorize=True,
+        )
 
 # ═══════════════════════════════════════════════════════════
 # Публичный API
@@ -132,4 +185,4 @@ def setup_file_logging(log_file: str):
     )
 
 
-__all__ = ['logger', 'log_wallet_task', 'log_task', 'log_simple', 'setup_file_logging']
+__all__ = ['logger', 'log_wallet_task', 'log_task', 'log_simple', 'setup_file_logging', 'tqdm_safe_logging']

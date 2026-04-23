@@ -5,6 +5,14 @@ import platform
 import sys
 import warnings
 
+# UTF-8 для stdout/stderr — нужно для красивых box-символов прогресс-баров
+# и unicode-логов на Windows PowerShell (кодировка по умолчанию cp1251).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 # Глушим шумные DeprecationWarning от сторонних библиотек (paramiko/cryptography и др.)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 try:

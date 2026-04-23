@@ -17,9 +17,16 @@ from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
 from config.modules.cfg_pharos_claim import REQUIRE_PROXY
 from modules.data_manager import load_data
 from modules.proxy_manager import ProxyManager
-from modules.simple_logger import logger as _logger
+from modules.simple_logger import logger as _logger, tqdm_safe_logging
 from modules.pharos_claim import database as db
 from modules.pharos_claim.checker import check_wallet_with_retry
+
+try:
+    from tqdm import tqdm  # type: ignore
+    _HAS_TQDM = True
+except Exception:  # pragma: no cover
+    tqdm = None  # type: ignore
+    _HAS_TQDM = False
 
 
 def _load_wallets() -> list[dict]:
@@ -78,10 +85,11 @@ def _run_one(
     proxy_pool: list[str],
     idx: int,
     total: int,
-) -> tuple[int, bool]:
+) -> tuple[int, str]:
+    """Возвращает (task_id, outcome) где outcome ∈ {'eligible','not_eligible','failed'}."""
     task_id = int(task["id"])
     address = task["address"]
-    account_name = task.get("account_name") or address
+    account_name = task.get("account_name")  # может быть None — колонка скроется
 
     bound = _logger.bind(
         account_name=account_name,
@@ -94,7 +102,7 @@ def _run_one(
     if REQUIRE_PROXY and not proxy:
         db.mark_failed(task_id, "no proxy assigned")
         bound.error("Нет прокси — кошелёк пропущен (REQUIRE_PROXY=True)")
-        return task_id, False
+        return task_id, "failed"
 
     db.mark_running(task_id)
 
@@ -116,7 +124,7 @@ def _run_one(
     if result.error:
         db.mark_failed(task_id, result.error)
         bound.error(f"Ошибка: {result.error}")
-        return task_id, False
+        return task_id, "failed"
 
     db.mark_completed(
         task_id,
@@ -128,8 +136,6 @@ def _run_one(
         raw_response=result.raw,
     )
 
-    # ── Одна строка на кошелёк. Показываем server code/message,
-    #    чтобы было видно, что данные реально получены с API, а не выдуманы.
     raw = result.raw or {}
     srv_code = raw.get("code")
     srv_msg = (raw.get("message") or "").strip()
@@ -141,9 +147,10 @@ def _run_one(
             " [claimed]" if result.claimed else " [not claimed]"
         )
         bound.success(f"ELIGIBLE · allocation={amt}{claimed_str} · server: {srv_tag}")
-    else:
-        bound.warning(f"NOT eligible · server: {srv_tag}")
-    return task_id, True
+        return task_id, "eligible"
+
+    bound.warning(f"NOT eligible · server: {srv_tag}")
+    return task_id, "not_eligible"
 
 
 def run_checker(max_workers: Optional[int] = None, *, reset: bool = False) -> Optional[int]:
@@ -209,32 +216,81 @@ def run_checker(max_workers: Optional[int] = None, *, reset: bool = False) -> Op
         f"Pharos Claim Checker: к обработке {total}, потоков: {workers}, run_id={run_id}"
     )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = []
-        for i, task in enumerate(pending, 1):
-            pk = pk_by_address.get(str(task["address"]).lower())
-            if not pk:
-                db.mark_failed(
-                    int(task["id"]),
-                    "private_key отсутствует в data.csv для этого адреса",
-                )
-                continue
-            futures.append(
-                executor.submit(_run_one, task, pk, proxy_pool, i, total)
+    # ── Прогресс-бары (pip-style): Progress (checked/remaining) + Eligible
+    bar_fmt_top = (
+        "{desc:<12} {percentage:3.0f}%|{bar:30}| "
+        "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+    )
+    bar_fmt_bot = (
+        "{desc:<12} {percentage:3.0f}%|{bar:30}| "
+        "{n_fmt}/{total_fmt} {postfix}"
+    )
+
+    counters = {"eligible": 0, "not_eligible": 0, "failed": 0}
+
+    with tqdm_safe_logging():
+        if _HAS_TQDM:
+            bar_done = tqdm(
+                total=total, desc="Progress", unit="w",
+                position=0, leave=True, dynamic_ncols=True,
+                colour="cyan", bar_format=bar_fmt_top,
             )
-        try:
-            for fut in as_completed(futures):
-                try:
-                    fut.result()
-                except Exception as e:
-                    _logger.error(f"Неожиданная ошибка в воркере: {e}")
-        except KeyboardInterrupt:
-            _logger.warning("Остановка по Ctrl+C, жду завершения запущенных задач…")
-            for fut in futures:
-                fut.cancel()
+            bar_elig = tqdm(
+                total=total, desc="Eligible", unit="w",
+                position=1, leave=True, dynamic_ncols=True,
+                colour="green", bar_format=bar_fmt_bot,
+            )
+            bar_elig.set_postfix_str("not_eligible=0, failed=0")
+        else:
+            bar_done = bar_elig = None
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = []
+            for i, task in enumerate(pending, 1):
+                pk = pk_by_address.get(str(task["address"]).lower())
+                if not pk:
+                    db.mark_failed(
+                        int(task["id"]),
+                        "private_key отсутствует в data.csv для этого адреса",
+                    )
+                    counters["failed"] += 1
+                    if bar_done is not None:
+                        bar_done.update(1)
+                        bar_elig.set_postfix_str(
+                            f"not_eligible={counters['not_eligible']}, "
+                            f"failed={counters['failed']}"
+                        )
+                    continue
+                futures.append(
+                    executor.submit(_run_one, task, pk, proxy_pool, i, total)
+                )
+            try:
+                for fut in as_completed(futures):
+                    try:
+                        _tid, outcome = fut.result()
+                    except Exception as e:
+                        _logger.error(f"Неожиданная ошибка в воркере: {e}")
+                        outcome = "failed"
+                    counters[outcome] = counters.get(outcome, 0) + 1
+                    if bar_done is not None:
+                        bar_done.update(1)
+                        if outcome == "eligible":
+                            bar_elig.update(1)
+                        bar_elig.set_postfix_str(
+                            f"not_eligible={counters['not_eligible']}, "
+                            f"failed={counters['failed']}"
+                        )
+            except KeyboardInterrupt:
+                _logger.warning("Остановка по Ctrl+C, жду завершения запущенных задач…")
+                for fut in futures:
+                    fut.cancel()
+
+        if bar_done is not None:
+            bar_elig.close()
+            bar_done.close()
 
     stats = db.finish_run(run_id)
-    _logger.info(
+    _logger.success(
         f"Готово: eligible={stats['eligible']}, not_eligible={stats['not_eligible']}, "
         f"failed={stats['failed']} | run_id={run_id}"
     )
