@@ -278,6 +278,7 @@ PROJECTS_SUBMENU = SubMenu(
         MenuItem(key='abs_portal', label='Abstract Portal', description='Stats, Badges, XP Recap', icon='🟢', enabled=True),
         MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='🟢', enabled=True, requires_os='windows'),
         MenuItem(key='perle_checker', label='Perle', description='Проверка элигибельности SOL кошельков', icon='🟢', enabled=True),
+        MenuItem(key='dune', label='Dune', description='Аналитика и проверка кошельков через Dune Analytics', icon='🟢', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

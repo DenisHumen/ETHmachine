@@ -3,6 +3,15 @@ import time
 import csv
 import platform
 import sys
+import warnings
+
+# Глушим шумные DeprecationWarning от сторонних библиотек (paramiko/cryptography и др.)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+try:
+    from cryptography.utils import CryptographyDeprecationWarning  # type: ignore
+    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+except Exception:
+    pass
 
 # Проверка зависимостей (только stdlib — работает на чистом Python)
 from modules.requirements_checker import check_requirements
@@ -98,6 +107,7 @@ from modules.abs.menu import abs_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
 from modules.claim.zora_claimer.menu import claimer_menu
 from modules.statistics.perle.menu import perle_menu
+from modules.dune import dune_menu
 
 mainnet_rpc_urls = get_mainnet_networks()
 testnet_rpc_urls = get_testnet_networks()
@@ -552,6 +562,8 @@ class MenuHandlers:
                     MenuHandlers._show_neura_unavailable()
             elif choice == 'perle_checker':
                 perle_menu()
+            elif choice == 'dune':
+                dune_menu()
             elif choice == 'back' or choice is None:
                 break
     
