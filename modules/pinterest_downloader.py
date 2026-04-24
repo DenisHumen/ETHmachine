@@ -24,6 +24,7 @@ from modules.proxy_manager import ProxyManager, parse_proxy
 from config.modules.cfg_pinterest import (
     PINTEREST_EMAIL, PINTEREST_PASSWORD,
     PINTEREST_MAX_IMAGES, PINTEREST_DOWNLOAD_DELAY, PINTEREST_IMAGE_QUALITY,
+    PINTEREST_SEARCH_QUERIES,
 )
 
 console = Console()
@@ -548,9 +549,26 @@ def _collect_image_urls(client: PinterestClient, count: int) -> List[str]:
     all_urls: list[str] = []
     seen: set[str] = set()
 
-    num_queries = min(len(SEARCH_QUERIES), max(3, count // 10 + 3))
-    queries = random.sample(SEARCH_QUERIES, num_queries)
-    max_pages = max(5, count // (num_queries * 20) + 2)
+    user_queries = [q for q in (PINTEREST_SEARCH_QUERIES or []) if isinstance(q, str) and q.strip()]
+
+    if user_queries:
+        # Пользовательский режим: случайный запрос из массива на каждый поиск.
+        # Один поиск возвращает ~20 картинок, поэтому повторяем пока не наберём count.
+        queries: list[str] = []
+        # Берём запросы случайно (с повторениями) пока хватает для набора картинок.
+        # Даём запас по количеству итераций на случай дубликатов/пустых ответов.
+        est_iters = max(3, count // 15 + 5)
+        for _ in range(est_iters):
+            queries.append(random.choice(user_queries))
+        max_pages = 1
+        log_simple(
+            f"Используем пользовательские запросы: {user_queries}",
+            status="info", account_name="Pinterest",
+        )
+    else:
+        num_queries = min(len(SEARCH_QUERIES), max(3, count // 10 + 3))
+        queries = random.sample(SEARCH_QUERIES, num_queries)
+        max_pages = max(5, count // (num_queries * 20) + 2)
 
     with console.status("[bold cyan]Поиск картинок на Pinterest...[/]", spinner="dots"):
         for query in queries:
