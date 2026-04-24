@@ -294,8 +294,15 @@ def _collect_wallets() -> List[Dict[str, Optional[str]]]:
             addr = _derive_address(pk)
         if not addr:
             wa = (row.get("wallet_address") or "").strip()
-            if wa.startswith("0x") and len(wa) == 42:
-                addr = wa
+            # Нормализуем: авто-добавляем 0x и приводим префикс к нижнему регистру.
+            if wa:
+                if wa[:2].lower() == "0x":
+                    wa = "0x" + wa[2:]
+                else:
+                    wa = "0x" + wa
+                body = wa[2:]
+                if len(body) == 40 and all(c in "0123456789abcdefABCDEF" for c in body):
+                    addr = wa
         if not addr:
             continue
         if addr.lower() in seen:

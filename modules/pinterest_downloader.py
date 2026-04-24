@@ -550,50 +550,90 @@ def _collect_image_urls(client: PinterestClient, count: int) -> List[str]:
     seen: set[str] = set()
 
     user_queries = [q for q in (PINTEREST_SEARCH_QUERIES or []) if isinstance(q, str) and q.strip()]
+    target = count * 2
 
     if user_queries:
-        # Пользовательский режим: случайный запрос из массива на каждый поиск.
-        # Один поиск возвращает ~20 картинок, поэтому повторяем пока не наберём count.
-        queries: list[str] = []
-        # Берём запросы случайно (с повторениями) пока хватает для набора картинок.
-        # Даём запас по количеству итераций на случай дубликатов/пустых ответов.
-        est_iters = max(3, count // 15 + 5)
-        for _ in range(est_iters):
-            queries.append(random.choice(user_queries))
-        max_pages = 1
         log_simple(
             f"Используем пользовательские запросы: {user_queries}",
             status="info", account_name="Pinterest",
         )
+
+        # Состояние пагинации по каждому запросу (bookmark + признак исчерпания).
+        bookmarks: dict[str, str] = {q: "" for q in user_queries}
+        exhausted: set[str] = set()
+        query_totals: dict[str, int] = {q: 0 for q in user_queries}
+        # Ограничение на количество холостых попыток (без новых URL), чтобы не зациклиться.
+        idle_attempts = 0
+        max_idle = max(10, len(user_queries) * 5)
+
+        with console.status("[bold cyan]Поиск картинок на Pinterest...[/]", spinner="dots"):
+            while len(all_urls) < target:
+                available = [q for q in user_queries if q not in exhausted]
+                if not available:
+                    break
+
+                query = random.choice(available)
+                bookmark = bookmarks[query]
+
+                urls, new_bookmark = client.search_images(query, bookmark)
+
+                added = 0
+                for u in urls:
+                    if u not in seen:
+                        seen.add(u)
+                        all_urls.append(u)
+                        added += 1
+
+                query_totals[query] += added
+
+                # Если Pinterest вернул тот же bookmark или пустой — дальнейшая пагинация
+                # по этому запросу бесполезна.
+                if not new_bookmark or new_bookmark == bookmark:
+                    exhausted.add(query)
+                else:
+                    bookmarks[query] = new_bookmark
+
+                if added > 0:
+                    idle_attempts = 0
+                    log_simple(
+                        f"'{query}': +{added} картинок (всего: {len(all_urls)})",
+                        status="success", account_name="Pinterest",
+                    )
+                else:
+                    idle_attempts += 1
+                    if idle_attempts >= max_idle:
+                        break
+
+                time.sleep(random.uniform(0.5, 1.2))
     else:
         num_queries = min(len(SEARCH_QUERIES), max(3, count // 10 + 3))
         queries = random.sample(SEARCH_QUERIES, num_queries)
         max_pages = max(5, count // (num_queries * 20) + 2)
 
-    with console.status("[bold cyan]Поиск картинок на Pinterest...[/]", spinner="dots"):
-        for query in queries:
-            if len(all_urls) >= count * 2:
-                break
-
-            bookmark = ""
-            query_count = 0
-            for _page in range(max_pages):
-                urls, bookmark = client.search_images(query, bookmark)
-                for u in urls:
-                    if u not in seen:
-                        seen.add(u)
-                        all_urls.append(u)
-                        query_count += 1
-
-                if not bookmark or len(all_urls) >= count * 2:
+        with console.status("[bold cyan]Поиск картинок на Pinterest...[/]", spinner="dots"):
+            for query in queries:
+                if len(all_urls) >= target:
                     break
-                time.sleep(random.uniform(0.5, 1.2))
 
-            if query_count > 0:
-                log_simple(
-                    f"'{query}': +{query_count} картинок (всего: {len(all_urls)})",
-                    status="success", account_name="Pinterest",
-                )
+                bookmark = ""
+                query_count = 0
+                for _page in range(max_pages):
+                    urls, bookmark = client.search_images(query, bookmark)
+                    for u in urls:
+                        if u not in seen:
+                            seen.add(u)
+                            all_urls.append(u)
+                            query_count += 1
+
+                    if not bookmark or len(all_urls) >= target:
+                        break
+                    time.sleep(random.uniform(0.5, 1.2))
+
+                if query_count > 0:
+                    log_simple(
+                        f"'{query}': +{query_count} картинок (всего: {len(all_urls)})",
+                        status="success", account_name="Pinterest",
+                    )
 
     random.shuffle(all_urls)
     return all_urls[:count * 3]
