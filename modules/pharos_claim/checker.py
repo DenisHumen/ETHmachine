@@ -135,17 +135,15 @@ def _parse_airdrop_info(body: dict) -> ClaimCheckResult:
                 amount = str(v)
                 break
 
-    # ── claimed: is_checked (1/0) — признак того что награду уже забрали ──
-    if "is_checked" in data and data["is_checked"] is not None:
-        try:
-            claimed = bool(int(data["is_checked"]))
-        except (TypeError, ValueError):
-            claimed = bool(data["is_checked"])
-    else:
-        for k in ("claimed", "is_claimed", "isClaimed", "has_claimed", "hasClaimed"):
-            if k in data and data[k] is not None:
-                claimed = bool(data[k])
-                break
+    # ── claimed: ИСТИННОЕ он-чейн-состояние НЕ известно API claim.pharos.xyz ──
+    # Поле `is_checked` означает "tier выбран/зарегистрирован", а НЕ "дроп заклеймлен".
+    # Раньше это путало логи ("claimed") и отфильтровывало кошельки от реального claim.
+    # Истинный флаг ставит только claimer (после успешного on-chain receipt).
+    # Оставляем fallback на явные клейм-поля, если сервер когда-либо их введёт.
+    for k in ("claimed", "is_claimed", "isClaimed", "has_claimed", "hasClaimed"):
+        if k in data and data[k] is not None:
+            claimed = bool(data[k])
+            break
 
     # ── tiers: сохраняем claim_tier/airdrop_type/claim_total как структурированный список ──
     tier_entry: dict = {}

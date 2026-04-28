@@ -59,33 +59,45 @@ REQUIRE_PROXY = True
 # ========================================================================================
 # CLAIMER — он-чейн исполнение клейма (для eligible/not-claimed кошельков)
 # ========================================================================================
-# Реверс JS-бандла claim.pharos.xyz:
-#   • контракт на Pharos Atlantic (chain id 688689, native PHRS)
-#   • адрес контракта 0x7e9f...bde2
-#   • функция claim(bytes32 tier, uint256 amount, bytes32[] merkleProof)
-#   • merkleProof достаётся с сайта (НЕ api):
-#       GET https://claim.pharos.xyz/api/proxy/proof?tier=<tier>&hash=<md5>
-#       где md5 = md5("pharosairdrop" + tier + addr_lower[2:5])
-#       (addr_lower[2:5] = первые 3 hex-символа адреса после префикса 0x)
-#   • tier энкодится как viem stringToHex(tier, {size:32})
-#       "now" → 0x6e6f7700...00 (правое-zero-padding до 32 байт)
+# Реверс JS-бандла claim.pharos.xyz (PROD, mainnet включён):
+#   • сеть Pharos Mainnet, chain id 1672, native gas-токен PROS
+#   • контракт 0xe5bfde2310fa2a315f814dcc0c8b97c159c8062d (SSR airdropContractAddress)
+#   • окно клейма: 2026-04-28T11:00:00Z → 2026-10-25T11:00:00Z
+#   • JS-флоу (chunk 5027, claim:async):
+#         1. n = K(tier, address)                 — скачать proof-файл с CDN
+#         2. o = stringToHex(tier, {size:32})     — bytes32 right-padded
+#         3. e = claimTiers(o)                    — вернёт (merkleRoot, token, start, end)
+#            if e[0] == 0x00×32 → "This tier is not configured yet"
+#         4. ok = check_proof(o, address, BigInt(amount), e[0], merkleProof)
+#            if !ok → "Invalid merkle proof"
+#         5. tx = claim(o, BigInt(amount), merkleProof)
+#   • proof-файл лежит на статике (chunk 4878):
+#       https://static.claim.pharos.xyz/resources/airdrops/PROD/PHAROSAIRDROP/<tier>/proof_<md5>_<tier>.json
+#       md5 = md5(("pharosairdrop" + tier + address.lower()[2:5]).toLowerCase())
+#   • tier для Instant Airdrop = "now"
 # ========================================================================================
 
-# RPC и идентификаторы сети Pharos Atlantic (testnet)
-CLAIM_RPC_URL = "https://atlantic.dplabs-internal.com"
-CLAIM_CHAIN_ID = 688689
-CLAIM_NATIVE_SYMBOL = "PHRS"
+# RPC и идентификаторы сети Pharos Mainnet
+CLAIM_RPC_URL = "https://rpc.pharos.xyz"
+CLAIM_RPC_FALLBACKS = (
+    # zan.top требует API-ключ (403 без white-list), оставлено для отладки:
+    # "https://api.zan.top/node/v1/pharos/mainnet/<KEY>",
+)
+CLAIM_CHAIN_ID = 1672
+CLAIM_NATIVE_SYMBOL = "PROS"
 
 # Контракт раздачи и эксплорер для tx-ссылок
-CLAIM_CONTRACT_ADDRESS = "0x7e9f01d106f3b7e50930c2e71fdb78f3c54bbde2"
-CLAIM_EXPLORER_TX = "https://atlantic.pharosscan.xyz/tx/"
+CLAIM_CONTRACT_ADDRESS = "0xe5bfde2310fa2a315f814dcc0c8b97c159c8062d"
+CLAIM_EXPLORER_TX = "https://pharosscan.xyz/tx/"
 
-# Эндпоинт на сайте, откуда фронт берёт merkleProof (не API!)
-PROOF_ENDPOINT = "/api/proxy/proof"
+# Где лежат proof-файлы. {tier} и {md5} подставляются клиентом.
+PROOF_BASE_URL = "https://static.claim.pharos.xyz"
+PROOF_PATH_TEMPLATE = "/resources/airdrops/PROD/PHAROSAIRDROP/{tier}/proof_{md5}_{tier}.json"
 PROOF_HASH_PREFIX = "pharosairdrop"
 
-# Ограниченный ABI: только то, что реально вызывает фронт.
-# claim — основная функция, hasClaimed — для проверки до отправки.
+# ABI контракта (реверс из chunk 4878, модуль 11765).
+# Функции, которые на самом деле вызывает фронт:
+#   claim, hasClaimed (read), claimTiers (read), check_proof (pure).
 CLAIM_CONTRACT_ABI = [
     {
         "type": "function",
@@ -105,10 +117,35 @@ CLAIM_CONTRACT_ABI = [
         "inputs": [{"name": "", "type": "address"}],
         "outputs": [{"name": "", "type": "bool"}],
     },
+    {
+        "type": "function",
+        "name": "check_proof",
+        "stateMutability": "pure",
+        "inputs": [
+            {"name": "tier", "type": "bytes32"},
+            {"name": "claimer", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+            {"name": "merkleRoot", "type": "bytes32"},
+            {"name": "merkleProof", "type": "bytes32[]"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "type": "function",
+        "name": "claimTiers",
+        "stateMutability": "view",
+        "inputs": [{"name": "", "type": "bytes32"}],
+        "outputs": [
+            {"name": "merkleRoot", "type": "bytes32"},
+            {"name": "token", "type": "address"},
+            {"name": "startTime", "type": "uint256"},
+            {"name": "endTime", "type": "uint256"},
+        ],
+    },
 ]
 
 # Параметры транзакции
-CLAIM_GAS_LIMIT = 300_000          # запас, реально ~120k
+CLAIM_GAS_LIMIT = 300_000          # запас, реально ~110k
 CLAIM_GAS_PRICE_BUFFER = 1.20      # множитель на eth_gasPrice (защита от bumping)
 CLAIM_TX_TIMEOUT = 180             # ожидание майнинга (сек)
 

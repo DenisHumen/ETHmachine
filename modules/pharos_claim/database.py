@@ -349,10 +349,13 @@ def reset_all() -> None:
 def get_claim_candidates(run_id: int, *, include_failed: bool = True) -> list[dict]:
     """Eligible + НЕ заклеймленные задачи в run_id, кандидаты для клеймера.
 
+    Статус "заклеймлен" берём ИСКЛЮЧИТЕЛЬНО из claim_status (ставится клеймером после
+    успешного on-chain receipt). Колонка `claimed` (1/0 от чекера) НЕ используется —
+    апи claim.pharos.xyz возвращает там флаг регистрации, а не факт claim.
+
     Условия:
       • completed чекером (status='completed') и eligible=1;
-      • claimed != 1 (т.е. is_checked != 1 в API-ответе);
-      • claim_status НЕ 'claimed' (или 'skipped');
+      • claim_status НЕ 'claimed' и НЕ 'skipped';
       • если include_failed=False — также пропускаем 'failed'.
     """
     bad_statuses = ("claimed", "skipped")
@@ -366,7 +369,6 @@ def get_claim_candidates(run_id: int, *, include_failed: bool = True) -> list[di
                 WHERE run_id = ?
                   AND status = 'completed'
                   AND eligible = 1
-                  AND (claimed IS NULL OR claimed = 0)
                   AND (claim_status IS NULL OR claim_status NOT IN ({placeholders}))
                 ORDER BY wallet_index""",
             (run_id, *bad_statuses),

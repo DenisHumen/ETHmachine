@@ -1,20 +1,24 @@
-"""Pharos Claim Claimer — он-чейн исполнение клейма.
+"""Pharos Claim Claimer — он-чейн исполнение клейма (Pharos Mainnet, native PROS).
 
-Флоу (полностью эмулирует поведение фронта claim.pharos.xyz):
+Флоу (эмуляция chunk 5027 claim.pharos.xyz):
 
-  1. warmup + auth (см. checker.ClaimChecker) — токен нужен только если бы мы
-     хотели вызвать /airdrop/airdrop_info; сам клейм идёт в обход API.
-  2. GET https://claim.pharos.xyz/api/proxy/proof?tier=<tier>&hash=<md5>
-        md5 = md5("pharosairdrop" + tier + addr_lower[2:5])
-        ответ: JSON-массив записей вида [address, amount, merkleRoot, merkleProof[]]
-        фильтруем по address.lower() == self.address.lower()
-  3. encode tier как viem stringToHex(tier, {size:32}) → bytes32 right-padded.
-  4. on-chain: claim(tier, amount, merkleProof) на CLAIM_CONTRACT_ADDRESS,
-     отправляется через web3.py с подписью локальным аккаунтом.
+  1. Скачать proof-файл с CDN:
+        URL = static.claim.pharos.xyz/resources/airdrops/PROD/PHAROSAIRDROP/<tier>/proof_<md5>_<tier>.json
+        md5 = md5(("pharosairdrop" + tier + addr_lower[2:5]).toLowerCase())
+        ответ: JSON-массив записей [address, amount, merkleRoot, merkleProof[]],
+        фильтруем по address.lower() == self.address.lower().
+  2. tier_b32 = stringToHex(tier, {size:32}) — right-padded zeros.
+  3. claimTiers(tier_b32) → (merkleRoot, token, start, end). Если root == 0x00×32,
+     тир ещё не сконфигурирован — помечаем not_ready, ждём следующий ран.
+  4. check_proof(tier_b32, address, amount, merkleRoot, merkleProof) → bool.
+     False → "invalid merkle proof" (proof испорчен/сбился).
+  5. Отправляем claim(tier_b32, amount, merkleProof). Ожидаем receipt;
+     status=1 → ok=True; status=0 → "tx reverted".
 
-Используется тот же curl_cffi-сeссионный паттерн (с прокси), что и у чекера:
-прокси нужен для запросов к claim.pharos.xyz / api.claim.pharos.xyz.
-RPC-вызовы (web3) идут НАПРЯМУЮ, без прокси (RPC-узел не за CF).
+CLI-паттерн:
+  • curl_cffi-сессия (chrome131) — используется для GET proof-файла с CDN
+    (прокси применяется, хотя static.claim.pharos.xyz без CF-challenge).
+  • web3.py вызовы (claimTiers/check_proof/claim) — НАПРЯМУЮ к CLAIM_RPC_URL, без прокси.
 """
 from __future__ import annotations
 
@@ -40,13 +44,14 @@ from config.modules.cfg_pharos_claim import (
     CLAIM_GAS_PRICE_BUFFER,
     CLAIM_HEADERS,
     CLAIM_IMPERSONATE,
+    CLAIM_NATIVE_SYMBOL,
     CLAIM_REQUEST_TIMEOUT,
     CLAIM_RPC_URL,
     CLAIM_TX_TIMEOUT,
     CLAIM_WAIT_FOR_RECEIPT,
-    PROOF_ENDPOINT,
+    PROOF_BASE_URL,
     PROOF_HASH_PREFIX,
-    SITE_URL,
+    PROOF_PATH_TEMPLATE,
 )
 from modules.proxy_manager import parse_proxy
 from modules.simple_logger import logger as _logger
@@ -103,16 +108,18 @@ def _md5_hex(s: str) -> str:
 
 
 def _build_proof_url(tier: str, address: str) -> str:
-    """Воссоздать URL так же, как фронт.
+    """Сборка URL к proof-файлу на CDN — эмуляция chunk 4878.
 
-      addr_lower[2:5] — первые 3 hex-символа адреса после `0x`.
-      hash = md5("pharosairdrop" + tier + addr_lower[2:5])
+      addr_lower[2:5]   — первые 3 hex-символа адреса после `0x`.
+      md5_input         = ("pharosairdrop" + tier + addr_lower[2:5]).toLowerCase()
+      filename          = "proof_{md5}_{tier}.json"
+      URL               = PROOF_BASE_URL + PROOF_PATH_TEMPLATE.format(...)
     """
     addr_lower = address.lower()
     prefix3 = addr_lower[2:5]
-    hash_hex = _md5_hex(PROOF_HASH_PREFIX + tier + prefix3)
-    base = SITE_URL.rstrip("/")
-    return f"{base}{PROOF_ENDPOINT}?tier={tier}&hash={hash_hex}"
+    hash_hex = _md5_hex((PROOF_HASH_PREFIX + tier + prefix3).lower())
+    path = PROOF_PATH_TEMPLATE.format(tier=tier, md5=hash_hex)
+    return PROOF_BASE_URL.rstrip("/") + path
 
 
 def _tier_to_bytes32(tier: str) -> bytes:
@@ -165,14 +172,15 @@ class ClaimClaimer:
 
     # ───────── proof ─────────
     def fetch_merkle_proof(self, tier: str) -> tuple[Optional[dict], Optional[str]]:
-        """Скачать merkleProof по адресу/тиру. Возвращает (entry_dict, error)."""
+        """Скачать merkleProof с CDN по адресу/тиру. Возвращает (entry_dict, error)."""
         url = _build_proof_url(tier, self.address)
         try:
             resp = self._session.get(
                 url,
                 headers={
                     "Accept": "application/json, text/plain, */*",
-                    "Sec-Fetch-Site": "same-origin",
+                    "Referer": "https://claim.pharos.xyz/",
+                    "Sec-Fetch-Site": "cross-site",
                 },
                 timeout=CLAIM_REQUEST_TIMEOUT,
             )
@@ -180,10 +188,10 @@ class ClaimClaimer:
             return None, f"proof request failed: {type(e).__name__}: {str(e)[:160]}"
 
         preview = (resp.text or "")[:200].replace("\n", " ")
-        if resp.status_code == 404:
-            # Сайт явно отвечает 404, если merkle-файла для (tier, hash) нет
-            # — значит адрес не входит в раздачу этого тира.
-            return None, f"not in merkle tree for tier='{tier}' (HTTP 404)"
+        if resp.status_code in (403, 404):
+            # CDN отвечает 403/404, если proof-файла для (tier, hash) пока нет
+            # — значит адрес в этом батче не опубликован или дроп ещё не раздаётся.
+            return None, f"not in merkle tree for tier='{tier}' (HTTP {resp.status_code})"
         if resp.status_code != 200:
             return None, f"proof HTTP {resp.status_code}: {preview}"
         try:
@@ -228,7 +236,62 @@ class ClaimClaimer:
         except Exception as e:
             _log("debug", f"hasClaimed RPC failed: {type(e).__name__}: {e}", self.address)
             return None
+    def read_claim_tier(self, tier: str) -> tuple[Optional[bytes], Optional[str]]:
+        """Прочитать claimTiers(tier_b32). Возвращает (merkleRoot_bytes, error).
 
+        Если root == 0x00×32 — тир ещё не сконфигурирован (claim ревертнет).
+        Возвращает (b'\\x00'*32, None) в этом случае — решение берёт вызывающий.
+        """
+        try:
+            w3 = self._get_web3()
+            contract = w3.eth.contract(
+                address=Web3.to_checksum_address(CLAIM_CONTRACT_ADDRESS),
+                abi=CLAIM_CONTRACT_ABI,
+            )
+            tier_b32 = _tier_to_bytes32(tier)
+            res = contract.functions.claimTiers(tier_b32).call()
+            # res = (merkleRoot, token, startTime, endTime)
+            return bytes(res[0]), None
+        except Exception as e:
+            return None, f"claimTiers RPC failed: {type(e).__name__}: {str(e)[:160]}"
+
+    def verify_proof_onchain(
+        self,
+        tier: str,
+        amount_wei: int,
+        merkle_root: bytes,
+        merkle_proof: list[str],
+    ) -> tuple[Optional[bool], Optional[str]]:
+        """Дернуть check_proof(tier, addr, amount, root, proof) на контракте.
+
+        Это симметрично фронту: без этой проверки claim() ревертнет
+        и мы потеряем газ.
+        """
+        try:
+            w3 = self._get_web3()
+            contract = w3.eth.contract(
+                address=Web3.to_checksum_address(CLAIM_CONTRACT_ADDRESS),
+                abi=CLAIM_CONTRACT_ABI,
+            )
+            tier_b32 = _tier_to_bytes32(tier)
+            proof_bytes: list[bytes] = []
+            for p in merkle_proof:
+                if not isinstance(p, str):
+                    return None, f"proof item not a string: {p!r}"
+                clean = p[2:] if p.startswith("0x") else p
+                if len(clean) != 64:
+                    return None, f"proof item wrong length: {p}"
+                proof_bytes.append(bytes.fromhex(clean))
+            ok = contract.functions.check_proof(
+                tier_b32,
+                Web3.to_checksum_address(self.address),
+                int(amount_wei),
+                merkle_root,
+                proof_bytes,
+            ).call()
+            return bool(ok), None
+        except Exception as e:
+            return None, f"check_proof RPC failed: {type(e).__name__}: {str(e)[:160]}"
     def submit_claim_tx(
         self,
         tier: str,
@@ -342,7 +405,32 @@ class ClaimClaimer:
                     raw_proof=proof_entry,
                 )
 
-        # 3. Шлём транзакцию.
+        # 3. Проверяем конфигурацию тира на контракте — без этого claim() ревертнет.
+        merkle_root, err = self.read_claim_tier(tier_eff)
+        if err:
+            return ClaimActionResult(error=err, tier=tier_eff, raw_proof=proof_entry)
+        if merkle_root is None or merkle_root == b"\x00" * 32:
+            return ClaimActionResult(
+                not_ready=True,
+                tier=tier_eff,
+                skip_reason=f"tier='{tier_eff}' not configured on-chain yet (zero merkleRoot)",
+                raw_proof=proof_entry,
+            )
+
+        # 4. Сверяем пруф с контрактом — фронт делает то же (chunk 5027).
+        ok, err = self.verify_proof_onchain(
+            tier_eff, int(amount_wei), merkle_root, proof_entry["merkleProof"],
+        )
+        if err:
+            return ClaimActionResult(error=err, tier=tier_eff, raw_proof=proof_entry)
+        if ok is False:
+            return ClaimActionResult(
+                error="check_proof returned false (invalid merkle proof for this address/amount/tier)",
+                tier=tier_eff,
+                raw_proof=proof_entry,
+            )
+
+        # 5. Шлём транзакцию.
         tx_hash, err = self.submit_claim_tx(
             tier_eff, int(amount_wei), proof_entry["merkleProof"],
         )
@@ -354,10 +442,10 @@ class ClaimClaimer:
                 raw_proof=proof_entry,
             )
 
-        # Человекочитаемая сумма (PHRS, 18 dec)
+        # Человекочитаемая сумма (native, 18 dec)
         try:
             amt_human = f"{int(amount_wei) / 10 ** 18:.4f}".rstrip("0").rstrip(".") or "0"
-            amount_str = f"{amt_human} PHRS"
+            amount_str = f"{amt_human} {CLAIM_NATIVE_SYMBOL}"
         except Exception:
             amount_str = str(amount_wei)
 
