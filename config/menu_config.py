@@ -174,6 +174,7 @@ BALANCES_SUBMENU = SubMenu(
         MenuItem(key='Eclipse', label='Eclipse', description='Eclipse Network', icon='💲', enabled=True),
         MenuItem(key='debank_checker', label='DeBank Checker', description='Проверка всех балансов через DeBank', icon='🏦', enabled=True),
         MenuItem(key='debank_protocols', label='DeBank Protocols', description='Проверка DeFi-позиций (стейкинг, лендинг, locked)', icon='🔗', enabled=True),
+        MenuItem(key='zksync_lite', label='zkSync Lite', description='Балансы zkSync Lite (lite.zksync.io)', icon='🟪', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )

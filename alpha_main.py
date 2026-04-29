@@ -174,6 +174,10 @@ def _h_debank_protocols():
     from modules.debank.debank_protocol_checker import debank_protocol_menu
     debank_protocol_menu()
 
+def _h_zksync_lite():
+    from modules.zksync_lite import zksync_lite_menu
+    zksync_lite_menu()
+
 # --- Transactions -----------------------------------------------------
 
 def _h_eth_drainers():
@@ -364,6 +368,7 @@ _HANDLERS: dict[str, Callable] = {
     'eclipse':                   _h_eclipse_balance,
     'debank_checker':            _h_debank_checker,
     'debank_protocols':          _h_debank_protocols,
+    'zksync_lite':               _h_zksync_lite,
     # Transactions
     'eth_drainers':              _h_eth_drainers,
     'sol_drainers':              _h_sol_drainers,
@@ -491,6 +496,9 @@ def build_menu() -> List[MenuNode]:
             MenuNode("debank_protocols", "DeBank Protocols",
                      "DeFi positions (staking, lending, locked)", "\U0001f517",
                      handler_key="debank_protocols"),
+            MenuNode("zksync_lite", "zkSync Lite",
+                     "zkSync Lite balances (lite.zksync.io)", "\U0001f7ea",
+                     handler_key="zksync_lite"),
         ]),
 
         # -- 2. TRANSACTIONS -------------------------------------------

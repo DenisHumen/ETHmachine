@@ -394,6 +394,9 @@ class MenuHandlers:
             debank_checker_menu()
         elif blockchain == 'debank_protocols':
             debank_protocol_menu()
+        elif blockchain == 'zksync_lite':
+            from modules.zksync_lite import zksync_lite_menu
+            zksync_lite_menu()
     
     @staticmethod
     def _handle_eth_balances():
