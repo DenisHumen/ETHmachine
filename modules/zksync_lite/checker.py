@@ -12,7 +12,7 @@ import random
 import time
 from pathlib import Path
 from threading import Event, Lock
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Dict, List, Optional, Tuple
 
 from colorama import Fore, Style
@@ -244,29 +244,48 @@ def run_zksync_lite_checker() -> None:
             leave=True,
         )
         try:
-            with ThreadPoolExecutor(max_workers=max(1, min(NUM_THREADS, total))) as ex:
-                futures = []
-                for i, task in enumerate(pending, 1):
+            max_workers = max(1, min(NUM_THREADS, total))
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                pending_iter = iter(enumerate(pending, 1))
+                in_flight = set()
+
+                def _submit_next() -> bool:
                     if _stop_event.is_set():
-                        break
+                        return False
+                    try:
+                        i, task = next(pending_iter)
+                    except StopIteration:
+                        return False
+
                     addr = task["wallet_address"]
                     proxy = proxy_map.get(addr.lower())
                     name = name_map.get(addr.lower())
-                    futures.append(
-                        ex.submit(_process_wallet, addr, proxy, name, i, total)
-                    )
-                    # стаггер старта
-                    if DELAY_BETWEEN_ACCOUNTS:
-                        time.sleep(random.uniform(*DELAY_BETWEEN_ACCOUNTS) / max(NUM_THREADS, 1))
+                    in_flight.add(ex.submit(_process_wallet, addr, proxy, name, i, total))
 
-                for fut in as_completed(futures):
-                    try:
-                        _, kind, _ = fut.result()
-                    except Exception as exc:  # noqa: BLE001
-                        logger.error(f"worker error: {exc}")
-                        kind = "failed"
-                    if kind in ("active", "empty", "failed"):
-                        _pbar_tick(kind)
+                    # Легкий стаггер старта без блокировки прогресс-бара.
+                    if DELAY_BETWEEN_ACCOUNTS:
+                        time.sleep(random.uniform(*DELAY_BETWEEN_ACCOUNTS) / max_workers)
+                    return True
+
+                # Заполняем пул начальными задачами.
+                for _ in range(max_workers):
+                    if not _submit_next():
+                        break
+
+                while in_flight:
+                    done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        in_flight.discard(fut)
+                        try:
+                            _, kind, _ = fut.result()
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(f"worker error: {exc}")
+                            kind = "failed"
+                        if kind in ("active", "empty", "failed"):
+                            _pbar_tick(kind)
+
+                    while len(in_flight) < max_workers and _submit_next():
+                        pass
         except KeyboardInterrupt:
             _stop_event.set()
             logger.warning("Получен Ctrl+C — стопаем после текущих задач…")
