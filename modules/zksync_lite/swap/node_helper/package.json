@@ -1,0 +1,11 @@
+{
+  "name": "zksync-lite-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node.js subprocess helper for signing zkSync Lite L2 transactions from Python",
+  "main": "signer.js",
+  "dependencies": {
+    "zksync": "0.13.1",
+    "ethers": "5.7.2"
+  }
+}

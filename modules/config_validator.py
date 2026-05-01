@@ -316,11 +316,21 @@ class ConfigValidator:
         return bool(re.match(pattern, email.strip()))
     
     def _is_valid_proxy_format(self, proxy):
-        """Проверка корректности формата прокси login:password@ip:port"""
+        """Проверка корректности формата прокси login:password@host:port
+
+        Поддерживаются как IPv4 адреса, так и хостнеймы (для резидентских прокси),
+        а также опциональная схема (http://, https://, socks5://).
+        """
         if not isinstance(proxy, str):
             return False
-        pattern = r'^[^:]+:[^@]+@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}$'
-        return bool(re.match(pattern, proxy.strip()))
+        value = proxy.strip()
+        if not value:
+            return False
+        # Опциональная схема
+        value = re.sub(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', '', value)
+        # login:password@host:port — host может быть IPv4 или хостнеймом
+        pattern = r'^[^:@\s]+:[^@\s]+@[A-Za-z0-9.\-_]+:\d{1,5}$'
+        return bool(re.match(pattern, value))
     
     def _is_valid_amount_format(self, amount):
         """Проверка корректности формата amount"""

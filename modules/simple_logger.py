@@ -80,7 +80,11 @@ def _format_record(record) -> str:
     if wallet:
         parts.append(f"<blue>{wallet}</blue>")
 
-    parts.append(f"<{fg}>{record['message']}</{fg}>")
+    # Экранируем фигурные скобки в сообщении: loguru с colorize=True
+    # пропускает результат через .format_map(record), и любые `{...}`
+    # в тексте интерпретируются как плейсхолдеры (KeyError).
+    msg_text = str(record["message"]).replace("{", "{{").replace("}", "}}")
+    parts.append(f"<{fg}>{msg_text}</{fg}>")
     return " │ ".join(parts) + "\n"
 
 

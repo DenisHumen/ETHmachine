@@ -149,7 +149,7 @@ def zksync_lite_menu() -> None:
                 Choice("🆕 Начать с нуля                     🌟 Очистить БД и стартовать", "fresh"),
                 Choice("📊 Статистика                        🌟 Что лежит в БД", "stats"),
                 Choice("📥 Экспорт результатов в Excel       🌟 result/zksync_lite/*.xlsx", "export"),
-                Choice("🗑️  Очистка БД                       🌟 Сброс всех задач", "clear"),
+                Choice("� Swap to Era                       🌟 Lite → Era до 4 мая", "swap"),                Choice("💧 DAI Withdraw → L1                 🌟 DAI Lite → Ethereum L1", "dai_withdraw"),                Choice("�🗑️  Очистка БД                       🌟 Сброс всех задач", "clear"),
                 Choice("📖 Информация                        🌟 Описание модуля", "info"),
                 Choice("🔙 Назад", "back"),
             ],
@@ -173,6 +173,12 @@ def zksync_lite_menu() -> None:
             _show_db_stats()
         elif action == "export":
             _handle_export()
+        elif action == "swap":
+            from modules.zksync_lite.swap.swap_menu import zksync_lite_swap_menu
+            zksync_lite_swap_menu()
+        elif action == "dai_withdraw":
+            from modules.zksync_lite.dai_withdraw.cli import main as dai_main
+            dai_main()
         elif action == "clear":
             _handle_clear()
         elif action == "info":

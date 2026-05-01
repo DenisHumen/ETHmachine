@@ -36,3 +36,6 @@ db/*
 *.backup
 modules/statistics/astrum_captcha_solver.py.original
 config/modules/cfg_pinterest.py
+
+modules/zksync_lite/swap/node_helper/node_modules
+scripts
