@@ -39,3 +39,4 @@ config/modules/cfg_pinterest.py
 
 modules/zksync_lite/swap/node_helper/node_modules
 scripts
+
