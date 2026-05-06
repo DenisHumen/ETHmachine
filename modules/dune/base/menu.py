@@ -148,12 +148,15 @@ def _print_info() -> None:
 
 Источник адресов: поле {Fore.YELLOW}private_key{Style.RESET_ALL} (конвертируется в EVM-адрес).
 Если private_key пуст, используется поле {Fore.YELLOW}wallet_address{Style.RESET_ALL}.
-У каждого кошелька свой {Fore.YELLOW}proxy{Style.RESET_ALL} из той же строки CSV — пробрасывается
-в browser-context.
+У каждого кошелька свой {Fore.YELLOW}proxy{Style.RESET_ALL} из той же строки CSV.
+
+Для КАЖДОГО кошелька поднимается свой свежий Chromium со своим прокси:
+1) запуск браузера → 2) подключение прокси → 3) переход на дашборд →
+4) поиск адреса → 5) запись результата в БД → 6) закрытие браузера.
 
 Все настройки берутся из {Fore.YELLOW}config/modules/cfg_base.py{Style.RESET_ALL}:
 
-  NUM_THREADS              — количество потоков (каждому поднимается свой Chromium)
+  NUM_THREADS              — количество параллельных браузеров (по 1 кошельку каждый)
   SLEEP_BETWEEN_ACTIONS    — пауза между кошельками в одном потоке
   DELAY_BETWEEN_ACCOUNTS   — стаггер между стартом потоков
   RETRY_COUNT              — попытки при сетевых/парсинг ошибках

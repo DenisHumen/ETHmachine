@@ -11,8 +11,11 @@ patchright-Chromium (обход Cloudflare) открывает страницу,
 Адреса берутся из выбранного data/data*.csv:
   • `private_key` → EVM-адрес через `eth_account`;
   • если приватного ключа нет — используется `wallet_address`;
-  • у каждого кошелька свой `proxy` из той же строки CSV
-    (прокси пробрасывается в browser-context).
+  • у каждого кошелька свой `proxy` из той же строки CSV.
+
+Для КАЖДОГО кошелька поднимается свой свежий Chromium со своим прокси,
+открывается дашборд, выполняется поиск, результат пишется в БД,
+после чего браузер закрывается. Параллелизм регулируется `NUM_THREADS`.
 
 Состояние и результаты хранятся в SQLite `db/dune_base_checker.db`,
 что позволяет продолжить с места остановки, повторно выгрузить
@@ -252,25 +255,41 @@ def _worker_loop(
     queue: "Queue[Tuple[int, int, str, Optional[str], Optional[str]]]",
     stagger_sec: float,
 ) -> None:
-    """Рабочая функция одного потока: свой `DuneBaseScraper` на поток."""
+    """Рабочая функция одного потока.
+
+    Для КАЖДОГО кошелька в очереди поднимается свой свежий Chromium
+    (`DuneBaseScraper`) с прокси этого кошелька, открывается дашборд,
+    выполняется поиск, результат пишется в БД, после чего браузер закрывается.
+    Так гарантировано: 1 кошелёк → 1 браузер → 1 прокси.
+    """
     if stagger_sec > 0:
         time.sleep(stagger_sec)
-    try:
-        with DuneBaseScraper() as scraper:
-            while not _stop_event.is_set():
-                try:
-                    task = queue.get_nowait()
-                except Empty:
-                    return
-                index, ttl, address, proxy, account_name = task
-                _wallet_begin(address)
-                try:
+    while not _stop_event.is_set():
+        try:
+            task = queue.get_nowait()
+        except Empty:
+            return
+        index, ttl, address, proxy, account_name = task
+        _wallet_begin(address)
+        try:
+            try:
+                with DuneBaseScraper() as scraper:
                     _process_wallet(scraper, index, ttl, address, proxy, account_name)
-                finally:
-                    _wallet_end(address)
-                    queue.task_done()
-    except Exception as exc:  # noqa: BLE001
-        logger.error(f"Фатальная ошибка рабочего потока: {exc}")
+            except Exception as exc:  # noqa: BLE001
+                # Падение запуска браузера/контекста — фиксируем как ошибку
+                # конкретного кошелька, поток продолжает работу.
+                err = str(exc)[:300]
+                logger.error(
+                    f"[{address[:8]}…{address[-4:]}] Сбой браузера: {err}"
+                )
+                try:
+                    update_task_failed(address, err)
+                except Exception:  # noqa: BLE001
+                    pass
+                _pbar_tick("failed")
+        finally:
+            _wallet_end(address)
+            queue.task_done()
 
 
 def _collect_wallets() -> List[Dict[str, Optional[str]]]:

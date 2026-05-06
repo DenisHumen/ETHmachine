@@ -1,5 +1,44 @@
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
+
+
+# Стиль красного бейджа — совпадает с уровнем ERROR в modules/simple_logger.py
+_BADGE_RED = "\033[41m\033[97;1m {text} \033[0m"
+
+# Целевая визуальная ширина колонки "иконка + label" (в ячейках терминала)
+_LABEL_COLUMN_WIDTH = 35
+
+
+def _visual_width(s: str) -> int:
+    """Приблизительная ширина строки в ячейках терминала.
+
+    Учитывает, что emoji и East-Asian-Wide символы занимают 2 клетки,
+    а variation selectors (️ и т.п.) — 0. ljust() оперирует
+    кол-вом codepoint'ов, поэтому без этой функции menu items с emoji
+    разной структуры (с VS-16 и без) выглядят сдвинутыми.
+    """
+    width = 0
+    for ch in s:
+        if ch in ('️', '︎') or unicodedata.combining(ch):
+            continue
+        cp = ord(ch)
+        if (
+            unicodedata.east_asian_width(ch) in ('W', 'F')
+            or 0x2300 <= cp <= 0x27BF
+            or 0x2B00 <= cp <= 0x2BFF
+            or 0x1F000 <= cp <= 0x1FFFF
+        ):
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def _pad_label(icon: str, label: str) -> str:
+    raw = f"{icon} {label}"
+    pad = max(1, _LABEL_COLUMN_WIDTH - _visual_width(raw))
+    return raw + ' ' * pad
 
 
 @dataclass
@@ -12,9 +51,13 @@ class MenuItem:
     handler: Optional[Callable] = None   # Функция-обработчик (опционально)
     requires_os: Optional[str] = None    # Требуемая ОС (windows/linux/macos)
     is_wip: bool = False                 # В разработке (показывает предупреждение)
-    
+    badge: Optional[str] = None          # Бейдж в красной рамке (как в логере) — например "ПАУЗА"
+
     def get_choice_text(self) -> str:
-        padded_label = f"{self.icon} {self.label}".ljust(35)
+        padded_label = _pad_label(self.icon, self.label)
+        if self.badge:
+            badge = _BADGE_RED.format(text=self.badge)
+            return f"{padded_label}🌟 {badge} {self.description}"
         return f"{padded_label}🌟 {self.description}"
 
 
@@ -28,11 +71,10 @@ class SubMenu:
     items: List[MenuItem] = field(default_factory=list)
     qmark: str = '🛠️'
     pointer: str = '👉'
-    
+
     def get_choice_text(self) -> str:
-        padded_label = f"{self.icon} {self.label}".ljust(35)
-        return f"{padded_label}🌟 {self.description}"
-    
+        return f"{_pad_label(self.icon, self.label)}🌟 {self.description}"
+
     def get_enabled_items(self) -> List[MenuItem]:
         return [item for item in self.items if item.enabled]
 
@@ -51,7 +93,6 @@ MAIN_MENU_CONFIG = {
 MAIN_MENU_ORDER = [
     'check_balances',
     'transactions',
-    'claimer',
     'twitter',
     'projects_menu',
     'CEX_menu',
@@ -150,13 +191,6 @@ MENU_ITEMS = {
         icon='🚰',
         enabled=False,  # Выключен
     ),
-    'claimer': MenuItem(
-        key='claimer',
-        label='Claimer',
-        description='Клейм наград Zora Protocol (Base/Zora)',
-        icon='💰',
-        enabled=True,
-    ),
 }
 
 # =============================================================================
@@ -231,22 +265,6 @@ DRAINERS_SUBMENU = SubMenu(
 )
 
 # =============================================================================
-# ПОДМЕНЮ: CLAIMER
-# =============================================================================
-
-CLAIMER_SUBMENU = SubMenu(
-    key='claimer',
-    label='Выберите проект для клейма',
-    description='',
-    icon='💰',
-    qmark='💰',
-    items=[
-        MenuItem(key='zora_claimer', label='Zora Claimer', description='Клейм наград Zora Protocol (Base/Zora сети)', icon='💎', enabled=True),
-        MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
-    ]
-)
-
-# =============================================================================
 # ПОДМЕНЮ: TWITTER
 # =============================================================================
 
@@ -274,11 +292,8 @@ PROJECTS_SUBMENU = SubMenu(
     icon='🎮',
     qmark='🎮',
     items=[
-        MenuItem(key='pharos', label='Pharos Testnet', description='Faucet, Check-in, Квесты, Send & Verify', icon='🟢', enabled=True),
-        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='🟢', enabled=True),
-        MenuItem(key='abs_portal', label='Abstract Portal', description='Stats, Badges, XP Recap', icon='🟢', enabled=True),
+        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='🟢', enabled=True, badge='ПАУЗА'),
         MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='🟢', enabled=True, requires_os='windows'),
-        MenuItem(key='perle_checker', label='Perle', description='Проверка элигибельности SOL кошельков', icon='🟢', enabled=True),
         MenuItem(key='dune', label='Dune', description='Аналитика и проверка кошельков через Dune Analytics', icon='🟢', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
@@ -359,14 +374,12 @@ TOOLS_SUBMENU = SubMenu(
     description='',
     icon='🧰',
     items=[
-        MenuItem(key='check_gas_price', label='Check Gas Price', description='Проверить цену газа', icon='⛽', enabled=True),
         MenuItem(key='generate_wallets', label='Generate Wallets', description='Генерация кошельков', icon='🪙', enabled=True),
         MenuItem(key='ETH_convert_tool', label='ETH/SOL convert tool', description='Конвертация мнемоники/priv_key в wallet_address/priv_key', icon='🛠️', enabled=True),
         MenuItem(key='password_generator', label='Password Generator', description='Генерация паролей по заданым параметра в "config/config.py"', icon='🔑', enabled=True),
         MenuItem(key='nickname_generator', label='Nickname Generator', description='Генерация человечески выглядящих никнеймов', icon='🎭', enabled=True),
         MenuItem(key='fullname_generator', label='Fullname Generator', description='Генерация имён и фамилий (RU/UA/ENG)', icon='👤', enabled=True),
         MenuItem(key='check_proxy', label='Check Proxy', description='Проверить прокси', icon='🛠️', enabled=True),
-        MenuItem(key='last_transactions', label='Last Transactions', description='Проверить последние транзакции', icon='🗂️', enabled=True),
         MenuItem(key='check_age_discord', label='Check age discord', description='Проверить возраст аккаунта Discord', icon='🗂️', enabled=True),
         MenuItem(key='email_checker', label='Email IMAP Checker', description='Проверить почтовые аккаунты через IMAP', icon='📧', enabled=True),
         MenuItem(key='pinterest_downloader', label='Pinterest Downloader', description='Скачать рандомные картинки из Pinterest', icon='📌', enabled=True),
@@ -491,11 +504,30 @@ def get_enabled_main_menu_items() -> list:
     return result
 
 
+def _wrap_title(text: str):
+    """Превращает строку с ANSI escape-кодами в FormattedText, который
+    questionary/prompt_toolkit отрисует с правильными цветами.
+
+    Просто `ANSI(text)` не работает: в текущей версии questionary `Choice`
+    приводит неизвестный тип через `str()` и в меню печатается literal
+    `ANSI('...')`. Поэтому сразу разворачиваем в список `(style, text)`
+    кортежей через `to_formatted_text` — он наследник `list`, который
+    `Choice` принимает как готовый FormattedText.
+    """
+    if '\033' not in text:
+        return text
+    try:
+        from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+    except ImportError:
+        return text
+    return to_formatted_text(ANSI(text))
+
+
 def build_choices(items: list) -> list:
     from questionary import Choice
-    return [Choice(item.get_choice_text(), item.key) for item in items if item.enabled]
+    return [Choice(_wrap_title(item.get_choice_text()), item.key) for item in items if item.enabled]
 
 
 def build_submenu_choices(submenu: SubMenu) -> list:
     from questionary import Choice
-    return [Choice(item.get_choice_text(), item.key) for item in submenu.get_enabled_items()]
+    return [Choice(_wrap_title(item.get_choice_text()), item.key) for item in submenu.get_enabled_items()]

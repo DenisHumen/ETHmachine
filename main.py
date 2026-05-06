@@ -39,7 +39,6 @@ from config.menu_config import (
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
     BALANCES_SUBMENU, ETH_BALANCES_SUBMENU, SOL_BALANCES_SUBMENU,
     TRANSACTIONS_SUBMENU, DRAINERS_SUBMENU,
-    CLAIMER_SUBMENU,
     TWITTER_SUBMENU, PROJECTS_SUBMENU,
     CEX_SUBMENU, OKX_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, MEXC_SUBMENU,
     TOOLS_SUBMENU, GENERATE_WALLETS_SUBMENU, ETH_WALLETS_SUBMENU, SOL_WALLETS_SUBMENU,
@@ -74,7 +73,6 @@ from modules.info import info
 from modules.eth.eth_get_balaces import check_wallet_balances_menu
 from modules.eth.eth_get_token_balance import check_token_balance_menu
 from modules.password_generator import password_generator_menu
-from modules.get_gas_price import check_all_gas_prices
 
 from modules.twitter.twitter_check import run_twitter_check
 from modules.twitter.twitter_task_runner import run_twitter_tasks
@@ -98,7 +96,6 @@ from modules.eth.eth_nice_address.eth_nice_address_rust_wrapper import run_rust_
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.eth_private_key_to_wallet_address import process_private_keys
 from modules.eth.eth_drainers import eth_drainers
-from modules.eth.eth_last_tx import check_last_transactions
 from modules.relay_link.relay_link import main as relay_bridge_main
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
@@ -109,12 +106,8 @@ from modules.sol.sol_get_balances import solana_balance_checker
 
 from modules.debank.debank_checker import debank_checker_menu
 from modules.debank.debank_protocol_checker import debank_protocol_menu
-from modules.pharos.menu import pharos_menu
 from modules.xstocks.menu import xstocks_menu
-from modules.abs.menu import abs_menu
 from modules.eth.transfer_wallets_to_wallets import run_transfer
-from modules.claim.zora_claimer.menu import claimer_menu
-from modules.statistics.perle.menu import perle_menu
 from modules.dune import dune_menu
 
 mainnet_rpc_urls = get_mainnet_networks()
@@ -156,8 +149,6 @@ def check_and_create_files():
         'log',
         'result/discord',
         'result/email',
-        'result/pharos_discord',
-        'result/pharos_auto'
     ]
 
     for directory in required_directories:
@@ -518,21 +509,6 @@ class MenuHandlers:
         return transfer_data
     
     # -------------------------------------------------------------------------
-    # CLAIMER
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def handle_claimer():
-        """Обработчик меню клеймера"""
-        choice = show_menu(
-            "Выберите проект для клейма:",
-            build_submenu_choices(CLAIMER_SUBMENU)
-        )
-
-        if choice == 'zora_claimer':
-            claimer_menu()
-
-    # -------------------------------------------------------------------------
     # TWITTER
     # -------------------------------------------------------------------------
 
@@ -566,19 +542,13 @@ class MenuHandlers:
                 qmark='🎮'
             )
 
-            if choice == 'pharos':
-                pharos_menu()
-            elif choice == 'xstocks':
+            if choice == 'xstocks':
                 xstocks_menu()
-            elif choice == 'abs_portal':
-                abs_menu()
             elif choice == 'neura_stat':
                 if neura_statistics is not None:
                     neura_statistics()
                 else:
                     MenuHandlers._show_neura_unavailable()
-            elif choice == 'perle_checker':
-                perle_menu()
             elif choice == 'dune':
                 dune_menu()
             elif choice == 'back' or choice is None:
@@ -693,8 +663,6 @@ class MenuHandlers:
         )
         
         match choice:
-            case 'check_gas_price':
-                check_all_gas_prices()
             case 'generate_wallets':
                 MenuHandlers._handle_generate_wallets()
             case 'ETH_convert_tool':
@@ -709,8 +677,6 @@ class MenuHandlers:
                 generate_fullnames_menu()
             case 'check_proxy':
                 check_proxy_menu()
-            case 'last_transactions':
-                check_last_transactions()
             case 'check_age_discord':
                 MenuHandlers._handle_discord_check()
             case 'email_checker':
@@ -928,8 +894,6 @@ def main_menu():
                     backup_menu()
                 case 'info':
                     info()
-                case 'claimer':
-                    MenuHandlers.handle_claimer()
                 case 'faucets':
                     show_wip_message("Функционал Faucets")
                 case 'exit':
