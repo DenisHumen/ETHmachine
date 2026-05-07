@@ -224,12 +224,12 @@ def calculate_age_from_id(user_id):
 def save_results_to_csv(results, os_type):
     """Сохраняет результаты в CSV файл"""
     try:
-        # Создаем директорию result если не существует
-        os.makedirs('result', exist_ok=True)
-        
+        # Создаём result/discord лениво при первой записи
+        os.makedirs('result/discord', exist_ok=True)
+
         # Определяем разделитель
         delimiter = ';' if os_type.lower() == 'windows' else ','
-        
+
         # Генерируем имя файла с timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'result/discord/discord_check_{timestamp}.csv'

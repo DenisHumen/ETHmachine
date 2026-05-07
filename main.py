@@ -1,6 +1,5 @@
 import os
 import time
-import csv
 import platform
 import sys
 import warnings
@@ -134,21 +133,18 @@ def check_and_create_files():
     required_files = [
         'result/result.csv',
         'config/cex_settings.py',
-        'data/transfer_token.csv',
         'data/twitter/twitters.csv',
         'data/twitter/twitter_task.csv',
-        'result/twitter/result.csv',
     ]
+    # Каталоги result/twitter, result/discord, result/email создаются ленивыми
+    # средствами самих модулей при первой записи результатов.
     required_directories = [
         'result',
         'data',
         'db',
-        'result/twitter',
         'data/twitter',
         'backups',
         'log',
-        'result/discord',
-        'result/email',
     ]
 
     for directory in required_directories:
@@ -182,8 +178,6 @@ def _write_default_file_content(f, file_path: str):
         f.write('address,transaction_count,network\n')
     elif 'cex_settings.py' in file_path:
         f.write(_get_default_cex_settings())
-    elif 'transfer_token.csv' in file_path:
-        f.write('from_wallet,to_wallet,amount\n')
     elif 'data/twitter/twitters.csv' in file_path:
         f.write('nickname,auth_token,ct0,proxy\n')
     elif 'data/twitter/twitter_task.csv' in file_path:
@@ -457,10 +451,10 @@ class MenuHandlers:
     @staticmethod
     def _handle_transfer_wallets():
         """Обработчик перевода между кошельками"""
-        print(Fore.GREEN + f"\n\nФормат данных для data/transfer_token.csv: from_wallet,to_wallet,amount")
-        print(Fore.YELLOW + f"from_wallet — приватный ключ отправителя")
-        print(Fore.YELLOW + f"to_wallet — адрес или приватный ключ получателя (определяется автоматически)")
-        print(Fore.YELLOW + f"amount — '90-100' или '90-100%' для процентов, 0.1-0.2 для суммы в нативном токене\n")
+        print(Fore.GREEN + f"\n\nДанные читаются из data/data.csv:")
+        print(Fore.YELLOW + f"  private_key       → отправитель")
+        print(Fore.YELLOW + f"  evm_cex_address   → получатель (адрес или приватный ключ)")
+        print(Fore.YELLOW + f"  transfer_amount   → '90-100' или '90-100%' — проценты, 0.1-0.2 — сумма в нативном токене\n")
 
         network_type = show_menu(
             "Select network type:",
@@ -491,21 +485,11 @@ class MenuHandlers:
     
     @staticmethod
     def _load_transfer_data() -> list:
-        """Загружает данные для перевода"""
-        transfer_data = []
-        try:
-            with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row.get('from_wallet') and row.get('to_wallet') and row.get('amount'):
-                        transfer_data.append(row)
-        except Exception as e:
-            print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
-            return []
-
+        """Загружает данные для перевода из data/data.csv через data_manager."""
+        from modules.data_manager import get_transfer_rows
+        transfer_data = get_transfer_rows()
         if not transfer_data:
-            print(Fore.RED + "Нет данных для отправки в data/transfer_token.csv.")
-
+            print(Fore.RED + "Нет данных для перевода: заполните private_key, evm_cex_address и transfer_amount в data/data.csv.")
         return transfer_data
     
     # -------------------------------------------------------------------------
@@ -684,6 +668,9 @@ class MenuHandlers:
             case 'pinterest_downloader':
                 from modules.pinterest_downloader import pinterest_downloader_menu
                 pinterest_downloader_menu()
+            case 'drainer_polygonzk_to_base':
+                from modules.eth.drainer_polygonzk_to_base import run_drainer_polygonzk_to_base
+                run_drainer_polygonzk_to_base()
     
     @staticmethod
     def _handle_generate_wallets():

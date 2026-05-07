@@ -93,7 +93,7 @@ python main.py
 Все данные хранятся в **одном CSV файле** `data/data.csv` со следующими заголовками:
 
 ```csv
-private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_token,email,email_password,email_imap
+name,private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,sol_private_key,discord_token,email,email_password,email_imap,referral_code,evm_cex_address,sol_cex_address,transfer_amount
 ```
 
 | Колонка | Описание | Пример |
@@ -104,10 +104,15 @@ private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_toke
 | `wallet_address` | ETH-адрес (если без private_key) | `0x742d...` |
 | `mnemonic` | Мнемоническая фраза (12/24 слова) | `word1 word2 ... word12` |
 | `sol_address` | Solana-адрес | `7xKXt...` |
+| `sol_private_key` | Solana приватный ключ | `5J...` (base58) |
 | `discord_token` | Discord токен | `MTIx...` |
 | `email` | Email адрес | `user@mail.com` |
 | `email_password` | Пароль от email | `password123` |
 | `email_imap` | IMAP сервер | `imap.mail.com` |
+| `referral_code` | Реферальный код | `REF123` |
+| `evm_cex_address` | EVM адрес-получатель CEX (для Transfer Wallets / Transfer ERC20 / CEX withdraw) | `0x742d...` |
+| `sol_cex_address` | SOL адрес-получатель CEX | `7xKXt...` |
+| `transfer_amount` | Сумма для модулей Transfer Wallets / Transfer ERC20. `0.1-0.2` — диапазон сумм; `"0.1-0.2"` или `0.1-0.2%` — процент от баланса; `10-20token` — токены | `0.1-0.2` или `90-100%` |
 
 Не все колонки обязательны — заполняйте только нужные для ваших задач.
 
@@ -122,7 +127,6 @@ private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_toke
 
 ### Отдельные файлы
 
-- `data/transfer_token.csv` — настройки переводов ERC-20 (отдельный формат)
 - `data/twitter/` — Twitter аккаунты и задачи (отдельная директория)
 
 ## ⚙️ Конфигурация

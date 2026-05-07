@@ -291,7 +291,6 @@ class ConfigValidator:
         logger.debug("📁 Проверка файлов данных...")
 
         self._validate_data_csv()
-        self._validate_transfer_token_file()
     
     def _is_valid_eth_address(self, address):
         """Проверка корректности ETH адреса"""
@@ -333,19 +332,27 @@ class ConfigValidator:
         return bool(re.match(pattern, value))
     
     def _is_valid_amount_format(self, amount):
-        """Проверка корректности формата amount"""
+        """Проверка корректности формата transfer_amount.
+
+        Допустимые форматы:
+            1-2, 0.1-0.2, 1-2eth, 1-2%, 1-2token, 1, 0.5, 5%, 5token
+            "0.1-0.2" — допустим как строка (CSV-парсер сам уберёт кавычки)
+        """
         if not isinstance(amount, str):
             return False
-        amount = amount.strip()
+        amount = amount.strip().strip('"').strip("'").strip()
         if not amount:
             return False
-        
+
         patterns = [
             r'^\d+(\.\d+)?-\d+(\.\d+)?$',
-            r'^\d+(\.\d+)?-\d+(\.\d+)?eth$',
+            r'^\d+(\.\d+)?-\d+(\.\d+)?(eth|token)$',
             r'^\d+(\.\d+)?-\d+(\.\d+)?%$',
+            r'^\d+(\.\d+)?$',
+            r'^\d+(\.\d+)?(eth|token)$',
+            r'^\d+(\.\d+)?%$',
         ]
-        
+
         return any(re.match(pattern, amount, re.IGNORECASE) for pattern in patterns)
     
     def _validate_data_csv(self):
@@ -398,6 +405,28 @@ class ConfigValidator:
                         if len(words) not in (12, 24):
                             self.warnings.append(f"⚠️ data/data.csv строка {i}: мнемоника должна содержать 12 или 24 слова, найдено {len(words)}")
 
+                    evm_cex = (row.get('evm_cex_address') or '').strip()
+                    if evm_cex and not self._is_valid_eth_address(evm_cex):
+                        self.warnings.append(f"⚠️ data/data.csv строка {i}: некорректный evm_cex_address")
+
+                    transfer_amount = (row.get('transfer_amount') or '').strip()
+                    if transfer_amount and not self._is_valid_amount_format(transfer_amount):
+                        self.warnings.append(
+                            f"⚠️ data/data.csv строка {i}: некорректный transfer_amount "
+                            f"(ожидается: 0.1-0.2, 1-2%, 10-20token и т.п.)"
+                        )
+
+                    # Если задан transfer_amount — должны быть private_key и evm_cex_address
+                    if transfer_amount:
+                        if not pk:
+                            self.warnings.append(
+                                f"⚠️ data/data.csv строка {i}: задан transfer_amount, но пустой private_key"
+                            )
+                        if not evm_cex:
+                            self.warnings.append(
+                                f"⚠️ data/data.csv строка {i}: задан transfer_amount, но пустой evm_cex_address"
+                            )
+
                 if data_lines == 0:
                     self.warnings.append("⚠️ data/data.csv пуст (нет данных)")
                 else:
@@ -405,51 +434,6 @@ class ConfigValidator:
 
         except Exception as e:
             self.warnings.append(f"⚠️ Ошибка чтения data/data.csv: {e}")
-    
-    def _validate_transfer_token_file(self):
-        """Проверка файла transfer_token.csv"""
-        file_path = self.data_dir / 'transfer_token.csv'
-        if not file_path.exists():
-            self.warnings.append("⚠️ Отсутствует файл data/transfer_token.csv")
-            return
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                lines = list(reader)
-                
-                if not lines:
-                    self.warnings.append("⚠️ Пустой файл data/transfer_token.csv")
-                    return
-                
-                start_idx = 1 if lines and lines[0] == ['from_wallet', 'to_wallet', 'amount'] else 0
-
-                data_lines = 0
-                for i, row in enumerate(lines[start_idx:], start_idx + 1):
-                    if not row or not any(cell.strip() for cell in row):
-                        continue
-
-                    data_lines += 1
-                    if len(row) != 3:
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: ожидается 3 колонки (from_wallet,to_wallet,amount), найдено {len(row)}")
-                        continue
-
-                    from_wallet, to_wallet, amount = [cell.strip() for cell in row]
-
-                    if not self._is_valid_private_key(from_wallet):
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: from_wallet должен быть приватным ключом")
-
-                    if not self._is_valid_private_key(to_wallet) and not self._is_valid_eth_address(to_wallet):
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: to_wallet должен быть приватным ключом или публичным ETH адресом")
-
-                    if not self._is_valid_amount_format(amount):
-                        self.warnings.append(f"⚠️ data/transfer_token.csv строка {i}: некорректный формат amount (ожидается: 1-2, 1-2eth, или 1-2%)")
-                
-                if data_lines > 0:
-                    logger.debug(f"✅ Transfer token файл проверен: {data_lines} записей")
-                        
-        except Exception as e:
-            self.warnings.append(f"⚠️ Ошибка чтения data/transfer_token.csv: {e}")
     
     
     def show_results(self):

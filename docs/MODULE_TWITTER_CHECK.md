@@ -289,7 +289,7 @@ async def process_twitter_accounts():
     results = await check_multiple_users(nicknames)
     
     # Сохранение результатов
-    with open('result/twitter_check_results.csv', 'w', newline='') as f:
+    with open('result/twitter/result.csv', 'w', newline='') as f:
         fieldnames = ['nickname', 'name', 'followers_count', 'following_count', 
                      'tweets_count', 'verified', 'is_blue_verified', 'status', 'error']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -420,8 +420,9 @@ sundarpichai
 
 ### Выходной файл
 
-- **Путь**: `result/twitter_check_results.csv`
+- **Путь**: `result/twitter/result.csv`
 - **Формат**: детальная информация по каждому аккаунту
+- Каталог `result/twitter/` создаётся автоматически при первой записи (лениво) — заранее создавать его не нужно.
 
 ```csv
 nickname,name,followers_count,following_count,tweets_count,verified,is_blue_verified,status,error

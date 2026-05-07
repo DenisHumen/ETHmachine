@@ -3,7 +3,6 @@ Transfer Wallets to Wallets — прямой перевод нативных т�
 Без посредников. Многопоточность. SQLite для задач и статистики.
 """
 
-import csv
 import random
 import sqlite3
 import time
@@ -44,7 +43,6 @@ from modules.simple_logger import logger
 
 DB_DIR = Path(__file__).parent.parent.parent / "db"
 DB_FILE = DB_DIR / "transfer_tasks.db"
-CSV_FILE = Path(__file__).parent.parent.parent / "data" / "transfer_token.csv"
 RESULT_DIR = Path(__file__).parent.parent.parent / "result"
 
 db_lock = Lock()

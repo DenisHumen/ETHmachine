@@ -158,21 +158,37 @@
 ### Заголовки
 
 ```csv
-private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_token,email,email_password,email_imap
+name,private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,sol_private_key,discord_token,email,email_password,email_imap,referral_code,evm_cex_address,sol_cex_address,transfer_amount
 ```
 
 | Колонка | Описание |
 |---------|----------|
+| `name` | Произвольное имя/метка строки |
 | `private_key` | Приватный ключ EVM кошелька |
 | `proxy` | Основной прокси (`login:pass@ip:port`) |
 | `reserve_proxy` | Резервный прокси (fallback) |
 | `wallet_address` | ETH-адрес (если без private_key) |
 | `mnemonic` | Мнемоническая фраза (12/24 слова) |
 | `sol_address` | Solana-адрес |
+| `sol_private_key` | Solana приватный ключ (base58) |
 | `discord_token` | Discord токен |
 | `email` | Email адрес |
 | `email_password` | Пароль от email |
 | `email_imap` | IMAP сервер |
+| `referral_code` | Реферальный код (на проект/кошелёк) |
+| `evm_cex_address` | EVM адрес-получатель (CEX депозит / Transfer Wallets / Transfer ERC20) |
+| `sol_cex_address` | SOL адрес-получатель (CEX депозит для Solana) |
+| `transfer_amount` | Сумма для Transfer Wallets / Transfer ERC20 (см. форматы ниже) |
+
+#### Форматы `transfer_amount`
+
+| Запись | Семантика |
+|---|---|
+| `0.1-0.2` | диапазон сумм в нативном токене / токенах |
+| `"0.1-0.2"` | процент от баланса (значение в кавычках) |
+| `0.1-0.2%` | процент от баланса |
+| `10-20token` | токены (фиксированное количество, для Transfer ERC20) |
+| `5`, `5%`, `5token` | одиночные значения (без диапазона)
 
 ### Несколько профилей
 
@@ -185,7 +201,6 @@ private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_toke
 
 ### Отдельные файлы (не объединяются)
 
-- `data/transfer_token.csv` — настройки переводов ERC-20
 - `data/twitter/` — Twitter аккаунты и задачи
 
 ### Централизованный загрузчик
@@ -194,18 +209,49 @@ private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,discord_toke
 
 ```python
 from modules.data_manager import (
-    get_private_keys,    # List[str] — приватные ключи
-    get_proxies,         # List[str] — прокси
-    get_wallet_addresses,# List[str] — ETH адреса
-    get_mnemonics,       # List[str] — мнемоники
-    get_sol_addresses,   # List[str] — SOL адреса
-    get_discord_tokens,  # List[str] — Discord токены
-    get_emails,          # List[dict] — email данные
-    get_proxy_for_key,   # Optional[str] — прокси для ключа
-    load_data,           # List[dict] — все строки
-    select_data_file,    # Path — интерактивный выбор файла
+    # Базовые геттеры
+    get_private_keys,                  # List[str] — приватные ключи
+    get_proxies,                       # List[str] — прокси
+    get_reserve_proxies,               # List[str] — резервные прокси
+    get_wallet_addresses,              # List[str] — ETH адреса
+    get_mnemonics,                     # List[str] — мнемоники
+    get_sol_addresses,                 # List[str] — SOL адреса
+    get_discord_tokens,                # List[str] — Discord токены
+    get_emails,                        # List[dict] — email данные
+
+    # CEX-адреса
+    get_evm_cex_addresses,             # List[str] — EVM CEX-адреса
+    get_sol_cex_addresses,             # List[str] — SOL CEX-адреса
+    get_evm_cex_address_for_key,       # Optional[str] — EVM CEX по private_key
+    get_sol_cex_address_for_key,       # Optional[str] — SOL CEX по private_key
+    get_sol_cex_address_for_sol_key,   # Optional[str] — SOL CEX по sol_private_key
+
+    # Переводы (Transfer Wallets / Transfer ERC20)
+    get_transfer_rows,                 # List[dict] — {from_wallet, to_wallet, amount, intermediary}
+    get_transfer_amount_for_key,       # Optional[str] — transfer_amount по private_key
+
+    # Прочее
+    get_referral_code_for_key,         # Optional[str] — реферальный код
+    get_proxy_for_key,                 # Optional[str] — прокси по private_key
+    get_reserve_proxy_for_key,         # Optional[str] — резервный прокси
+    get_proxy_with_fallback,           # Optional[str] — прокси по индексу с fallback
+    get_row_by_index,                  # Optional[dict] — строка по индексу
+
+    # Управление файлом
+    load_data,                         # List[dict] — все строки текущего файла
+    reload_data,                       # принудительная перезагрузка
+    list_data_files,                   # List[Path] — все data_*.csv
+    migrate_all_data_files,            # int — добавляет недостающие колонки HEADERS
+    select_data_file,                  # Path — интерактивный выбор файла
 )
 ```
+
+#### Автоматическая миграция CSV
+
+При первом обращении к `data_manager` запускается миграция всех `data/*.csv`:
+к файлам со «своей» схемой (заголовки — подмножество `HEADERS`) безопасно
+дописываются недостающие колонки. Существующие данные не теряются, файлы
+с чужой схемой (`from_wallet,to_wallet,amount` и т.п.) не трогаются.
 
 ---
 
@@ -220,7 +266,19 @@ from modules.data_manager import (
 
 ## 🔄 Обновления документации
 
-### Последнее обновление: март 2026
+### Май 2026
+
+- 🆕 Колонки `evm_cex_address`, `sol_cex_address` — единый источник адресов-получателей для CEX-выводов и Transfer-модулей
+- 🆕 Колонка `transfer_amount` — амаунт для Transfer Wallets / Transfer ERC20 (форматы: диапазон, процент, токены)
+- 🗑️ Удалён отдельный файл `data/transfer_token.csv` — все его поля переехали в `data/data.csv`:
+  - `from_wallet` ↔ `private_key`
+  - `to_wallet` ↔ `evm_cex_address`
+  - `amount` ↔ `transfer_amount`
+- ⚙️ Автоматическая миграция CSV: недостающие колонки дописываются при старте без потери данных
+- 📁 Лениво создаются каталоги `result/twitter`, `result/discord`, `result/email` — только при запуске соответствующего модуля
+- 🆕 Хелперы `get_transfer_rows`, `get_evm_cex_addresses`, `get_sol_cex_addresses`, `get_transfer_amount_for_key`, и др.
+
+### Март 2026
 
 - Объединение всех файлов данных в единый `data/data.csv`
 - Добавлены колонки: `sol_address`, `discord_token`, `email`, `email_password`, `email_imap`

@@ -106,6 +106,7 @@ IMAP_SETTINGS = {
 
 - **Путь**: `result/email/email_check_results_YYYYMMDD_HHMMSS.csv`
 - **Формат**: детальные результаты проверки
+- Каталог `result/email/` создаётся автоматически при первой записи (лениво) — заранее создавать его не нужно.
 
 ```csv
 email,password,imap_domain,status,error_message,inbox_count,proxy_used,check_time

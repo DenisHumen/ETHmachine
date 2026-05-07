@@ -187,18 +187,27 @@ CLOSED_NETWORKS = {'🚀 Polygon zkEVM'}
 _BADGE_RED = "\033[41m\033[97;1m {text} \033[0m"
 
 
-def get_network_display_name(network_name: str) -> str:
+def get_network_display_name(network_name: str):
     """Имя сети для отображения в select-меню.
 
     Для сетей из CLOSED_NETWORKS добавляется красный бейдж
     «сеть закрылась» (тот же стиль, что и «ПАУЗА» у MenuItem).
     Возвращаемое значение используется только как label —
     значение Choice по-прежнему должно быть оригинальным ключом сети.
+
+    Возвращает либо строку (если сеть не закрыта), либо FormattedText
+    (для закрытых сетей) — обе формы корректно принимаются questionary.Choice.
+    Без обёртки questionary рендерит ANSI-escape байты литерально (^[[41m...).
     """
-    if network_name in CLOSED_NETWORKS:
-        badge = _BADGE_RED.format(text='сеть закрылась')
-        return f"{network_name}  {badge}"
-    return network_name
+    if network_name not in CLOSED_NETWORKS:
+        return network_name
+
+    raw = f"{network_name}  " + _BADGE_RED.format(text='сеть закрылась')
+    try:
+        from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+    except ImportError:
+        return raw
+    return to_formatted_text(ANSI(raw))
 
 
 def get_all_networks():

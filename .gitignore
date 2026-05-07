@@ -8,7 +8,6 @@ __pycache__
 # Data files (содержат приватные ключи, пароли, токены)
 data/data.csv
 data/data_*.csv
-data/transfer_token.csv
 data/one_time_intermediary.csv
 data/twitter/twitters.csv
 data/twitter/twitter_task.csv

@@ -1143,7 +1143,7 @@ def process_token_transfers_normal(transfer_data, proxies, network, delay_betwee
         logger.error("❌ Ошибки валидации данных:")
         for error in validation_errors:
             logger.error(f"  {error}")
-        logger.error("\nИсправьте ошибки в файле data/transfer_token.csv и запустите снова.")
+        logger.error("\nИсправьте поля private_key / evm_cex_address / transfer_amount в data/data.csv и запустите снова.")
         return
 
     logger.success("✅ Валидация данных прошла успешно")
@@ -1271,13 +1271,14 @@ def run_transfer_erc20_tokens():
     try:
         from questionary import Choice, select
         from colorama import Fore
-        import csv
-        from modules.eth.transfer_wallets_to_wallets import get_proxy_list
+        from modules.data_manager import get_transfer_rows
         from config.modules.cfg_transfer_erc20 import USE_INTERMEDIARY_TOKEN, expected_completion_time_token
-        
+
         print(Fore.GREEN + f"\n\n💎 МОДУЛЬ ПЕРЕВОДОВ ТОКЕНОВ ERC-20")
-        print(Fore.GREEN + f"Формат данных для data/transfer_token.csv: from_wallet,to_wallet,intermediary,amount")
-        print(Fore.YELLOW + f"Пример amount: 10-20token (токены), 50-80% (проценты), 5token (фиксированно), 90% (фиксированный процент)\n")
+        print(Fore.GREEN + f"Данные читаются из data/data.csv:")
+        print(Fore.YELLOW + f"  private_key      → from_wallet (отправитель)")
+        print(Fore.YELLOW + f"  evm_cex_address  → to_wallet (получатель)")
+        print(Fore.YELLOW + f"  transfer_amount  → amount (10-20token / 50-80% / 5token / 90%)\n")
         print(Fore.YELLOW + "Токен выбирается из меню при запуске для выбранной сети!")
         
         # Выбор типа сети
@@ -1323,28 +1324,21 @@ def run_transfer_erc20_tokens():
             return
         
         selected_token_symbol, selected_token_address = token_result
-        
-        # Чтение данных из CSV
-        transfer_data = []
-        try:
-            with open('data/transfer_token.csv', 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # Берем все строки, поскольку токен уже выбран
-                    if USE_INTERMEDIARY_TOKEN:
-                        if row['from_wallet'] and row['to_wallet'] and row['intermediary'] and row['amount']:
-                            transfer_data.append(row)
-                    else:
-                        if row['from_wallet'] and row['to_wallet'] and row['amount']:
-                            if 'intermediary' not in row:
-                                row['intermediary'] = ''
-                            transfer_data.append(row)
-        except Exception as e:
-            print(Fore.RED + f"Ошибка чтения data/transfer_token.csv: {e}")
-            return
-        
+
+        # Чтение данных из data/data.csv через data_manager
+        all_rows = get_transfer_rows()
+        if USE_INTERMEDIARY_TOKEN:
+            transfer_data = [r for r in all_rows if r.get('intermediary')]
+            if not transfer_data:
+                print(Fore.RED + "USE_INTERMEDIARY_TOKEN=True, но в data/data.csv нет записей с заполненным полем 'intermediary'.")
+                print(Fore.YELLOW + "Отключите USE_INTERMEDIARY_TOKEN в config/modules/cfg_transfer_erc20.py "
+                      "или добавьте поддержку intermediary через расширение data_manager.")
+                return
+        else:
+            transfer_data = all_rows
+
         if not transfer_data:
-            print(Fore.RED + f"Нет данных для отправки в data/transfer_token.csv.")
+            print(Fore.RED + "Нет данных для перевода: заполните private_key, evm_cex_address и transfer_amount в data/data.csv.")
             return
         
         print(Fore.GREEN + f"Найдено {len(transfer_data)} записей для обработки с токеном {selected_token_symbol.upper()}")
