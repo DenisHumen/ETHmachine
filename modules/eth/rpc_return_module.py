@@ -14,7 +14,7 @@ def get_network_rpc_selection():
         tuple: (rpc_urls_list, network_type, clean_network) или (None, None, None) если отменено
     """
     # Импортируем из нового централизованного модуля
-    from config.networks import get_mainnet_networks, get_testnet_networks
+    from config.networks import get_mainnet_networks, get_testnet_networks, get_network_display_name
     
     mainnet_rpc_urls = get_mainnet_networks()
     testnet_rpc_urls = get_testnet_networks()
@@ -55,7 +55,7 @@ def get_network_rpc_selection():
         network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
         network = select(
             "Which network do you want to use?",
-            choices=[Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')],
+            choices=[Choice(get_network_display_name(n), n) for n in network_choices] + [Choice('🔙 Back', 'back')],
             qmark='🛠️',
             pointer='👉'
         ).ask()

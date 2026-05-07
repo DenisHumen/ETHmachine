@@ -28,7 +28,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.modules.cfg_base import NUM_THREADS
-from config.networks import NETWORKS
+from config.networks import NETWORKS, get_network_display_name
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
     update_task_status, reset_database_for_new_run
@@ -303,7 +303,7 @@ def check_wallet_balances_menu():
     
     # Если выбрана одна сеть
     if network_type in ['mainnet', 'testnet']:
-        choices = [Choice(name, name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
+        choices = [Choice(get_network_display_name(name), name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
         selected = select("Выберите сеть:", choices=choices, qmark='🛠️', pointer='👉').ask()
         if selected == 'back' or not selected:
             return
@@ -329,6 +329,17 @@ def check_wallet_balances_menu():
     all_results = {}
     
     for network_name, network_data in networks.items():
+        # Networks with an `oklink_chain` flag are checked through the OKLink
+        # multi-token checker (native + all ERC20 in one shot, with Excel export).
+        oklink_chain = network_data.get('oklink_chain')
+        if oklink_chain:
+            from modules.eth.oklink_balance_checker import run_oklink_balance_check
+            console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
+            console.print(f"[bold cyan]🌐 Сеть: {network_name} (OKLink)[/bold cyan]")
+            console.print(f"[bold cyan]{'='*60}[/bold cyan]")
+            run_oklink_balance_check(wallets, network_name, oklink_chain)
+            continue
+
         rpc_urls = network_data['rpc_urls']
         symbol = network_data['symbol']
         

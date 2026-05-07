@@ -23,7 +23,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.modules.cfg_base import NUM_THREADS
-from config.networks import NETWORKS
+from config.networks import NETWORKS, get_network_display_name
 from config import token_address_erc20
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
@@ -324,7 +324,7 @@ def check_token_balance_menu():
     
     networks = {k: v for k, v in NETWORKS.items() if v['type'] == network_type}
     
-    network_choices = [Choice(name, name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
+    network_choices = [Choice(get_network_display_name(name), name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
     selected_network = select("Выберите сеть:", choices=network_choices, qmark='🛠️', pointer='👉').ask()
     
     if selected_network == 'back' or not selected_network:

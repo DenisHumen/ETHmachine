@@ -43,7 +43,7 @@ from config.modules.cfg_transfer_erc20 import (
     USE_INTERMEDIARY_TOKEN, TYPE_VALUE_TO_WALLET_TOKEN, TELEGRAM_LOG_LEVEL_transfer_token,
     MULTI_THREADING_TOKEN, NUM_THREADS_TOKEN, GAS_PRICE_MULTIPLIER_TOKEN, GAS_LIMIT_MULTIPLIER_TOKEN
 )
-from config.networks import get_explorer_url
+from config.networks import get_explorer_url, get_network_display_name
 from config.token_address_erc20 import *
 from modules.notifications import send_telegram_notification, send_telegram_file
 
@@ -1309,7 +1309,7 @@ def run_transfer_erc20_tokens():
         # Выбор сети
         network = select(
             "Which network do you want to use for token transfer?",
-            choices=[Choice(n, n) for n in available_networks] + [Choice('🔙 Back', 'back')],
+            choices=[Choice(get_network_display_name(n), n) for n in available_networks] + [Choice('🔙 Back', 'back')],
             qmark='🛠️',
             pointer='👉'
         ).ask()

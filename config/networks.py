@@ -115,7 +115,19 @@ NETWORKS = {
         'tx_url': "https://apescan.io/tx/",
         'type': 'mainnet'
     },
-    
+    '🚀 Polygon zkEVM': {
+        'rpc_urls': [
+            'https://zkevm-rpc.com',
+            'https://polygon-zkevm.drpc.org',
+            'https://1rpc.io/polygon/zkevm',
+        ],
+        'symbol': 'ETH',
+        'tx_url': "https://zkevm.polygonscan.com/tx/",
+        'chain_id': 1101,
+        'oklink_chain': 'polygon_zkevm',
+        'type': 'mainnet'
+    },
+
     # === TESTNET СЕТИ ===
     '🚀 Sepolia': {
         'rpc_urls': ['https://1rpc.io/sepolia'],
@@ -166,6 +178,28 @@ SOL_NETWORKS = {
 }
 
 # === ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ===
+
+# Сети, помеченные как закрытые — отображаются с красным бейджем «сеть закрылась»
+# по аналогии с бейджем «ПАУЗА» в config/menu_config.py.
+CLOSED_NETWORKS = {'🚀 Polygon zkEVM'}
+
+# Стиль красного бейджа должен совпадать с config/menu_config.py (_BADGE_RED)
+_BADGE_RED = "\033[41m\033[97;1m {text} \033[0m"
+
+
+def get_network_display_name(network_name: str) -> str:
+    """Имя сети для отображения в select-меню.
+
+    Для сетей из CLOSED_NETWORKS добавляется красный бейдж
+    «сеть закрылась» (тот же стиль, что и «ПАУЗА» у MenuItem).
+    Возвращаемое значение используется только как label —
+    значение Choice по-прежнему должно быть оригинальным ключом сети.
+    """
+    if network_name in CLOSED_NETWORKS:
+        badge = _BADGE_RED.format(text='сеть закрылась')
+        return f"{network_name}  {badge}"
+    return network_name
+
 
 def get_all_networks():
     return list(NETWORKS.keys())
