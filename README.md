@@ -42,7 +42,7 @@ python main.py
 - **DeBank Protocols** — сбор DeFi-позиций: стейкинг, лендинг, locked, LP через DeBank
 
 ### 🚀 Transactions
-- **Drainers** — сборщик всех балансов с кошельков на main-кошелек (ETH/SOL)
+- **Collectors** — сборщик всех балансов с кошельков на main-кошелек (ETH/SOL)
 - **Transfer Wallets to Wallets** — перевод нативных токенов между кошельками
 - **Transfer ERC20 Tokens** — перевод ERC20 токенов между кошельками
 - **Relay Bridge** — мост между сетями через Relay Link с сохранением прогресса в БД

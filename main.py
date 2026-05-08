@@ -37,7 +37,7 @@ from config.menu_config import (
     MAIN_MENU_CONFIG,
     get_enabled_main_menu_items, build_choices, build_submenu_choices,
     BALANCES_SUBMENU, ETH_BALANCES_SUBMENU, SOL_BALANCES_SUBMENU,
-    TRANSACTIONS_SUBMENU, DRAINERS_SUBMENU,
+    TRANSACTIONS_SUBMENU, COLLECTORS_SUBMENU,
     TWITTER_SUBMENU, PROJECTS_SUBMENU,
     CEX_SUBMENU, OKX_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, MEXC_SUBMENU,
     TOOLS_SUBMENU, GENERATE_WALLETS_SUBMENU, ETH_WALLETS_SUBMENU, SOL_WALLETS_SUBMENU,
@@ -94,7 +94,7 @@ from modules.eth.eth_nice_address.python.eth_nice_address import eth_generate_ni
 from modules.eth.eth_nice_address.eth_nice_address_rust_wrapper import run_rust_generator, check_cargo_installed
 from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
 from modules.eth.eth_private_key_to_wallet_address import process_private_keys
-from modules.eth.eth_drainers import eth_drainers
+from modules.eth.eth_collectors import eth_collectors
 from modules.relay_link.relay_link import main as relay_bridge_main
 
 from modules.sol.sol_wallet_generator import sol_generate_wallets
@@ -424,8 +424,8 @@ class MenuHandlers:
         )
         
         match choice:
-            case 'drainers':
-                MenuHandlers._handle_drainers()
+            case 'collectors':
+                MenuHandlers._handle_collectors()
             case 'transfer_wallets_to_wallets_call':
                 MenuHandlers._handle_transfer_wallets()
             case 'transfer_erc20_tokens_call':
@@ -435,18 +435,18 @@ class MenuHandlers:
                 relay_bridge_main()
     
     @staticmethod
-    def _handle_drainers():
-        """Обработчик drainers"""
+    def _handle_collectors():
+        """Обработчик collectors"""
         choice = show_menu(
             "Выберите действие:",
-            build_submenu_choices(DRAINERS_SUBMENU)
+            build_submenu_choices(COLLECTORS_SUBMENU)
         )
-        
+
         match choice:
-            case 'eth_drainers':
-                eth_drainers()
-            case 'sol_drainers':
-                show_wip_message("Функционал SOL Drainers")
+            case 'eth_collectors':
+                eth_collectors()
+            case 'sol_collectors':
+                show_wip_message("Функционал SOL Collectors")
     
     @staticmethod
     def _handle_transfer_wallets():

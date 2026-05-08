@@ -526,7 +526,7 @@ def eth_collectors():
     
     # Итоговая статистика
     logger.info("="*80)
-    logger.info("📊 ИТОГИ СБОРА:")
+    logger.info("📊 ИТОГИ ДРЕНИРОВАНИЯ:")
     logger.info(f"📈 Всего кошельков обработано: {len(private_keys)}")
     logger.success(f"✅ Успешных транзакций: {successful_transactions}")
     logger.error(f"❌ Неудачных транзакций: {failed_transactions}")

@@ -245,7 +245,7 @@ TRANSACTIONS_SUBMENU = SubMenu(
     description='',
     icon='🚀',
     items=[
-        MenuItem(key='drainers', label='Drainers', description='Сборщик балансов на main кошелек', icon='🧹', enabled=True),
+        MenuItem(key='collectors', label='Collectors', description='Сборщик балансов на main кошелек', icon='🧹', enabled=True),
         MenuItem(key='transfer_wallets_to_wallets_call', label='Transfer Wallets to Wallets', description='Отправить нативные токены между кошельками', icon='🔄', enabled=True),
         MenuItem(key='transfer_erc20_tokens_call', label='Transfer ERC20 Tokens', description='Отправить ERC20 токены между кошельками', icon='💎', enabled=True),
         MenuItem(key='relay_bridge', label='Relay Bridge', description='Мост между сетями через Relay Link', icon='🌉', enabled=True),
@@ -253,13 +253,13 @@ TRANSACTIONS_SUBMENU = SubMenu(
     ]
 )
 
-DRAINERS_SUBMENU = SubMenu(
-    key='drainers',
+COLLECTORS_SUBMENU = SubMenu(
+    key='collectors',
     label='Выберите действие',
     description='',
     items=[
-        MenuItem(key='eth_drainers', label='ETH Drainers', description='Сборщик ETH', icon='💲', enabled=True),
-        MenuItem(key='sol_drainers', label='SOL Drainers', description='Сборщик SOL (WIP)', icon='💲', enabled=True, is_wip=True),
+        MenuItem(key='eth_collectors', label='ETH Collectors', description='Сборщик ETH', icon='💲', enabled=True),
+        MenuItem(key='sol_collectors', label='SOL Collectors', description='Сборщик SOL (WIP)', icon='💲', enabled=True, is_wip=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )

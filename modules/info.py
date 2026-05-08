@@ -20,7 +20,7 @@ GUIDES_DICT = {
     "🏦 CEX >>💲 Bitget >> 💲 Withdraw from Bitget": "",
     "🏦 CEX >>💲 OKX >> 📈 Spot Trade": "",
     
-    "⚡ ETH >> 🔪 Drainers": "",
+    "⚡ ETH >> 🔪 Collectors": "",
     "⚡ ETH >> 💰 Get Balances": "",
     "⚡ ETH >> 🪙 Get Token Balance": "",
     "⚡ ETH >> 📋 Last Transaction": "",
