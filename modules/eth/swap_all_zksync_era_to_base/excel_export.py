@@ -1,10 +1,4 @@
-"""Excel-отчёт swap-all Polygon zkEVM → Base USDC.
-
-Формат:
-  Лист «Matrix»  — кошельки (строки) × токены (колонки), human-balance.
-  Лист «Tasks»   — все детальные строки задач (для аудита).
-  Лист «Summary» — статистика по статусам и итоговый USD.
-"""
+"""Excel-отчёт swap-all zkSync Era → Base USDC."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,10 +10,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from modules.eth.swap_all_polygon_zkevm_to_base import database as db
+from modules.eth.swap_all_zksync_era_to_base import database as db
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-RESULT_DIR = PROJECT_ROOT / "result" / "swap_all_polygon_zkevm_to_base"
+RESULT_DIR = PROJECT_ROOT / "result" / "swap_all_zksync_era_to_base"
 
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _HEADER_FILL = PatternFill("solid", fgColor="305496")
@@ -70,7 +64,7 @@ def export_report(out_dir: Path | None = None) -> Path:
 
     wb = Workbook()
 
-    # ---- Matrix sheet ----
+    # ---- Matrix ----
     ws = wb.active
     ws.title = "Matrix"
     wallets: List[str] = []
@@ -86,7 +80,7 @@ def export_report(out_dir: Path | None = None) -> Path:
         token_set.add(tok)
         by_wallet.setdefault(w, {})[tok] = t
 
-    tokens_sorted = sorted(token_set, key=lambda x: (x not in ("USDC", "ETH"), x))
+    tokens_sorted = sorted(token_set, key=lambda x: (x not in ("USDC", "USDT"), x))
     headers = ["Wallet", "Name", "USD total", "Statuses"] + tokens_sorted
     _write_header(ws, headers)
 
@@ -115,12 +109,12 @@ def export_report(out_dir: Path | None = None) -> Path:
                 cell.fill = fill
     _autosize(ws)
 
-    # ---- Tasks sheet ----
+    # ---- Tasks ----
     ws = wb.create_sheet("Tasks")
     headers = [
         "Wallet", "Name", "Token", "Contract", "Status", "Supported",
-        "Human balance", "USD value", "Sent (human)", "Swap ID",
-        "Deposit address", "Src tx", "Dst tx", "Received",
+        "Human balance", "USD value", "Sent (human)", "Quote ID",
+        "Bridge contract", "Src tx", "Dst tx", "Received",
         "Dst before", "Dst after", "Attempts", "Error",
     ]
     _write_header(ws, headers)
@@ -143,7 +137,7 @@ def export_report(out_dir: Path | None = None) -> Path:
             ws.cell(row=row_i, column=5).fill = fill
     _autosize(ws)
 
-    # ---- Summary sheet ----
+    # ---- Summary ----
     ws = wb.create_sheet("Summary")
     stats = db.get_statistics()
     rows = [

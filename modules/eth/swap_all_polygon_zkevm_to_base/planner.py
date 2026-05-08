@@ -26,8 +26,8 @@ from modules.data_manager import load_data
 from modules.eth.oklink_balance_checker import (
     fetch_oklink_tokens, _make_proxy_dict,
 )
-from modules.eth.swap_all_polygonzk_to_base.layerswap import SUPPORTED_PAIRS
-from modules.eth.swap_all_polygonzk_to_base import database as db
+from modules.eth.swap_all_polygon_zkevm_to_base.layerswap import SUPPORTED_PAIRS
+from modules.eth.swap_all_polygon_zkevm_to_base import database as db
 
 console = Console()
 

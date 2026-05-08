@@ -1,4 +1,4 @@
-"""SQLite задач swap-all Polygon zkEVM → Base USDC."""
+"""SQLite задач swap-all zkSync Era → Base USDC."""
 from __future__ import annotations
 
 import json
@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DB_DIR = Path(__file__).resolve().parents[3] / "db"
-DB_PATH = DB_DIR / "swap_all_polygon_zkevm_to_base.db"
+DB_PATH = DB_DIR / "swap_all_zksync_era_to_base.db"
 
-# Per-token statuses
 STATUS_PENDING = "pending"
-STATUS_SKIPPED = "skipped"            # token не поддерживается / баланс ниже min
+STATUS_SKIPPED = "skipped"
 STATUS_SWAP_CREATED = "swap_created"
 STATUS_TX_SENT = "tx_sent"
 STATUS_AWAITING = "awaiting_arrival"
@@ -29,13 +28,13 @@ CREATE TABLE IF NOT EXISTS swap_all_tasks (
     private_key TEXT NOT NULL,
     proxy TEXT,
     reserve_proxy TEXT,
-    token TEXT NOT NULL,                 -- USDC / ETH / <other-symbol>
-    contract TEXT,                       -- '' for native ETH
+    token TEXT NOT NULL,
+    contract TEXT,
     decimals INTEGER NOT NULL DEFAULT 18,
     raw_balance TEXT NOT NULL DEFAULT '0',
     human_balance TEXT NOT NULL DEFAULT '0',
     usd_value TEXT NOT NULL DEFAULT '0',
-    supported INTEGER NOT NULL DEFAULT 0,    -- 1 if Layerswap supports it
+    supported INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
     swap_id TEXT,
     deposit_address TEXT,
@@ -53,8 +52,8 @@ CREATE TABLE IF NOT EXISTS swap_all_tasks (
     updated_at INTEGER NOT NULL,
     UNIQUE(wallet_address, token, contract)
 );
-CREATE INDEX IF NOT EXISTS idx_swap_all_wallet ON swap_all_tasks(wallet_address);
-CREATE INDEX IF NOT EXISTS idx_swap_all_status ON swap_all_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_swap_all_zk_wallet ON swap_all_tasks(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_swap_all_zk_status ON swap_all_tasks(status);
 """
 
 
@@ -87,8 +86,6 @@ def upsert_task(*, wallet_address: str, account_name: str, private_key: str,
                 raw_balance: str, human_balance: str, usd_value: str,
                 supported: bool,
                 extra: Optional[Dict[str, Any]] = None) -> int:
-    """Insert or refresh metadata of a task. Preserves status if already
-    in a non-pending/non-skipped state."""
     now = _now()
     extra_json = json.dumps(extra or {})
     with _connect() as c:
@@ -112,8 +109,6 @@ def upsert_task(*, wallet_address: str, account_name: str, private_key: str,
                  extra_json, now, now),
             )
             return int(cur.lastrowid)
-        # If already finalized — update only metadata; otherwise also reset
-        # status to pending if still pending/skipped (so updated balances apply).
         keep_status = existing["status"]
         if keep_status in (STATUS_PENDING, STATUS_SKIPPED):
             new_status = STATUS_PENDING if supported else STATUS_SKIPPED

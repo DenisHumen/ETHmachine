@@ -1,4 +1,10 @@
-"""Executor: исполняет swap-all задачи по одному кошельку."""
+"""Executor: Rhino.fi swap-all для одного кошелька (zkSync Era → Base USDC).
+
+В отличие от Layerswap (deposit_address pattern), Rhino.fi требует on-chain
+вызов `depositWithId(token, amount, commitmentId)` на bridge-контракте, где
+commitmentId = uint256.fromHex(quoteId). Поэтому пайплайн:
+   approve → depositWithId → polling /bridge/history.
+"""
 from __future__ import annotations
 
 import random
@@ -19,9 +25,10 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 from modules.simple_logger import logger, log_wallet_task
-from modules.eth.swap_all_polygon_zkevm_to_base import database as db
-from modules.eth.swap_all_polygon_zkevm_to_base.layerswap import (
-    LayerswapClient, LayerswapError, SUPPORTED_PAIRS,
+from modules.eth.swap_all_zksync_era_to_base import database as db
+from modules.eth.swap_all_zksync_era_to_base.rhinofi import (
+    RhinoFiClient, RhinoFiError, SUPPORTED_PAIRS,
+    TERMINAL_OK, TERMINAL_FAIL,
 )
 
 from config.modules.cfg_base import (
@@ -32,47 +39,61 @@ from config.modules.cfg_base import (
     RETRY_COUNT as _CFG_RETRY_COUNT,
 )
 try:
-    from config.modules import cfg_swap_all_polygon_zkevm_to_base as _cfg
+    from config.modules import cfg_swap_all_zksync_era_to_base as _cfg
 except Exception:
     _cfg = None
+
 NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 SLEEP_BETWEEN_ACTIONS = list(_CFG_SLEEP_BETWEEN_ACTIONS)
 DELAY_BETWEEN_ACCOUNTS = list(_CFG_DELAY_BETWEEN_ACCOUNTS)
 TX_SEND_ATTEMPTS = max(1, int(_CFG_TX_SEND_ATTEMPTS))
 RETRY_COUNT = max(1, int(_CFG_RETRY_COUNT))
-NATIVE_GAS_RESERVE_ETH = float(getattr(_cfg, "NATIVE_GAS_RESERVE_ETH", 0.0002))
 ARRIVAL_TIMEOUT_SEC = int(getattr(_cfg, "ARRIVAL_TIMEOUT_SEC", 25 * 60))
-LAYERSWAP_POLL_INTERVAL = int(getattr(_cfg, "LAYERSWAP_POLL_INTERVAL", 15))
+RHINOFI_POLL_INTERVAL = int(getattr(_cfg, "RHINOFI_POLL_INTERVAL", 15))
 TX_RECEIPT_TIMEOUT_SEC = int(getattr(_cfg, "TX_RECEIPT_TIMEOUT_SEC", 600))
-LAYERSWAP_API_KEY = (getattr(_cfg, "LAYERSWAP_API_KEY", "") or "").strip() or None
+RHINOFI_API_KEY = (getattr(_cfg, "RHINOFI_API_KEY", "") or "").strip() or None
+RHINOFI_BASE_URL = getattr(_cfg, "RHINOFI_BASE_URL", "https://api.rhino.fi")
 
-POLYGONZK_RPCS = [
-    "https://zkevm-rpc.com",
-    "https://polygon-zkevm.drpc.org",
+ZKSYNC_RPCS = [
+    "https://mainnet.era.zksync.io",
+    "https://zksync.drpc.org",
+    "https://1rpc.io/zksync2-era",
 ]
 BASE_RPCS = [
     "https://mainnet.base.org",
     "https://base-rpc.publicnode.com",
     "https://base.llamarpc.com",
 ]
-USDC_BASE_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-USDC_BASE_DECIMALS = 6
 
-# ABI fragments
+RHINOFI_BRIDGE_CONTRACT = "0x1fa66e2b38d0cc496ec51f81c3e05e6a6708986f"
+USDC_BASE_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
 ERC20_ABI = [
     {"name": "balanceOf", "type": "function", "stateMutability": "view",
      "inputs": [{"name": "a", "type": "address"}],
      "outputs": [{"name": "", "type": "uint256"}]},
-    {"name": "transfer", "type": "function", "stateMutability": "nonpayable",
-     "inputs": [{"name": "to", "type": "address"},
+    {"name": "allowance", "type": "function", "stateMutability": "view",
+     "inputs": [{"name": "owner", "type": "address"},
+                {"name": "spender", "type": "address"}],
+     "outputs": [{"name": "", "type": "uint256"}]},
+    {"name": "approve", "type": "function", "stateMutability": "nonpayable",
+     "inputs": [{"name": "spender", "type": "address"},
                 {"name": "value", "type": "uint256"}],
      "outputs": [{"name": "", "type": "bool"}]},
     {"name": "decimals", "type": "function", "stateMutability": "view",
      "inputs": [], "outputs": [{"name": "", "type": "uint8"}]},
 ]
 
-ARRIVAL_TIMEOUT_SEC = ARRIVAL_TIMEOUT_SEC
-LAYERSWAP_POLL_INTERVAL = LAYERSWAP_POLL_INTERVAL
+BRIDGE_ABI = [
+    {"name": "depositWithId", "type": "function", "stateMutability": "nonpayable",
+     "inputs": [{"name": "token", "type": "address"},
+                {"name": "amount", "type": "uint256"},
+                {"name": "commitmentId", "type": "uint256"}],
+     "outputs": []},
+    {"name": "depositNativeWithId", "type": "function", "stateMutability": "payable",
+     "inputs": [{"name": "commitmentId", "type": "uint256"}],
+     "outputs": []},
+]
 
 
 def _sleep_action() -> None:
@@ -93,7 +114,6 @@ def _retry(fn, *, attempts: int, label: str):
     raise last  # type: ignore[misc]
 
 
-
 def _format_proxies(proxy: Optional[str]) -> Optional[Dict[str, str]]:
     if not proxy:
         return None
@@ -106,14 +126,13 @@ def _format_proxies(proxy: Optional[str]) -> Optional[Dict[str, str]]:
 
 
 def _connect_web3(rpcs: List[str], proxies: Optional[Dict[str, str]]) -> Web3:
-    """Try RPCs in priority order; validate with a real eth_chainId call."""
     last_exc = None
     for rpc in rpcs:
         try:
-            w3 = Web3(Web3.HTTPProvider(
-                rpc, request_kwargs={"proxies": proxies, "timeout": 30}
-                if proxies else {"timeout": 30}))
-            # is_connected may swallow 404; force a real call.
+            kw = {"timeout": 30}
+            if proxies:
+                kw["proxies"] = proxies
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs=kw))
             _ = w3.eth.chain_id
             return w3
         except Exception as e:
@@ -132,94 +151,64 @@ def _get_token_balance(w3: Web3, wallet: str, contract: str,
 
 
 def _build_legacy_fees(w3: Web3) -> Dict[str, int]:
-    """Polygon zkEVM accepts только legacy-транзакции (type 0).
-
-    Polygon zkEVM газ обычно ~0.01 gwei. Прежний floor 1 gwei (×100)
-    раздувал резерв до 0.0000294 ETH и блокировал кошельки с балансом
-    чуть выше Layerswap min (например 0.00042 ETH). Берём реальный
-    gas_price от RPC + 20% safety; абсолютный пол 0.01 gwei на случай
-    если RPC вернёт 0.
-    """
+    """zkSync Era — type-2 не везде поддерживается; legacy gasPrice проще."""
     rpc_price = int(w3.eth.gas_price)
-    floor = w3.to_wei("0.01", "gwei")
+    floor = w3.to_wei("0.025", "gwei")  # zkSync обычно ~0.025 gwei
     gas_price = max(rpc_price, floor) * 12 // 10
     return {"gasPrice": gas_price}
 
 
-def _estimate_native_gas_units(w3: Web3, from_addr: str,
-                                to_addr: Optional[str] = None) -> int:
-    """Оценить gas units для native-transfer.
-
-    EOA→EOA = 21000. Если deposit_addr — контракт (Layerswap иногда так),
-    estimate_gas вернёт фактическое значение. Если узнать заранее
-    нельзя — берём 21000 + 5000 запас.
-    """
-    target = Web3.to_checksum_address(to_addr or from_addr)
-    try:
-        return int(w3.eth.estimate_gas({
-            "from": Web3.to_checksum_address(from_addr),
-            "to": target,
-            "value": 0,
-        }))
-    except Exception:
-        return 21_000
+def _commitment_id(quote_id: str) -> int:
+    """quoteId — 24-hex-char ObjectId, преобразуется в uint256 как BigInt('0x'+id)."""
+    return int(quote_id, 16)
 
 
-def _native_gas_reserve(w3: Web3, *, est_gas: Optional[int] = None) -> int:
-    """Точный резерв native-ETH для одной transfer-tx (drain-to-zero).
-
-    Формула: reserve = gas_price × est_gas × 1.4
-       1.3 = markup, который применяет _send_native_drain к gas_limit
-       1.05 ≈ safety на флуктуации gas_price между планом и отправкой
-    Используем тот же `gas_price`, что и `_build_legacy_fees`, чтобы
-    резерв точно совпадал с реальной стоимостью tx — leftover после
-    свапа обычно <0.00001 ETH (≪ цента).
-    """
-    gas_price = int(_build_legacy_fees(w3)["gasPrice"])
-    units = int(est_gas or 21_000)
-    return int(gas_price * units * 14 // 10)
-
-
-def _send_native_drain(*, w3: Web3, account, deposit_addr: str,
-                        amount_planned_raw: int) -> Dict[str, Any]:
-    """Отправить ровно `amount_planned_raw` wei на deposit_addr (для ETH)."""
-    addr = account.address
-    fees = _build_legacy_fees(w3)
-    gas_price = int(fees["gasPrice"])
-    nonce = w3.eth.get_transaction_count(addr)
-    tx = {
-        "to": Web3.to_checksum_address(deposit_addr),
-        "from": addr, "value": int(amount_planned_raw),
-        "nonce": nonce, "chainId": w3.eth.chain_id,
-        "gasPrice": gas_price,
-    }
-    gas_est = w3.eth.estimate_gas(tx)
-    tx["gas"] = int(gas_est * 1.3)
-    # Проверка что хватает на gas + value; иначе урезаем value
-    bal = w3.eth.get_balance(addr)
-    cost = tx["gas"] * gas_price + int(amount_planned_raw)
-    if bal < cost:
-        gas_buffer = int(tx["gas"] * gas_price * 1.1)
-        if bal <= gas_buffer:
-            raise RuntimeError(
-                f"native balance {bal} below gas buffer {gas_buffer}")
-        tx["value"] = bal - gas_buffer
-    signed = w3.eth.account.sign_transaction(tx, account.key)
-    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction")
-    h = w3.eth.send_raw_transaction(raw)
-    return {"tx_hash": h.hex(), "value": int(tx["value"])}
-
-
-def _send_erc20(*, w3: Web3, account, contract: str, deposit_addr: str,
-                 amount_raw: int) -> Dict[str, Any]:
+def _send_approve(*, w3: Web3, account, contract: str, spender: str,
+                   amount: int) -> Optional[Dict[str, Any]]:
+    """Approve бридж-контракту, если allowance < amount. Возвращает None если
+    апрув не нужен."""
     addr = account.address
     c = w3.eth.contract(address=Web3.to_checksum_address(contract),
                          abi=ERC20_ABI)
+    spender_cs = Web3.to_checksum_address(spender)
+    cur = int(c.functions.allowance(addr, spender_cs).call())
+    if cur >= amount:
+        return None
     fees = _build_legacy_fees(w3)
     gas_price = int(fees["gasPrice"])
     nonce = w3.eth.get_transaction_count(addr)
-    tx = c.functions.transfer(
-        Web3.to_checksum_address(deposit_addr), int(amount_raw)
+    # Часть токенов (USDT-стиль) требует сначала zero approve, но USDC.e и
+    # USDT на zkSync такого ограничения не имеют — отправляем сразу.
+    tx = c.functions.approve(spender_cs, int(amount)).build_transaction({
+        "from": addr, "nonce": nonce, "chainId": w3.eth.chain_id,
+        "gasPrice": gas_price,
+    })
+    try:
+        gas_est = w3.eth.estimate_gas(tx)
+        tx["gas"] = int(gas_est * 1.3)
+    except Exception:
+        tx["gas"] = 80_000
+    signed = w3.eth.account.sign_transaction(tx, account.key)
+    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction")
+    h = w3.eth.send_raw_transaction(raw)
+    return {"tx_hash": h.hex()}
+
+
+def _send_deposit_with_id(*, w3: Web3, account, token_contract: str,
+                           amount_raw: int, commitment_id: int,
+                           bridge_contract: str = RHINOFI_BRIDGE_CONTRACT
+                           ) -> Dict[str, Any]:
+    addr = account.address
+    bridge = w3.eth.contract(
+        address=Web3.to_checksum_address(bridge_contract), abi=BRIDGE_ABI,
+    )
+    fees = _build_legacy_fees(w3)
+    gas_price = int(fees["gasPrice"])
+    nonce = w3.eth.get_transaction_count(addr)
+    tx = bridge.functions.depositWithId(
+        Web3.to_checksum_address(token_contract),
+        int(amount_raw),
+        int(commitment_id),
     ).build_transaction({
         "from": addr, "nonce": nonce, "chainId": w3.eth.chain_id,
         "gasPrice": gas_price,
@@ -228,7 +217,7 @@ def _send_erc20(*, w3: Web3, account, contract: str, deposit_addr: str,
         gas_est = w3.eth.estimate_gas(tx)
         tx["gas"] = int(gas_est * 1.3)
     except Exception:
-        tx["gas"] = 120_000
+        tx["gas"] = 250_000
     eth_bal = w3.eth.get_balance(addr)
     gas_cost = int(tx["gas"]) * gas_price
     if eth_bal < gas_cost:
@@ -246,9 +235,10 @@ def _wait_receipt(w3: Web3, tx_hash: str, timeout: int = 600) -> Dict[str, Any]:
 
 
 class SwapAllExecutor:
-    def __init__(self, *, layerswap: Optional[LayerswapClient] = None,
+    def __init__(self, *, rhinofi: Optional[RhinoFiClient] = None,
                  num_threads: Optional[int] = None) -> None:
-        self.layerswap = layerswap or LayerswapClient(api_key=LAYERSWAP_API_KEY)
+        self.rhinofi = rhinofi or RhinoFiClient(api_key=RHINOFI_API_KEY,
+                                                 base_url=RHINOFI_BASE_URL)
         self.num_threads = max(1, int(num_threads or NUM_THREADS))
         self._stagger_lock = threading.Lock()
 
@@ -294,7 +284,7 @@ class SwapAllExecutor:
 
         done = 0
         with ThreadPoolExecutor(max_workers=self.num_threads,
-                                 thread_name_prefix="swap_all") as ex:
+                                 thread_name_prefix="swap_all_zk") as ex:
             futs = {ex.submit(_worker, i, w): w
                     for i, w in enumerate(wallets, 1)}
             for fut in as_completed(futs):
@@ -324,17 +314,18 @@ class SwapAllExecutor:
             raise RuntimeError(
                 f"private_key выдаёт {account.address}, ожидался {wallet_address}")
         try:
-            w3_src = _retry(lambda: _connect_web3(POLYGONZK_RPCS, proxies),
-                            attempts=RETRY_COUNT, label="connect zkEVM[proxy]")
+            w3_src = _retry(lambda: _connect_web3(ZKSYNC_RPCS, proxies),
+                            attempts=RETRY_COUNT, label="connect zkSync[proxy]")
         except Exception:
-            w3_src = _connect_web3(POLYGONZK_RPCS, None)
+            w3_src = _connect_web3(ZKSYNC_RPCS, None)
         try:
             w3_dst = _retry(lambda: _connect_web3(BASE_RPCS, proxies),
                             attempts=RETRY_COUNT, label="connect Base[proxy]")
         except Exception:
             w3_dst = _connect_web3(BASE_RPCS, None)
-        # Сортируем: сначала USDC (главная цель), потом ETH (как gas-source).
-        tasks_sorted = sorted(tasks, key=lambda t: (0 if t["token"] == "USDC" else 1))
+        # USDC сначала, потом USDT (USDC обычно крупнее).
+        tasks_sorted = sorted(tasks,
+                               key=lambda t: (0 if t["token"] == "USDC" else 1))
         ctx = {"index": task_index, "total": task_total, "name": account_name}
         for idx, task in enumerate(tasks_sorted):
             if idx > 0:
@@ -367,19 +358,17 @@ class SwapAllExecutor:
         contract = task["contract"]
         decimals = int(task["decimals"])
         scale = Decimal(10) ** decimals
-        is_native = (token == "ETH" and not contract)
 
-        if token not in SUPPORTED_PAIRS:
+        if token not in SUPPORTED_PAIRS or not contract:
             db.update_task(task["id"], status=db.STATUS_SKIPPED,
-                            error_message="layerswap route not supported")
+                            error_message="rhino.fi route not supported")
             return
 
         db.increment_attempts(task["id"])
 
-        # 1. Свежий on-chain баланс (OKLink-данные могли устареть)
+        # 1. Свежий on-chain баланс
         real_raw = _retry(
-            lambda: _get_token_balance(w3_src, wallet,
-                                        contract or "0x0", is_native),
+            lambda: _get_token_balance(w3_src, wallet, contract, False),
             attempts=RETRY_COUNT, label=f"balance {token}")
         if real_raw <= 0:
             db.update_task(task["id"], status=db.STATUS_SKIPPED,
@@ -387,179 +376,152 @@ class SwapAllExecutor:
                             error_message="zero on-chain balance")
             return
 
-        # 2. Лимиты Layerswap
-        try:
-            lim = _retry(lambda: self.layerswap.limits(token, proxies=proxies),
-                         attempts=RETRY_COUNT, label="layerswap.limits")
-        except LayerswapError as e:
-            db.update_task(task["id"], status=db.STATUS_FAILED,
-                            error_message=f"limits failed: {e}"[:300])
-            return
-        min_raw = int((lim["min_amount"] * scale).to_integral_value())
-        max_raw = int((lim["max_amount"] * scale).to_integral_value())
-
-        # 3. Расчёт суммы (для native — точная оценка газа из RPC, чтобы
-        # выгрести максимум-под-ноль; для ERC-20 — весь баланс)
-        if is_native:
-            est_units = _estimate_native_gas_units(w3_src, account.address)
-            gas_reserve = _native_gas_reserve(w3_src, est_gas=est_units)
-            send_raw = real_raw - gas_reserve
-        else:
-            send_raw = real_raw
-
-        if send_raw <= 0:
-            db.update_task(task["id"], status=db.STATUS_SKIPPED,
-                            error_message="balance below gas reserve")
-            return
-        if max_raw and send_raw > max_raw:
-            send_raw = max_raw
-        if min_raw and send_raw < min_raw:
-            human_min = lim["min_amount"]
-            db.update_task(
-                task["id"], status=db.STATUS_SKIPPED,
-                raw_balance=str(real_raw),
-                human_balance=str(Decimal(real_raw) / scale),
-                error_message=f"amount {Decimal(send_raw)/scale} < layerswap min {human_min}",
-            )
-            return
-
+        send_raw = real_raw
         send_human = Decimal(send_raw) / scale
 
-        # 4. Baseline баланс на Base (USDC.contract or native ETH)
+        # 2. Baseline USDC на Base
         try:
-            if token == "USDC":
-                dst_before = _get_token_balance(
-                    w3_dst, wallet, USDC_BASE_CONTRACT, False)
-            else:
-                dst_before = _get_token_balance(w3_dst, wallet, "0x0", True)
+            dst_before = _get_token_balance(w3_dst, wallet,
+                                             USDC_BASE_CONTRACT, False)
         except Exception:
             dst_before = None
         db.update_task(task["id"],
-                        dst_balance_before=(str(dst_before) if dst_before is not None else None))
+                        dst_balance_before=(str(dst_before)
+                                              if dst_before is not None else None))
 
-        # 5. Создание свапа
+        # 3. Quote + commit (создаёт у Rhino.fi commitmentId).
         try:
             swap = _retry(
-                lambda: self.layerswap.create_swap(
+                lambda: self.rhinofi.create_swap(
                     source_token=token, amount=send_human,
-                    destination_address=wallet, proxies=proxies),
-                attempts=RETRY_COUNT, label="layerswap.create_swap")
-        except LayerswapError as e:
+                    destination_address=wallet, depositor=wallet,
+                    proxies=proxies),
+                attempts=RETRY_COUNT, label="rhinofi.quote+commit")
+        except RhinoFiError as e:
             db.update_task(task["id"], status=db.STATUS_FAILED,
-                            error_message=f"create_swap: {e}"[:400])
+                            error_message=f"quote/commit: {e}"[:400])
             return
-        swap_id = swap.get("swap_id")
-        deposit = swap.get("deposit_address")
-        if not swap_id or not deposit:
+        quote_id = swap.get("swap_id")
+        if not quote_id:
             db.update_task(task["id"], status=db.STATUS_FAILED,
-                            error_message=f"missing swap_id/deposit: {swap}")
+                            error_message=f"missing quoteId: {swap}")
             return
-        # Если Layerswap округлил deposit_amount — используем его.
-        deposit_amount = swap.get("deposit_amount")
-        if deposit_amount:
+        # Если Rhino округлил — доверяем payAmount.
+        pay_amount = swap.get("pay_amount")
+        if pay_amount:
             try:
-                planned = Decimal(str(deposit_amount))
-                send_raw = int((planned * scale).to_integral_value())
-                send_human = planned
+                send_human = Decimal(str(pay_amount))
+                send_raw = int((send_human * scale).to_integral_value())
             except Exception:
                 pass
 
         db.update_task(task["id"], status=db.STATUS_SWAP_CREATED,
-                        swap_id=swap_id, deposit_address=deposit,
+                        swap_id=quote_id,
+                        deposit_address=RHINOFI_BRIDGE_CONTRACT,
                         sent_amount_raw=str(send_raw),
                         sent_amount_human=str(send_human))
         self._wlog(wallet, ctx,
-                   f"💱 {token} swap {swap_id[:10]}… amount={send_human}",
-                   "info")
+                   f"💱 {token} quote {quote_id[:10]}… amount={send_human} "
+                   f"→ Base ({swap.get('receive_amount')} USDC)", "info")
 
-        # 6. Отправка on-chain транзакции (TX_SEND_ATTEMPTS)
+        # 4. Approve бридж-контракту (если нужно)
         try:
-            if is_native:
-                tx_info = _retry(
-                    lambda: _send_native_drain(
-                        w3=w3_src, account=account, deposit_addr=deposit,
-                        amount_planned_raw=send_raw),
-                    attempts=TX_SEND_ATTEMPTS, label="send native")
-            else:
-                tx_info = _retry(
-                    lambda: _send_erc20(
-                        w3=w3_src, account=account, contract=contract,
-                        deposit_addr=deposit, amount_raw=send_raw),
-                    attempts=TX_SEND_ATTEMPTS, label="send erc20")
+            ap = _retry(
+                lambda: _send_approve(
+                    w3=w3_src, account=account, contract=contract,
+                    spender=RHINOFI_BRIDGE_CONTRACT, amount=send_raw),
+                attempts=TX_SEND_ATTEMPTS, label="approve")
+            if ap is not None:
+                self._wlog(wallet, ctx,
+                            f"🔓 approve tx {ap['tx_hash'][:14]}…", "info")
+                rc = _wait_receipt(w3_src, ap["tx_hash"],
+                                    timeout=TX_RECEIPT_TIMEOUT_SEC)
+                if rc["status"] != 1:
+                    raise RuntimeError(
+                        f"approve reverted (block={rc['block']})")
         except Exception as e:
             db.update_task(task["id"], status=db.STATUS_FAILED,
-                            error_message=f"tx send failed: {e}"[:400])
+                            error_message=f"approve failed: {e}"[:400])
+            return
+
+        # 5. depositWithId
+        try:
+            commitment = _commitment_id(quote_id)
+            tx_info = _retry(
+                lambda: _send_deposit_with_id(
+                    w3=w3_src, account=account, token_contract=contract,
+                    amount_raw=send_raw, commitment_id=commitment),
+                attempts=TX_SEND_ATTEMPTS, label="depositWithId")
+        except Exception as e:
+            db.update_task(task["id"], status=db.STATUS_FAILED,
+                            error_message=f"deposit tx failed: {e}"[:400])
             return
         tx_hash = tx_info["tx_hash"]
         db.update_task(task["id"], status=db.STATUS_TX_SENT,
                         src_tx_hash=tx_hash,
                         sent_amount_raw=str(tx_info["value"]),
                         sent_amount_human=str(Decimal(tx_info["value"]) / scale))
-        self._wlog(wallet, ctx, f"📤 {token} src tx {tx_hash[:14]}…", "info")
+        self._wlog(wallet, ctx, f"📤 {token} deposit tx {tx_hash[:14]}…",
+                   "info")
 
-        # 7. Ждём confirmation
+        # 6. Confirmation
         try:
             rc = _wait_receipt(w3_src, tx_hash, timeout=TX_RECEIPT_TIMEOUT_SEC)
             if rc["status"] != 1:
                 db.update_task(task["id"], status=db.STATUS_FAILED,
-                                error_message=f"src tx reverted (block={rc['block']})")
+                                error_message=f"deposit tx reverted (block={rc['block']})")
                 return
         except Exception as e:
             self._wlog(wallet, ctx, f"receipt wait err: {e}", "warning")
 
-        # 8. Polling Layerswap до COMPLETED
+        # 7. Polling Rhino.fi history
         db.update_task(task["id"], status=db.STATUS_AWAITING)
         deadline = time.monotonic() + ARRIVAL_TIMEOUT_SEC
         last_status: Optional[str] = None
-        dst_tx: Optional[str] = None
         while time.monotonic() < deadline:
             try:
-                cur = self.layerswap.get_swap(swap_id, proxies=proxies)
-            except (LayerswapError, requests.RequestException) as e:
+                cur = self.rhinofi.get_swap(quote_id, proxies=proxies)
+            except (RhinoFiError, requests.RequestException) as e:
                 self._wlog(wallet, ctx, f"poll err: {e}", "warning")
-                time.sleep(LAYERSWAP_POLL_INTERVAL)
+                time.sleep(RHINOFI_POLL_INTERVAL)
                 continue
-            status = (cur.get("status") or "").lower()
+            status = (cur.get("status") or "").upper()
             if status != last_status and status:
                 self._wlog(wallet, ctx, f"swap status: {status}", "info")
                 last_status = status
-            if status in ("failed", "cancelled", "expired"):
+            if status in TERMINAL_FAIL:
                 fr = cur.get("fail_reason") or ""
                 db.update_task(
                     task["id"], status=db.STATUS_FAILED,
-                    error_message=f"layerswap terminal: {status} ({fr})"[:400],
+                    error_message=f"rhinofi terminal: {status} ({fr})"[:400],
                     dst_tx_hash=cur.get("destination_tx"),
                 )
                 return
-            if status == "completed":
+            if status in TERMINAL_OK:
                 dst_tx = cur.get("destination_tx")
                 received = cur.get("destination_amount")
-                # Проверим Base баланс
                 try:
-                    if token == "USDC":
-                        dst_after = _get_token_balance(
-                            w3_dst, wallet, USDC_BASE_CONTRACT, False)
-                    else:
-                        dst_after = _get_token_balance(
-                            w3_dst, wallet, "0x0", True)
+                    dst_after = _get_token_balance(
+                        w3_dst, wallet, USDC_BASE_CONTRACT, False)
                 except Exception:
                     dst_after = None
                 db.update_task(
                     task["id"], status=db.STATUS_ARRIVED,
                     dst_tx_hash=dst_tx,
-                    received_amount=str(received) if received is not None else None,
+                    received_amount=(str(received)
+                                       if received is not None else None),
                     dst_balance_after=(str(dst_after)
-                                       if dst_after is not None else None),
+                                        if dst_after is not None else None),
                 )
                 self._wlog(wallet, ctx,
                            f"✅ {token} arrived on Base (received={received})",
                            "success")
                 return
-            time.sleep(LAYERSWAP_POLL_INTERVAL)
+            time.sleep(RHINOFI_POLL_INTERVAL)
         db.update_task(task["id"], status=db.STATUS_FAILED,
                         error_message=f"timeout waiting for arrival "
                                       f"(last={last_status})")
 
 
-__all__ = ["SwapAllExecutor", "POLYGONZK_RPCS", "BASE_RPCS",
-           "USDC_BASE_CONTRACT"]
+__all__ = ["SwapAllExecutor", "ZKSYNC_RPCS", "BASE_RPCS",
+           "USDC_BASE_CONTRACT", "RHINOFI_BRIDGE_CONTRACT"]

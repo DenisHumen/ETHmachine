@@ -383,7 +383,8 @@ TOOLS_SUBMENU = SubMenu(
         MenuItem(key='check_age_discord', label='Check age discord', description='Проверить возраст аккаунта Discord', icon='🗂️', enabled=True),
         MenuItem(key='email_checker', label='Email IMAP Checker', description='Проверить почтовые аккаунты через IMAP', icon='📧', enabled=True),
         MenuItem(key='pinterest_downloader', label='Pinterest Downloader', description='Скачать рандомные картинки из Pinterest', icon='📌', enabled=True),
-        MenuItem(key='swap_all_polygonzk_to_base', label='Swap All Polygon zkEVM → Base USDC', description='Свап всех токенов с Polygon zkEVM в USDC на Base через Layerswap', icon='💱', enabled=True),
+        MenuItem(key='swap_all_polygon_zkevm_to_base', label='Swap All Polygon zkEVM → Base USDC', description='Свап всех токенов с Polygon zkEVM в USDC на Base через Layerswap', icon='💱', enabled=True),
+        MenuItem(key='swap_all_zksync_era_to_base', label='Swap All zkSync Era → Base USDC', description='Свап USDC/USDT с zkSync Era в USDC на Base через Rhino.fi', icon='💱', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]
 )

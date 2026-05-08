@@ -1,4 +1,4 @@
-"""Меню swap-all Polygon zkEVM → Base USDC."""
+"""Меню swap-all zkSync Era → Base USDC (Rhino.fi)."""
 from __future__ import annotations
 
 import threading
@@ -10,16 +10,14 @@ from questionary import Choice, select
 from modules.simple_logger import (
     logger, log_wallet_task, log_simple, set_auto_progress,
 )
-from modules.eth.swap_all_polygon_zkevm_to_base import (
+from modules.eth.swap_all_zksync_era_to_base import (
     database as db, planner, excel_export,
 )
-from modules.eth.swap_all_polygon_zkevm_to_base.executor import SwapAllExecutor
+from modules.eth.swap_all_zksync_era_to_base.executor import SwapAllExecutor
 from config.modules.cfg_base import NUM_THREADS as _CFG_NUM_THREADS
 
 PLAN_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 
-# В этом модуле прогресс по кошелькам читается из [i/N] в каждой строке —
-# отдельный tqdm-бар не нужен.
 set_auto_progress(False)
 
 
@@ -28,7 +26,7 @@ def _show_stats() -> None:
     sep = f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}"
     print()
     print(sep)
-    print(f"{Fore.CYAN}Polygon zkEVM → Base USDC — Swap All{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}zkSync Era → Base USDC — Swap All (Rhino.fi){Style.RESET_ALL}")
     print(f"{Fore.CYAN}DB:{Style.RESET_ALL} {db.DB_PATH}")
     print(sep)
     if stats.get("total", 0) == 0:
@@ -45,24 +43,15 @@ def _show_stats() -> None:
 
 
 def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
-    """Phase 1: многопоточно создать задачи в БД для всех кошельков.
-
-    Каждому кошельку присваивается стабильный индекс [i/total] (его позиция
-    в data.csv), вне зависимости от порядка завершения worker-thread'ов.
-    OKLink-вызовы — сетевой I/O → GIL не мешает, даём много потоков.
-    SQLite-запись из планнера thread-safe (WAL, отдельное соединение на upsert).
-    """
     total = len(records)
     counters = {"planned": 0, "with_tasks": 0, "skipped_no_tokens": 0,
                 "errors": 0}
     lock = threading.Lock()
-
     threads = max(1, min(int(num_threads), total)) if total else 1
     log_simple(
         f"📋 планирование: создаём задачи для {total} кошельков "
         f"(threads={threads})", "info",
     )
-    # Гарантируем, что схема БД создана до конкурентных upsert'ов из тредов
     db.init_database()
 
     def _one(idx: int, rec):
@@ -103,12 +92,11 @@ def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
         return counters
 
     with ThreadPoolExecutor(max_workers=threads,
-                             thread_name_prefix="plan") as ex:
+                             thread_name_prefix="plan_zk") as ex:
         futs = [ex.submit(_one, i, rec)
                 for i, rec in enumerate(records, 1)]
         try:
             for fut in as_completed(futs):
-                # Re-raise any non-handled exception (KeyboardInterrupt etc.)
                 fut.result()
         except KeyboardInterrupt:
             for f in futs:
@@ -118,8 +106,6 @@ def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
 
 
 def _swap_all(records, executor: SwapAllExecutor) -> dict:
-    """Phase 2: пройтись по всем кошелькам и свапнуть тех, у кого
-    есть pending-задачи. Счётчик [i/N] — по всем кошелькам из data.csv."""
     total = len(records)
     pending_set = {w.lower() for w in db.list_wallets_with_pending()}
     counters = {"swapped": 0, "skipped": 0, "errors": 0}
@@ -178,8 +164,6 @@ def _handle_run() -> None:
 
 
 def _handle_auto() -> None:
-    """Авто-режим: 1) план для ВСЕХ кошельков (создаём все задачи в БД),
-    2) свап всех кошельков с pending, 3) Excel."""
     records = planner._build_records()
     if not records:
         log_simple("data/data.csv пуст или не содержит приватных ключей",
@@ -189,7 +173,6 @@ def _handle_auto() -> None:
     total = len(records)
     log_simple(f"загружено {total} кошельков из data.csv", "info")
 
-    # Phase 1: plan all (skip those уже завершённые ранее не трогаются upsert-ом)
     pending_before = {w.lower() for w in db.list_wallets_with_pending()}
     if pending_before:
         log_simple(
@@ -209,7 +192,6 @@ def _handle_auto() -> None:
         f"errors={plan_stats['errors']}", "info",
     )
 
-    # Phase 2: swap
     try:
         swap_stats = _swap_all(records, SwapAllExecutor())
     except KeyboardInterrupt:
@@ -223,7 +205,6 @@ def _handle_auto() -> None:
         "info",
     )
 
-    # Phase 3: Excel
     _handle_export()
     log_simple(f"финальная статистика: {db.get_statistics()}", "success")
 
@@ -240,37 +221,37 @@ def _handle_export() -> None:
 
 def _handle_reset() -> None:
     db.reset_database()
-    logger.success("swap_all_tasks очищена")
+    logger.success("swap_all_tasks (zkSync→Base) очищена")
 
 
 def _print_info() -> None:
     print(f"""
 {Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
-║   Polygon zkEVM → Base USDC — Swap All (Layerswap)               ║
+║   zkSync Era → Base USDC — Swap All (Rhino.fi)                   ║
 ╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
 
-Маршруты Layerswap:
-  {Fore.GREEN}USDC{Style.RESET_ALL} (Polygon zkEVM) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
-  {Fore.GREEN}ETH{Style.RESET_ALL}  (Polygon zkEVM) → {Fore.GREEN}ETH{Style.RESET_ALL}  (Base)
-  Прочие токены — пропускаются («skipped»).
+Маршруты Rhino.fi (mode=pay):
+  {Fore.GREEN}USDC{Style.RESET_ALL} (zkSync Era) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
+  {Fore.GREEN}USDT{Style.RESET_ALL} (zkSync Era) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
+  Native ETH — не свапается (нужен на газ).
 
-Pipeline-режим: для каждого кошелька — план балансов → сразу свап →
-переход к следующему. Если процесс прерван, при повторном запуске
-авто-режима он сначала доделает кошельки с pending-задачами в БД.
+On-chain: depositWithId(token, amount, commitmentId) на bridge-контракте
+  Rhino.fi — 0x1fa66e2b38d0cc496ec51f81c3e05e6a6708986f
+  commitmentId = uint256(quoteId).
 
-Источник балансов: OKLink (web-internal API).
+Источник балансов: OKLink (web-internal API, chain=zksync_era).
 Источник кошельков: {Fore.YELLOW}data/data.csv{Style.RESET_ALL}.
-БД задач:           {Fore.YELLOW}db/swap_all_polygon_zkevm_to_base.db{Style.RESET_ALL}.
+БД задач:           {Fore.YELLOW}db/swap_all_zksync_era_to_base.db{Style.RESET_ALL}.
 
 Excel-отчёт:
-  {Fore.YELLOW}result/swap_all_polygon_zkevm_to_base/run_<timestamp>/swap_all_report.xlsx{Style.RESET_ALL}
+  {Fore.YELLOW}result/swap_all_zksync_era_to_base/run_<timestamp>/swap_all_report.xlsx{Style.RESET_ALL}
 """)
 
 
-def run_swap_all_polygon_zkevm_to_base() -> None:
+def run_swap_all_zksync_era_to_base() -> None:
     while True:
         action = select(
-            "💱 Polygon zkEVM → Base USDC swap-all:",
+            "💱 zkSync Era → Base USDC swap-all (Rhino.fi):",
             choices=[
                 Choice("🤖 Авто-режим (pipeline + резюм + Excel)", "auto"),
                 Choice("📋 Планирование (баланс + классификация)", "plan"),
@@ -304,4 +285,4 @@ def run_swap_all_polygon_zkevm_to_base() -> None:
         input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
 
 
-__all__ = ["run_swap_all_polygon_zkevm_to_base"]
+__all__ = ["run_swap_all_zksync_era_to_base"]
