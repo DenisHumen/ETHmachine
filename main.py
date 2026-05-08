@@ -668,9 +668,9 @@ class MenuHandlers:
             case 'pinterest_downloader':
                 from modules.pinterest_downloader import pinterest_downloader_menu
                 pinterest_downloader_menu()
-            case 'drainer_polygonzk_to_base':
-                from modules.eth.drainer_polygonzk_to_base import run_drainer_polygonzk_to_base
-                run_drainer_polygonzk_to_base()
+            case 'swap_all_polygonzk_to_base':
+                from modules.eth.swap_all_polygonzk_to_base import run_swap_all_polygonzk_to_base
+                run_swap_all_polygonzk_to_base()
     
     @staticmethod
     def _handle_generate_wallets():

@@ -26,8 +26,8 @@ from modules.data_manager import load_data
 from modules.eth.oklink_balance_checker import (
     fetch_oklink_tokens, _make_proxy_dict,
 )
-from modules.eth.drainer_polygonzk_to_base.layerswap import SUPPORTED_PAIRS
-from modules.eth.drainer_polygonzk_to_base import database as db
+from modules.eth.swap_all_polygonzk_to_base.layerswap import SUPPORTED_PAIRS
+from modules.eth.swap_all_polygonzk_to_base import database as db
 
 console = Console()
 
@@ -210,7 +210,7 @@ def plan_one_wallet(rec: Dict[str, Any], *, refresh: bool = True) -> Dict[str, A
 def fetch_balances_and_plan(records: List[Dict[str, Any]],
                             *, refresh: bool = True,
                             on_progress=None) -> Dict[str, Any]:
-    """For each wallet: pull OKLink token list, write tasks to drainer DB.
+    """For each wallet: pull OKLink token list, write tasks to swap-all DB.
 
     Returns dict {wallet -> {ok, tokens, total_usd, supported_count, ...}}.
     """

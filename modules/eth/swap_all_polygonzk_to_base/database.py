@@ -1,4 +1,4 @@
-"""SQLite задач дрейнера Polygon zkEVM → Base USDC."""
+"""SQLite задач swap-all Polygon zkEVM → Base USDC."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DB_DIR = Path(__file__).resolve().parents[3] / "db"
-DB_PATH = DB_DIR / "drainer_polygonzk_to_base.db"
+DB_PATH = DB_DIR / "swap_all_polygonzk_to_base.db"
 
 # Per-token statuses
 STATUS_PENDING = "pending"
@@ -22,7 +22,7 @@ STATUS_FAILED = "failed"
 TERMINAL = (STATUS_SKIPPED, STATUS_ARRIVED, STATUS_FAILED)
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS drainer_tasks (
+CREATE TABLE IF NOT EXISTS swap_all_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     wallet_address TEXT NOT NULL,
     account_name TEXT,
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS drainer_tasks (
     updated_at INTEGER NOT NULL,
     UNIQUE(wallet_address, token, contract)
 );
-CREATE INDEX IF NOT EXISTS idx_drainer_wallet ON drainer_tasks(wallet_address);
-CREATE INDEX IF NOT EXISTS idx_drainer_status ON drainer_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_swap_all_wallet ON swap_all_tasks(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_swap_all_status ON swap_all_tasks(status);
 """
 
 
@@ -77,7 +77,7 @@ def init_database() -> None:
 
 def reset_database() -> None:
     with _connect() as c:
-        c.execute("DROP TABLE IF EXISTS drainer_tasks")
+        c.execute("DROP TABLE IF EXISTS swap_all_tasks")
         c.executescript(SCHEMA)
 
 
@@ -93,13 +93,13 @@ def upsert_task(*, wallet_address: str, account_name: str, private_key: str,
     extra_json = json.dumps(extra or {})
     with _connect() as c:
         existing = c.execute(
-            """SELECT id, status FROM drainer_tasks
+            """SELECT id, status FROM swap_all_tasks
                WHERE wallet_address = ? AND token = ? AND contract = ?""",
             (wallet_address.lower(), token.upper(), contract.lower()),
         ).fetchone()
         if existing is None:
             cur = c.execute(
-                """INSERT INTO drainer_tasks
+                """INSERT INTO swap_all_tasks
                     (wallet_address, account_name, private_key, proxy,
                      reserve_proxy, token, contract, decimals,
                      raw_balance, human_balance, usd_value, supported,
@@ -120,7 +120,7 @@ def upsert_task(*, wallet_address: str, account_name: str, private_key: str,
         else:
             new_status = keep_status
         c.execute(
-            """UPDATE drainer_tasks SET account_name=?, private_key=?, proxy=?,
+            """UPDATE swap_all_tasks SET account_name=?, private_key=?, proxy=?,
                   reserve_proxy=?, decimals=?, raw_balance=?, human_balance=?,
                   usd_value=?, supported=?, status=?, extra_json=?, updated_at=?
                WHERE id=?""",
@@ -138,13 +138,13 @@ def update_task(task_id: int, **fields: Any) -> None:
     cols = ", ".join(f"{k} = ?" for k in fields)
     values = list(fields.values()) + [task_id]
     with _connect() as c:
-        c.execute(f"UPDATE drainer_tasks SET {cols} WHERE id = ?", values)
+        c.execute(f"UPDATE swap_all_tasks SET {cols} WHERE id = ?", values)
 
 
 def increment_attempts(task_id: int) -> None:
     with _connect() as c:
         c.execute(
-            "UPDATE drainer_tasks SET attempts = attempts + 1, updated_at = ? "
+            "UPDATE swap_all_tasks SET attempts = attempts + 1, updated_at = ? "
             "WHERE id = ?", (_now(), task_id),
         )
 
@@ -152,7 +152,7 @@ def increment_attempts(task_id: int) -> None:
 def list_pending_for_wallet(wallet_address: str) -> List[Dict[str, Any]]:
     with _connect() as c:
         rows = c.execute(
-            """SELECT * FROM drainer_tasks
+            """SELECT * FROM swap_all_tasks
                WHERE wallet_address = ?
                  AND supported = 1
                  AND status NOT IN (?, ?, ?)
@@ -165,7 +165,7 @@ def list_pending_for_wallet(wallet_address: str) -> List[Dict[str, Any]]:
 def list_all_tasks() -> List[Dict[str, Any]]:
     with _connect() as c:
         rows = c.execute(
-            "SELECT * FROM drainer_tasks ORDER BY wallet_address, token"
+            "SELECT * FROM swap_all_tasks ORDER BY wallet_address, token"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -173,7 +173,7 @@ def list_all_tasks() -> List[Dict[str, Any]]:
 def list_wallets_with_pending() -> List[str]:
     with _connect() as c:
         rows = c.execute(
-            """SELECT DISTINCT wallet_address FROM drainer_tasks
+            """SELECT DISTINCT wallet_address FROM swap_all_tasks
                WHERE supported = 1 AND status NOT IN (?, ?, ?)""",
             (STATUS_ARRIVED, STATUS_SKIPPED, STATUS_FAILED),
         ).fetchall()
@@ -183,7 +183,7 @@ def list_wallets_with_pending() -> List[str]:
 def get_statistics() -> Dict[str, int]:
     with _connect() as c:
         rows = c.execute(
-            "SELECT status, COUNT(*) as cnt FROM drainer_tasks GROUP BY status"
+            "SELECT status, COUNT(*) as cnt FROM swap_all_tasks GROUP BY status"
         ).fetchall()
         s = {r["status"]: int(r["cnt"]) for r in rows}
         s["total"] = sum(s.values())

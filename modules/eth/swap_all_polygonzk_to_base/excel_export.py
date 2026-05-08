@@ -1,4 +1,4 @@
-"""Excel-отчёт дрейнера Polygon zkEVM → Base USDC.
+"""Excel-отчёт swap-all Polygon zkEVM → Base USDC.
 
 Формат:
   Лист «Matrix»  — кошельки (строки) × токены (колонки), human-balance.
@@ -16,10 +16,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from modules.eth.drainer_polygonzk_to_base import database as db
+from modules.eth.swap_all_polygonzk_to_base import database as db
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-RESULT_DIR = PROJECT_ROOT / "result" / "drainer_polygonzk_to_base"
+RESULT_DIR = PROJECT_ROOT / "result" / "swap_all_polygonzk_to_base"
 
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _HEADER_FILL = PatternFill("solid", fgColor="305496")
@@ -66,7 +66,7 @@ def export_report(out_dir: Path | None = None) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = out_dir or (RESULT_DIR / f"run_{timestamp}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    xlsx = out_dir / "drainer_report.xlsx"
+    xlsx = out_dir / "swap_all_report.xlsx"
 
     wb = Workbook()
 

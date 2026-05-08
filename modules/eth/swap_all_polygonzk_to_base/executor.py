@@ -1,4 +1,4 @@
-"""Executor: исполняет задачи дрейнера по одному кошельку."""
+"""Executor: исполняет swap-all задачи по одному кошельку."""
 from __future__ import annotations
 
 import random
@@ -19,8 +19,8 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 from modules.simple_logger import logger, log_wallet_task
-from modules.eth.drainer_polygonzk_to_base import database as db
-from modules.eth.drainer_polygonzk_to_base.layerswap import (
+from modules.eth.swap_all_polygonzk_to_base import database as db
+from modules.eth.swap_all_polygonzk_to_base.layerswap import (
     LayerswapClient, LayerswapError, SUPPORTED_PAIRS,
 )
 
@@ -32,7 +32,7 @@ from config.modules.cfg_base import (
     RETRY_COUNT as _CFG_RETRY_COUNT,
 )
 try:
-    from config.modules import cfg_drainer_polygonzk_to_base as _cfg
+    from config.modules import cfg_swap_all_polygonzk_to_base as _cfg
 except Exception:
     _cfg = None
 NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
@@ -132,9 +132,18 @@ def _get_token_balance(w3: Web3, wallet: str, contract: str,
 
 
 def _build_legacy_fees(w3: Web3) -> Dict[str, int]:
-    """Polygon zkEVM accepts только legacy-транзакции (type 0)."""
-    gas_price = int(w3.eth.gas_price)
-    return {"gasPrice": max(gas_price, w3.to_wei(1, "gwei"))}
+    """Polygon zkEVM accepts только legacy-транзакции (type 0).
+
+    Polygon zkEVM газ обычно ~0.01 gwei. Прежний floor 1 gwei (×100)
+    раздувал резерв до 0.0000294 ETH и блокировал кошельки с балансом
+    чуть выше Layerswap min (например 0.00042 ETH). Берём реальный
+    gas_price от RPC + 20% safety; абсолютный пол 0.01 gwei на случай
+    если RPC вернёт 0.
+    """
+    rpc_price = int(w3.eth.gas_price)
+    floor = w3.to_wei("0.01", "gwei")
+    gas_price = max(rpc_price, floor) * 12 // 10
+    return {"gasPrice": gas_price}
 
 
 def _estimate_native_gas_units(w3: Web3, from_addr: str,
@@ -164,7 +173,7 @@ def _native_gas_reserve(w3: Web3, *, est_gas: Optional[int] = None) -> int:
        1.05 ≈ safety на флуктуации gas_price между планом и отправкой
     Используем тот же `gas_price`, что и `_build_legacy_fees`, чтобы
     резерв точно совпадал с реальной стоимостью tx — leftover после
-    дрейна обычно <0.00001 ETH (≪ цента).
+    свапа обычно <0.00001 ETH (≪ цента).
     """
     gas_price = int(_build_legacy_fees(w3)["gasPrice"])
     units = int(est_gas or 21_000)
@@ -236,7 +245,7 @@ def _wait_receipt(w3: Web3, tx_hash: str, timeout: int = 600) -> Dict[str, Any]:
     return {"status": int(receipt.status), "block": int(receipt.blockNumber)}
 
 
-class DrainerExecutor:
+class SwapAllExecutor:
     def __init__(self, *, layerswap: Optional[LayerswapClient] = None,
                  num_threads: Optional[int] = None) -> None:
         self.layerswap = layerswap or LayerswapClient(api_key=LAYERSWAP_API_KEY)
@@ -285,7 +294,7 @@ class DrainerExecutor:
 
         done = 0
         with ThreadPoolExecutor(max_workers=self.num_threads,
-                                 thread_name_prefix="drainer") as ex:
+                                 thread_name_prefix="swap_all") as ex:
             futs = {ex.submit(_worker, i, w): w
                     for i, w in enumerate(wallets, 1)}
             for fut in as_completed(futs):
@@ -552,5 +561,5 @@ class DrainerExecutor:
                                       f"(last={last_status})")
 
 
-__all__ = ["DrainerExecutor", "POLYGONZK_RPCS", "BASE_RPCS",
+__all__ = ["SwapAllExecutor", "POLYGONZK_RPCS", "BASE_RPCS",
            "USDC_BASE_CONTRACT"]
