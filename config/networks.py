@@ -160,6 +160,14 @@ NETWORKS = {
         'tx_url': "https://testnet.arcscan.app/tx/",
         'type': 'testnet'
     },
+    '🚀 LiteForge Testnet': {
+        'chain_id': 4441,
+        'rpc_urls': ['https://liteforge.rpc.caldera.xyz/http'],
+        'ws_urls': ['wss://liteforge.rpc.caldera.xyz/ws'],
+        'symbol': 'zkLTC',
+        'tx_url': "https://liteforge.explorer.caldera.xyz/tx/",
+        'type': 'testnet'
+    },
 }
 
 SOL_NETWORKS = {

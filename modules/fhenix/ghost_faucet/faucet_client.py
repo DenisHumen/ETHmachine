@@ -1,5 +1,6 @@
 """HTTP-клиент для Ghost Faucet (ghostchain.io)."""
 import re
+import threading
 import time
 from typing import Optional, Tuple
 
@@ -11,6 +12,7 @@ from config.modules.cfg_fhenix import (
     GHOST_FAUCET_NETWORK_KEY,
     GHOST_FAUCET_TURNSTILE_SITEKEY,
     GHOST_FAUCET_HTTP_TIMEOUT,
+    GHOST_FAUCET_SUBMIT_MIN_INTERVAL,
 )
 from modules.proxy_manager import get_proxy_dict
 
@@ -32,6 +34,30 @@ class GhostFaucetError(Exception):
 
 class GhostFaucetCooldownError(GhostFaucetError):
     """Сервер ответил, что лимит исчерпан (24h)."""
+
+
+# ─── Глобальный gate для submit_claim ─────────────────────────────────────────
+# Faucet-хот-кошелёк отправляет tx последовательно: одновременные POST'ы из
+# разных потоков ловят RPC-ошибку "could not replace existing tx" / "replacement
+# transaction underpriced", и капча сгорает зря.  Сериализуем сам POST
+# глобальным локом + минимальный интервал между submit-ами.
+_submit_gate = threading.Lock()
+_last_submit_at = 0.0
+
+
+def _gated_post(session: requests.Session, url: str, **kwargs) -> requests.Response:
+    """Выполнить POST под глобальным локом с min-интервалом между запросами."""
+    global _last_submit_at
+    interval = max(0.0, float(GHOST_FAUCET_SUBMIT_MIN_INTERVAL))
+    with _submit_gate:
+        if interval > 0:
+            wait = (_last_submit_at + interval) - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        try:
+            return session.post(url, **kwargs)
+        finally:
+            _last_submit_at = time.monotonic()
 
 
 def make_session(proxy: Optional[str] = None) -> requests.Session:
@@ -82,7 +108,8 @@ def submit_claim(
         "Referer": GHOST_FAUCET_URL,
         "X-Requested-With": "XMLHttpRequest",
     }
-    resp = session.post(
+    resp = _gated_post(
+        session,
         GHOST_FAUCET_AJAX_URL,
         data=payload,
         headers=headers,

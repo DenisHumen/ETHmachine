@@ -28,6 +28,12 @@ GHOST_FAUCET_SEPOLIA_RPCS = [
 # HTTP таймаут запросов
 GHOST_FAUCET_HTTP_TIMEOUT = 30
 
+# Глобальный rate-limit для POST submit_claim между потоками.
+# Faucet-хот-кошелёк шлёт tx последовательно: если два потока попадают одновременно,
+# сервер падает с "INTERNAL_ERROR: could not replace existing tx" и капча сгорает зря.
+# Минимальный интервал между submit-ами (секунды). Sepolia block ~12s — берём с запасом.
+GHOST_FAUCET_SUBMIT_MIN_INTERVAL = 13
+
 
 # ----------------------------------------------------------------------------------------
 # Alchemy Faucet — Base Sepolia (https://www.alchemy.com/faucets/base-sepolia)

@@ -9,8 +9,8 @@ FHENIX_SUBMENU = SubMenu(
     key='fhenix',
     label='Fhenix — выберите модуль',
     description='',
-    icon='🔥',
-    qmark='🔥',
+    icon='🟢',
+    qmark='🟢',
     pointer='👉',
     items=[
         MenuItem(key='ghost_faucet', label='Ghost Faucet (Sepolia)',
@@ -28,7 +28,7 @@ def fhenix_menu():
     """Главное меню проекта Fhenix."""
     while True:
         action = select(
-            "🔥 Fhenix — выберите модуль:",
+            "🟢 Fhenix — выберите модуль:",
             choices=build_submenu_choices(FHENIX_SUBMENU),
             qmark=FHENIX_SUBMENU.qmark,
             pointer=FHENIX_SUBMENU.pointer,

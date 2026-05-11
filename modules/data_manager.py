@@ -28,9 +28,15 @@
 """
 
 import csv
+import random
 from pathlib import Path
 from typing import List, Optional, Dict
 from modules.simple_logger import logger
+
+try:
+    from config.modules.general_config import SHUFLE_ACCOUNTS as _SHUFLE_ACCOUNTS
+except ImportError:
+    _SHUFLE_ACCOUNTS = False
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / 'data'
@@ -197,8 +203,14 @@ def select_data_file() -> Path:
     return _selected_data_file
 
 
-def load_data(filepath: Path = None, force_reload: bool = False) -> List[Dict[str, str]]:
-    """Загружает данные из CSV файла. Кэширует результат."""
+def load_data(filepath: Path = None, force_reload: bool = False,
+              shuffle: Optional[bool] = None) -> List[Dict[str, str]]:
+    """Загружает данные из CSV файла. Кэширует результат.
+
+    Если SHUFLE_ACCOUNTS=True в general_config (или явно передано shuffle=True),
+    возвращает свежеперемешанную КОПИЮ списка при каждом вызове — кешированные
+    "первичные" строки в исходном порядке всегда сохраняются нетронутыми.
+    """
     global _loaded_rows, _loaded_file
 
     if filepath is None:
@@ -206,27 +218,32 @@ def load_data(filepath: Path = None, force_reload: bool = False) -> List[Dict[st
 
     filepath_str = str(filepath)
 
+    rows: List[Dict[str, str]]
     if _loaded_rows and _loaded_file == filepath_str and not force_reload:
-        return _loaded_rows
+        rows = _loaded_rows
+    else:
+        _ensure_data_file(filepath)
+        rows = []
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Нормализуем: пустые значения → пустая строка
+                    normalized = {h: (row.get(h, '') or '').strip() for h in HEADERS}
+                    rows.append(normalized)
+        except Exception as e:
+            logger.error(f"Ошибка чтения {filepath}: {e}")
+            return []
 
-    _ensure_data_file(filepath)
+        _loaded_rows = rows
+        _loaded_file = filepath_str
+        logger.info(f"Загружено {len(rows)} записей из {filepath.name}")
 
-    rows = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Нормализуем: пустые значения → пустая строка
-                normalized = {h: (row.get(h, '') or '').strip() for h in HEADERS}
-                rows.append(normalized)
-    except Exception as e:
-        logger.error(f"Ошибка чтения {filepath}: {e}")
-        return []
-
-    _loaded_rows = rows
-    _loaded_file = filepath_str
-
-    logger.info(f"Загружено {len(rows)} записей из {filepath.name}")
+    do_shuffle = _SHUFLE_ACCOUNTS if shuffle is None else bool(shuffle)
+    if do_shuffle and len(rows) > 1:
+        shuffled = list(rows)
+        random.shuffle(shuffled)
+        return shuffled
     return rows
 
 

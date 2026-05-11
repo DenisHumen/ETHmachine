@@ -538,6 +538,9 @@ class MenuHandlers:
             elif choice == 'fhenix':
                 from modules.fhenix.menu import fhenix_menu
                 fhenix_menu()
+            elif choice == 'litvm_testnet':
+                from modules.litvm_testnet import litvm_testnet_menu
+                litvm_testnet_menu()
             elif choice == 'back' or choice is None:
                 break
     

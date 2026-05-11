@@ -70,6 +70,7 @@ RETRY_COUNT = 2                   # внешние вызовы (proxy/rpc fallb
 WHAITE_TRANSACTION_PENDING = 10   # секунд между check_receipt
 WHAITE_TRANSACTION_PENDING_COUNT = 30
 MAIN_PROXY = ''                   # на не-кошелёчные запросы
+SHUFLE_ACCOUNTS = True/False # перемешивать ли кошельки при запуске
 ```
 
 Любой module-specific knob — в `config/modules/cfg_<module_name>.py`,

@@ -83,7 +83,13 @@ def _format_record(record) -> str:
     # Экранируем фигурные скобки в сообщении: loguru с colorize=True
     # пропускает результат через .format_map(record), и любые `{...}`
     # в тексте интерпретируются как плейсхолдеры (KeyError).
-    msg_text = str(record["message"]).replace("{", "{{").replace("}", "}}")
+    # Также экранируем `<` — иначе фрагменты вида `<none>` / `<html>`
+    # из ошибок RPC/HTTP воспринимаются Colorizer-ом как цветовые теги.
+    msg_text = (
+        str(record["message"])
+        .replace("{", "{{").replace("}", "}}")
+        .replace("<", "\\<")
+    )
     parts.append(f"<{fg}>{msg_text}</{fg}>")
     return " │ ".join(parts) + "\n"
 
