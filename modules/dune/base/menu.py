@@ -154,7 +154,7 @@ def _print_info() -> None:
 1) запуск браузера → 2) подключение прокси → 3) переход на дашборд →
 4) поиск адреса → 5) запись результата в БД → 6) закрытие браузера.
 
-Все настройки берутся из {Fore.YELLOW}config/modules/cfg_base.py{Style.RESET_ALL}:
+Все настройки берутся из {Fore.YELLOW}config/modules/general_config.py{Style.RESET_ALL}:
 
   NUM_THREADS              — количество параллельных браузеров (по 1 кошельку каждый)
   SLEEP_BETWEEN_ACTIONS    — пауза между кошельками в одном потоке

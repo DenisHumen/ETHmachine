@@ -46,7 +46,7 @@ TYPE_WITHDRAW = 0              # 0 - нативные токены, 1 - USDT
 VALUES_TO_WITHDRAW = [5, 5]    # Диапазон суммы вывода
 WAIT_FOR_BALANCE = True        # Ждать поступления на кошелек
 
-# config/modules/cfg_base.py
+# config/modules/general_config.py
 NUM_THREADS = 5                # Количество потоков
 ```
 

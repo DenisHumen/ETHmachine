@@ -430,15 +430,7 @@ def check_okx_subaccounts_and_balances():
         
         # Отправка уведомления
         try:
-            from modules.notifications import send_telegram_notification
             result_file_path = project_root / 'result' / 'okx_balances.csv'
-            send_telegram_notification(
-                notif_type="success",
-                title="Проверка балансов OKX завершена",
-                message=f"Всего аккаунтов: {total_accounts}С балансом: {accounts_with_balance}Пустых: {total_accounts - accounts_with_balance}",
-                main_title="OKX баланс чек завершён",
-                file_path=str(result_file_path)
-            )
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления: {e}")
             

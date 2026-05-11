@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Databases — ETHmachine{% endblock %}
+{% block content %}
+<header class="page-header"><h1 class="glitch" data-text="// DB BROWSER">// DB BROWSER</h1></header>
+
+{% if not active_db %}
+<section class="card">
+  <h3>SQLite файлы в db/</h3>
+  {% if databases %}
+  <ul class="db-list">
+    {% for d in databases %}
+    <li><a href="/databases/{{ d.name }}">{{ d.name }}</a> <span class="muted">({{ d.size|humansize }})</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">Файлы не найдены.</p>{% endif %}
+</section>
+{% else %}
+<section class="card">
+  <h3>{{ active_db }}</h3>
+  <p><a href="/databases">← все БД</a></p>
+  {% if not active_table %}
+    <ul class="db-list">
+      {% for t in tables %}<li><a href="/databases/{{ active_db }}/{{ t }}">{{ t }}</a></li>{% endfor %}
+    </ul>
+  {% else %}
+    <p><a href="/databases/{{ active_db }}">← все таблицы</a></p>
+    <h4>{{ active_table }} <span class="muted">({{ count }} rows)</span></h4>
+    <div class="pager">
+      {% if offset > 0 %}<a href="?offset={{ [offset-limit, 0]|max }}&limit={{ limit }}">← prev</a>{% endif %}
+      <span class="muted">{{ offset }}–{{ offset + (rows|length) }} / {{ count }}</span>
+      {% if offset + (rows|length) < count %}<a href="?offset={{ offset+limit }}&limit={{ limit }}">next →</a>{% endif %}
+    </div>
+    <div class="table-scroll">
+    <table class="db-table">
+      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in rows %}<tr>{% for cell in row %}<td>{{ cell if cell is not none else '' }}</td>{% endfor %}</tr>{% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

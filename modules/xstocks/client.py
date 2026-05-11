@@ -19,7 +19,7 @@ from config.modules.cfg_xstocks import (
     BASE_URL, API_BASE_URL, DEFAULT_HEADERS, REQUEST_TIMEOUT,
     SIGN_MESSAGES, GM_COOLDOWN_HOURS,
 )
-from config.modules.cfg_base import RETRY_COUNT, SLEEP_BETWEEN_ACTIONS
+from config.modules.general_config import RETRY_COUNT, SLEEP_BETWEEN_ACTIONS
 from modules.xstocks.xstocks_proxy import XStocksProxyManager
 from modules.xstocks import xstocks_logger as logger
 from modules.xstocks import database as db

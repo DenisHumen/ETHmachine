@@ -169,7 +169,6 @@ def check_version(repo_name: str):
     github_api_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits/main"
     github_api_commits_url = f"https://api.github.com/repos/DenisHumen/{repo_name}/commits"
 
-    os.system('cls' if os.name == 'nt' else 'clear')  # Clear the console
     print("🔍 Checking for updates...\n")
 
     local_hash, local_date = get_local_commit_info()

@@ -20,7 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from modules.simple_logger import logger
 from modules.proxy_manager import get_random_proxy_dict
 from config.modules.cfg_cex import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
-from config.modules.cfg_base import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
+from config.modules.general_config import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
 from config import networks as rpc
 
 from modules.cex.exchange_selector import select_bitget_account

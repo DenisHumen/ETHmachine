@@ -295,6 +295,7 @@ PROJECTS_SUBMENU = SubMenu(
         MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='🟢', enabled=True, badge='ПАУЗА'),
         MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='🟢', enabled=True, requires_os='windows'),
         MenuItem(key='dune', label='Dune', description='Аналитика и проверка кошельков через Dune Analytics', icon='🟢', enabled=True),
+        MenuItem(key='fhenix', label='Fhenix', description='Кран ghostchain (Sepolia) и др.', icon='🔥', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

@@ -20,10 +20,9 @@ from questionary import Choice, select
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from modules.simple_logger import logger
 from modules.proxy_manager import get_random_proxy, load_proxies, parse_proxy
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS,
 )
-from modules.notifications import send_telegram_notification
 
 import requests
 from eth_account import Account
@@ -1113,13 +1112,6 @@ def neura_statistics():
                     
                     if send_tg == 'yes':
                         try:
-                            send_telegram_notification(
-                                notif_type="success",
-                                title="Экспорт статистики Neura",
-                                message=f"✅ Экспортировано: {stats['success']} записей из БД",
-                                main_title="Neura Statistics Export",
-                                file_path=final_csv_path
-                            )
                             log_success("📱 CSV файл отправлен в Telegram")
                         except Exception as e:
                             log_error(f"❌ Ошибка отправки в Telegram: {e}")
@@ -1176,13 +1168,6 @@ def neura_statistics():
                     if send_tg == 'yes':
                         try:
                             completed = stats['success'] + stats['error']
-                            send_telegram_notification(
-                                notif_type="info",
-                                title="Экспорт статистики Neura (частичный)",
-                                message=f"✅ Успешно: {stats['success']}\n❌ Ошибок: {stats['error']}\n⏸️ Не обработано: {stats['pending'] + stats['processing']}",
-                                main_title="Neura Statistics Export",
-                                file_path=final_csv_path
-                            )
                             log_success("📱 CSV файл отправлен в Telegram")
                         except Exception as e:
                             log_error(f"❌ Ошибка отправки в Telegram: {e}")
@@ -1281,12 +1266,6 @@ def neura_statistics():
     stop_monitoring.clear()  
     
     try:
-        send_telegram_notification(
-            notif_type="info",
-            title="Сбор статистики Neura Protocol",
-            message=f"🚀 Начата обработка {len(tasks)} кошельков\n🧵 Потоков: {NUM_THREADS}",
-            main_title="Neura Statistics"
-        )
         log_info("📱 Telegram уведомление о старте отправлено")
     except Exception as e:
         log_warning(f"⚠️ Не удалось отправить Telegram уведомление: {e}")
@@ -1345,33 +1324,13 @@ def neura_statistics():
     try:
         if final_csv_path and Path(final_csv_path).exists():
             log_info(f"📎 Прикрепление итогового CSV файла: {Path(final_csv_path).name}")
-            send_telegram_notification(
-                notif_type="success",
-                title="Статистика Neura собрана",
-                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}\n📊 Экспорт: {total_processed} записей из БД",
-                main_title="Neura Statistics",
-                file_path=final_csv_path
-            )
             log_success(f"📱 Telegram уведомление с итоговым CSV файлом отправлено ({Path(final_csv_path).name})")
         elif CURRENT_CSV_FILE and CURRENT_CSV_FILE.exists():
             log_warning("⚠️ Итоговый CSV не создан, отправляем рабочий файл")
             log_info(f"📎 Прикрепление рабочего CSV файла: {CURRENT_CSV_FILE.name}")
-            send_telegram_notification(
-                notif_type="success",
-                title="Статистика Neura собрана",
-                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
-                main_title="Neura Statistics",
-                file_path=str(CURRENT_CSV_FILE)
-            )
             log_success(f"📱 Telegram уведомление с рабочим CSV файлом отправлено ({CURRENT_CSV_FILE.name})")
         else:
             log_warning(f"⚠️ Ни итоговый, ни рабочий CSV файлы не найдены")
-            send_telegram_notification(
-                notif_type="success",
-                title="Статистика Neura собрана",
-                message=f"✅ Успешно: {success_count}\n❌ Ошибок: {error_count}\n⏱️ Время: {time_str}",
-                main_title="Neura Statistics"
-            )
             log_info("📱 Telegram уведомление отправлено (без файла)")
     except Exception as e:
         log_error(f"❌ Не удалось отправить финальное Telegram уведомление: {e}")

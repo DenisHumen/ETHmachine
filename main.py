@@ -535,6 +535,9 @@ class MenuHandlers:
                     MenuHandlers._show_neura_unavailable()
             elif choice == 'dune':
                 dune_menu()
+            elif choice == 'fhenix':
+                from modules.fhenix.menu import fhenix_menu
+                fhenix_menu()
             elif choice == 'back' or choice is None:
                 break
     
@@ -907,6 +910,14 @@ def main_menu():
 check_and_create_files()
 
 if __name__ == "__main__":
+    # Web-dashboard: preflight → autostart в фоне. Если каких-то библиотек
+    # не хватает — модуль сам напечатает инструкцию и не упадёт.
+    try:
+        import web as _web
+        _web.startup()
+    except Exception as _web_err:
+        print(Fore.YELLOW + f"⚠️  Web dashboard не запустился: {_web_err}" + Style.RESET_ALL)
+
     check_version("ETHmachine")
     create_backup()
     

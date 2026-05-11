@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Configs — ETHmachine{% endblock %}
+{% block content %}
+<header class="page-header"><h1 class="glitch" data-text="// CONFIGS">// CONFIGS</h1></header>
+
+{% if not active_file %}
+<section class="card">
+  {% if recent_changes %}
+  <h3>Последние правки</h3>
+  <table class="cc-table">
+    <thead><tr><th>когда</th><th>файл</th><th>кем</th><th>restart</th></tr></thead>
+    <tbody>
+      {% for cc in recent_changes %}
+      <tr><td class="muted">{{ cc.ts }}</td><td><a href="/configs/edit?path={{ cc.path }}">{{ cc.path }}</a></td><td>{{ cc.username or '?' }}</td>
+        <td>{% if cc.restart_required %}<span class="warn">RESTART</span>{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h3>config/ — все файлы</h3>
+  <ul class="cfg-list">
+    {% for f in files %}
+    <li>
+      <a href="/configs/edit?path={{ f.rel }}">{{ f.rel }}</a>
+      <span class="muted">{{ f.size|humansize }}</span>
+      {% if f.restart_required %}<span class="warn">restart-required</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section class="card">
+  <p><a href="/configs">← все конфиги</a></p>
+  <h3>{{ active_file }}{% if restart_required %} <span class="warn">restart-required</span>{% endif %}</h3>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/configs/save" class="config-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="path" value="{{ active_file }}">
+    <textarea name="content" spellcheck="false" autocomplete="off">{{ content }}</textarea>
+    <div class="row">
+      <button type="submit" class="primary">SAVE</button>
+      <a href="/configs/edit?path={{ active_file }}" class="ghost">сбросить</a>
+    </div>
+  </form>
+  {% if last_diff %}
+  <h4>последний diff</h4>
+  <pre class="diff">{{ last_diff }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

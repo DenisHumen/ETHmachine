@@ -21,9 +21,8 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from modules.simple_logger import logger
-from config.modules.cfg_base import NUM_THREADS, RETRY_COUNT
+from config.modules.general_config import NUM_THREADS, RETRY_COUNT
 from config.networks import SOL_NETWORKS
-from modules.notifications import send_telegram_notification
 
 total_wallets = 0
 processed_wallets = 0
@@ -371,12 +370,7 @@ def eclipse_balance_checker():
     results = []
     
     try:
-        send_telegram_notification(
-            notif_type="info",
-            title="Eclipse Balance Check Started",
-            message=f"🚀 Начата проверка {total_wallets} кошельков\n🧵 Потоков: {NUM_THREADS}",
-            main_title="Eclipse Balance Checker"
-        )
+        pass
     except Exception as e:
         logger.debug(f"⚠️ Не удалось отправить Telegram уведомление: {e}")
     
@@ -430,13 +424,7 @@ def eclipse_balance_checker():
     csv_file = save_results_to_csv(results)
     
     try:
-        send_telegram_notification(
-            notif_type="success",
-            title="Eclipse Balance Check Completed",
-            message=f"✅ Успешно: {successful_checks}\n❌ Ошибок: {failed_checks}\n💰 Баланс: {total_balance:.6f} ETH\n⏱️ Время: {time_str}",
-            main_title="Eclipse Balance Checker",
-            file_path=csv_file if csv_file else None
-        )
+        pass
     except Exception as e:
         logger.debug(f"⚠️ Не удалось отправить финальное Telegram уведомление: {e}")
     

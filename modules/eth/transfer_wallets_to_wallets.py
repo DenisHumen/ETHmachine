@@ -18,7 +18,7 @@ from eth_account import Account
 from questionary import Choice, select
 from web3 import Web3
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     DELAY_BETWEEN_ACCOUNTS,
     NUM_THREADS,
     RETRY_COUNT,
@@ -33,7 +33,6 @@ from config.modules.cfg_transfer import (
     trim_the_number_of_characters_enable,
 )
 from config.networks import get_explorer_url, get_network_rpc_urls, get_network_symbol
-from modules.notifications import send_telegram_notification
 from modules.proxy_manager import ProxyManager, parse_proxy
 from modules.simple_logger import logger
 
@@ -569,15 +568,8 @@ def _process_single_transfer(
 
             # Telegram
             if TELEGRAM_LOG_LEVEL_transfer >= 2:
-                send_telegram_notification(
-                    notif_type="success",
-                    title=f"Transfer {_short_addr(from_address)} → {_short_addr(to_address)}",
-                    message=f"{sent_eth:.8f} {symbol}",
-                    tx_hash=tx_hash_hex,
-                    explorer_url=explorer_url,
-                    main_title="🔄 Transfer W2W",
-                )
 
+                pass
             return True
 
         except KeyboardInterrupt:
@@ -601,12 +593,7 @@ def _process_single_transfer(
                 logger.error(f"{prefix} 💀 Все попытки исчерпаны для {_short_addr(from_address)}")
 
                 if TELEGRAM_LOG_LEVEL_transfer >= 1:
-                    send_telegram_notification(
-                        notif_type="error",
-                        title=f"Transfer FAILED: {_short_addr(from_address)}",
-                        message=err_msg,
-                        main_title="🔄 Transfer W2W",
-                    )
+                    pass
                 return False
 
     return False
@@ -730,14 +717,9 @@ def run_transfer(transfer_data: List[Dict], network: str):
     started_at = datetime.now().isoformat()
 
     if TELEGRAM_LOG_LEVEL_transfer >= 1:
-        send_telegram_notification(
-            notif_type="info",
-            title=f"Transfer запущен: {network}",
-            message=f"Задач: {total} | Потоков: {min(NUM_THREADS, total)}",
-            main_title="🔄 Transfer W2W",
-        )
 
     # --- Multithreaded execution ---
+        pass
     max_workers = min(NUM_THREADS, total)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -775,18 +757,9 @@ def run_transfer(transfer_data: List[Dict], network: str):
 
     # Telegram final report
     if TELEGRAM_LOG_LEVEL_transfer >= 1:
-        send_telegram_notification(
-            notif_type="success" if stats["failed"] == 0 else "warning",
-            title=f"Transfer завершён: {network}",
-            message=(
-                f"✅ Успешно: {stats['completed']}/{stats['total']}\n"
-                f"❌ Ошибок: {stats['failed']}\n"
-                f"💰 Переведено: {stats['total_eth']:.8f} {symbol}"
-            ),
-            main_title="🔄 Transfer W2W",
-        )
 
 
+        pass
 def _print_final_stats(stats: Dict, symbol: str, network: str, started_at: str):
     """Вывести финальную статистику в терминал."""
     duration = datetime.now() - datetime.fromisoformat(started_at)

@@ -20,7 +20,7 @@ from colorama import Fore, init
 from modules.simple_logger import logger, setup_file_logging
 
 # Импорт настроек
-from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.modules.general_config import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
 from config.modules.cfg_email import (
     ENABLE_SEARCH_EMAIL, IMAP_SERVER, MAIN_MAIL, PROXY
 )

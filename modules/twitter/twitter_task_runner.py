@@ -27,7 +27,7 @@ from config.modules.cfg_twitter import (
     TWITTER_TASK_RANDOM_ACCOUNT_SELECTION,
     TWITTER_TASK_MAX_ACCOUNT_SWITCHES
 )
-from config.modules.cfg_base import NUM_THREADS
+from config.modules.general_config import NUM_THREADS
 
 # Импортируем Twitter класс из существующего модуля
 from .tiwtter_task import Twitter

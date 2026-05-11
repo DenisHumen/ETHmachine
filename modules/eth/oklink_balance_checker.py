@@ -35,7 +35,7 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
-from config.modules.cfg_base import (  # noqa: E402
+from config.modules.general_config import (  # noqa: E402
     DELAY_BETWEEN_ACCOUNTS,
     NUM_THREADS,
     RETRY_COUNT,

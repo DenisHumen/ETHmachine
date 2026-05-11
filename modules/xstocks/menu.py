@@ -6,7 +6,7 @@ from questionary import select
 from eth_account import Account
 
 from config.modules.cfg_xstocks import GM_COOLDOWN_HOURS
-from config.modules.cfg_base import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS
+from config.modules.general_config import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS
 from config.menu_config import SubMenu, MenuItem, build_submenu_choices
 from modules.xstocks import database as db
 from modules.xstocks import xstocks_logger as logger

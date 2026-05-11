@@ -7,7 +7,7 @@
 # Прочие токены пропускаются (статус "skipped"). Native ETH не трогаем — нужен на газ.
 #
 # Глобальные параметры (NUM_THREADS, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS,
-# TX_SEND_ATTEMPTS, RETRY_COUNT) берутся из config/modules/cfg_base.py.
+# TX_SEND_ATTEMPTS, RETRY_COUNT) берутся из config/modules/general_config.py.
 
 # --- Параметры свапа ---
 ARRIVAL_TIMEOUT_SEC = 25 * 60     # Таймаут ожидания прихода USDC в Base (сек)

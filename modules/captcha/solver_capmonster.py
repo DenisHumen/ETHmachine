@@ -1,11 +1,21 @@
 """
 CapMonster Cloud Solver - решение hCaptcha, Turnstile и reCAPTCHA через CapMonster API.
 https://capmonster.cloud/
+Docs: https://docs.capmonster.cloud/
+
+Supported task types:
+  - HCaptchaTaskProxyless        → hcaptcha
+  - TurnstileTask                → turnstile
+  - RecaptchaV2TaskProxyless     → recaptcha_v2
+  - RecaptchaV3TaskProxyless     → recaptcha_v3
 """
 import time
 import requests
 from typing import Optional, Dict
 from modules.simple_logger import logger
+
+
+SUPPORTED_CAPTCHA_TYPES = ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3']
 
 
 class CapMonsterSolver:

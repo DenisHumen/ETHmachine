@@ -14,9 +14,10 @@ from modules.eth.swap_all_zksync_era_to_base import (
     database as db, planner, excel_export,
 )
 from modules.eth.swap_all_zksync_era_to_base.executor import SwapAllExecutor
-from config.modules.cfg_base import NUM_THREADS as _CFG_NUM_THREADS
+from config.modules.general_config import NUM_THREADS as _CFG_NUM_THREADS
 
 PLAN_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
+SWAP_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 
 set_auto_progress(False)
 
@@ -105,34 +106,70 @@ def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
     return counters
 
 
-def _swap_all(records, executor: SwapAllExecutor) -> dict:
+def _swap_all(records, executor: SwapAllExecutor,
+              num_threads: int = SWAP_NUM_THREADS) -> dict:
     total = len(records)
     pending_set = {w.lower() for w in db.list_wallets_with_pending()}
-    counters = {"swapped": 0, "skipped": 0, "errors": 0}
+    counters = {"swapped": 0, "skipped": 0, "errors": 0, "failed": 0}
+    todo = [(i, rec) for i, rec in enumerate(records, 1)
+            if rec["wallet"].lower() in pending_set]
+    counters["skipped"] = total - len(todo)
+    threads = max(1, min(int(num_threads), len(todo))) if todo else 1
     log_simple(
         f"💱 swap-all: всего {total} кошельков, "
-        f"к работе {len(pending_set)} (с pending-задачами)", "info",
+        f"к работе {len(todo)} (threads={threads})", "info",
     )
-    for i, rec in enumerate(records, 1):
+    if not todo:
+        return counters
+    lock = threading.Lock()
+
+    def _one(idx: int, rec) -> None:
         wallet = rec["wallet"]
         name = rec.get("name") or ""
-        if wallet.lower() not in pending_set:
-            counters["skipped"] += 1
-            continue
-        log_wallet_task(wallet, i, total, "💱 swapping…", "info",
+        log_wallet_task(wallet, idx, total, "💱 swapping…", "info",
                         account_name=name)
         try:
-            executor.run_wallet(wallet, task_index=i, task_total=total)
+            executor.run_wallet(wallet, task_index=idx, task_total=total)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            log_wallet_task(wallet, i, total, f"unhandled error: {exc}",
-                            "error", account_name=name)
-            counters["errors"] += 1
-            continue
-        counters["swapped"] += 1
-        log_wallet_task(wallet, i, total, "✅ done", "success",
+            with lock:
+                log_wallet_task(wallet, idx, total,
+                                f"unhandled error: {exc}", "error",
+                                account_name=name)
+                counters["errors"] += 1
+            return
+        failed_tokens = db.list_failed_tokens_for_wallet(wallet)
+        if failed_tokens:
+            with lock:
+                counters["failed"] += 1
+            log_wallet_task(
+                wallet, idx, total,
+                f"⚠ failed tokens: {','.join(failed_tokens)} — будут "
+                f"повторены при следующем запуске",
+                "error", account_name=name,
+            )
+            return
+        with lock:
+            counters["swapped"] += 1
+        log_wallet_task(wallet, idx, total, "✅ done", "success",
                         account_name=name)
+
+    if threads <= 1 or len(todo) <= 1:
+        for idx, rec in todo:
+            _one(idx, rec)
+        return counters
+
+    with ThreadPoolExecutor(max_workers=threads,
+                             thread_name_prefix="swap_zk") as ex:
+        futs = [ex.submit(_one, idx, rec) for idx, rec in todo]
+        try:
+            for fut in as_completed(futs):
+                fut.result()
+        except KeyboardInterrupt:
+            for f in futs:
+                f.cancel()
+            raise
     return counters
 
 
@@ -201,6 +238,7 @@ def _handle_auto() -> None:
         return
     log_simple(
         f"свап завершён: swapped={swap_stats['swapped']} "
+        f"failed={swap_stats.get('failed', 0)} "
         f"skipped={swap_stats['skipped']} errors={swap_stats['errors']}",
         "info",
     )

@@ -1,11 +1,21 @@
 """
 2Captcha Solver - решение hCaptcha, Turnstile и reCAPTCHA через 2Captcha API.
 https://2captcha.com/
+Docs: https://2captcha.com/api-docs
+
+Supported task types:
+  - HCaptchaTaskProxyless     → hcaptcha
+  - TurnstileTaskProxyless    → turnstile
+  - RecaptchaV2TaskProxyless  → recaptcha_v2
+  - RecaptchaV3TaskProxyless  → recaptcha_v3
 """
 import time
 import requests
 from typing import Optional, Dict
 from modules.simple_logger import logger
+
+
+SUPPORTED_CAPTCHA_TYPES = ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3']
 
 
 class TwoCaptchaSolver:

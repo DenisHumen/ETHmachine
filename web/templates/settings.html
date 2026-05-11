@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Settings — ETHmachine{% endblock %}
+{% block content %}
+<header class="page-header"><h1 class="glitch" data-text="// SETTINGS">// SETTINGS</h1></header>
+<section class="card">
+  <h3>Пользователи</h3>
+  <table class="cc-table">
+    <thead><tr><th>id</th><th>username</th><th>role</th><th>active</th><th>created</th><th>last login</th></tr></thead>
+    <tbody>{% for u in users %}
+      <tr><td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.role }}</td>
+        <td>{% if u.is_active %}✓{% else %}✗{% endif %}</td>
+        <td class="muted">{{ u.created_at }}</td>
+        <td class="muted">{{ u.last_login_at or '—' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+
+  <h3>Audit log (последние 100)</h3>
+  <table class="cc-table">
+    <thead><tr><th>ts</th><th>user</th><th>action</th><th>target</th></tr></thead>
+    <tbody>{% for a in audit %}
+      <tr><td class="muted">{{ a.ts }}</td><td>{{ a.username or '—' }}</td>
+        <td>{{ a.action }}</td><td class="muted">{{ a.target or '' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

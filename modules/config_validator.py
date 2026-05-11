@@ -52,7 +52,7 @@ class ConfigValidator:
             from config.modules.cfg_cex import (
                 TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
             )
-            from config.modules.cfg_base import (
+            from config.modules.general_config import (
                 SLEEP_BETWEEN_ACTIONS, NUM_THREADS
             )
             

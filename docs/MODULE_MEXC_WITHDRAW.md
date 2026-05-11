@@ -35,8 +35,8 @@ mexc_api_secret = "ваш_секретный_ключ"
 
 ### 3. Конфигурация
 В файлах `config/modules/` настройте:
-- `NUM_THREADS` (cfg_base.py) - количество потоков (рекомендуется 3-5)
-- `SLEEP_BETWEEN_ACTIONS` (cfg_base.py) - задержка между запуском потоков в секундах
+- `NUM_THREADS` (general_config.py) - количество потоков (рекомендуется 3-5)
+- `SLEEP_BETWEEN_ACTIONS` (general_config.py) - задержка между запуском потоков в секундах
 - `TYPE_WITHDRAW` (cfg_cex.py) - тип вывода (0 - в нативном токене, 1 - в USDT эквиваленте)
 - `VALUES_TO_WITHDRAW` (cfg_cex.py) - диапазон сумм для вывода
 - `WAIT_FOR_BALANCE` (cfg_cex.py) - ждать ли поступления средств на кошельки

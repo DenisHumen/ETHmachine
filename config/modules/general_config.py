@@ -3,7 +3,7 @@
 # ========================================================================================
 # Эти параметры используются во многих модулях
 
-NUM_THREADS = 1  # если больше 100, нужно добавить больше rpc для перебора, не меньше 5 (чем больше тем лучше)
+NUM_THREADS = 25  # если больше 100, нужно добавить больше rpc для перебора, не меньше 5 (чем больше тем лучше)
 SLEEP_BETWEEN_ACTIONS = [2, 4]  # Задержка между действиями
 DELAY_BETWEEN_ACCOUNTS = [3, 5]  # Задержка между стартом аккаунтов
 TX_SEND_ATTEMPTS = 1  # Количество попыток отправки транзакции
@@ -18,7 +18,7 @@ CAPTCHA_SERVICE = 'yescaptcha'  # Выбранный сервис решения
 
 TWOCAPTCHA_API_KEY = ''     # API ключ для 2Captcha - https://2captcha.com/
 ANTICAPTCHA_API_KEY = ''    # API ключ для Anti-Captcha - https://anti-captcha.com/
-CAPSOLVER_API_KEY = ''      # API ключ для CapSolver - https://www.capsolver.com/
+CAPSOLVER_API_KEY = 'CAP-EA149ED49DC75F511E78FA5153E54388'      # API ключ для CapSolver - https://www.capsolver.com/
 YESCAPTCHA_API_KEY = ''     # API ключ для YesCaptcha - https://yescaptcha.com/
 CAPMONSTER_API_KEY = ''     # API ключ для CapMonster Cloud - https://capmonster.cloud/
 
@@ -34,3 +34,12 @@ WHAITE_TRANSACTION_PENDING_COUNT = 30  # Количество попыток п�
 MAIN_PROXY = ''  # Основной прокси (если используется), ожидая всяких запросов, в которых не требуется прокси (опционально)
 EVM_MAIN_WALLET = ''  # Основной кошелек ETH (если используется)
 SOL_MAIN_WALLET = ''  # Основной кошелек Solana (если используется)
+
+# ========================================================================================
+# WEB DASHBOARD
+# ========================================================================================
+# Включить запуск web-морды (мониторинг, конфиги, БД, файлы) при старте main.py.
+# True  — поднимаем веб-сервер в фоне, печатаем баннер с URL/портом.
+# False — main.py работает только в CLI-режиме, веб не запускается.
+# Подробные настройки (host/port/ttl/...) — в config/modules/cfg_web.py.
+WEB_ENABLED = False # alpha

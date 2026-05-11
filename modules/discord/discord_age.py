@@ -10,7 +10,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT
+from config.modules.general_config import NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT
 from modules.simple_logger import logger
 
 def decode_token_user_id(token):

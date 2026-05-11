@@ -762,41 +762,8 @@ class OKXSpotTrader:
             return False
 
     def send_notification(self, notif_type: str, title: str, message: str, **kwargs):
-        """Отправить уведомление"""
-        if not SPOT_TRADE_ENABLE_NOTIFICATIONS:
-            return
-            
-        try:
-            # Динамически импортируем notifications и временно меняем настройки
-            import modules.notifications as notifications
-            
-            # Сохраняем оригинальные значения
-            original_enable = notifications.ENABLE_NOTIFICATIONS
-            original_token = notifications.TELEGRAM_BOT_TOKEN
-            original_chat_id = notifications.TELEGRAM_CHAT_ID
-            
-            # Временно подменяем настройки
-            notifications.ENABLE_NOTIFICATIONS = SPOT_TRADE_ENABLE_NOTIFICATIONS
-            notifications.TELEGRAM_BOT_TOKEN = SPOT_TRADE_TELEGRAM_BOT_TOKEN
-            notifications.TELEGRAM_CHAT_ID = SPOT_TRADE_TELEGRAM_CHAT_ID
-            
-            try:
-                # Отправляем уведомление
-                notifications.send_telegram_notification(
-                    notif_type=notif_type,
-                    title=title,
-                    message=message,
-                    main_title="OKX Spot Trading",
-                    **kwargs
-                )
-            finally:
-                # Восстанавливаем оригинальные настройки
-                notifications.ENABLE_NOTIFICATIONS = original_enable
-                notifications.TELEGRAM_BOT_TOKEN = original_token
-                notifications.TELEGRAM_CHAT_ID = original_chat_id
-                
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления: {e}")
+        """Уведомления отключены (Telegram-интеграция удалена)."""
+        return
 
     def process_trading_cycle(self):
         """Выполнить один цикл торговли"""

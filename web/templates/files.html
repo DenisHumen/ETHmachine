@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Files — ETHmachine{% endblock %}
+{% block content %}
+<header class="page-header"><h1 class="glitch" data-text="// FILES">// FILES</h1></header>
+
+<section class="card">
+  <div class="tabs">
+    {% for r in roots %}
+    <a class="tab {% if r==active_root %}active{% endif %}" href="/files?root={{ r }}">{{ r }}/</a>
+    {% endfor %}
+  </div>
+
+  <div class="path-bar">
+    <a href="/files?root={{ active_root }}">{{ active_root }}/</a>{% if active_path %}
+    {%- for seg in path_segments %}
+      <span> / </span><a href="/files?root={{ active_root }}&path={{ seg.cum }}">{{ seg.name }}</a>
+    {%- endfor %}
+    {% endif %}
+  </div>
+
+  {% if entries %}
+  <ul class="file-list">
+    {% for e in entries %}
+    <li>
+      {% if e.is_dir %}
+        <a href="/files?root={{ active_root }}&path={{ e.rel }}">📁 {{ e.name }}/</a>
+      {% else %}
+        <span>📄 {{ e.name }}</span>
+        <span class="muted">{{ e.size|humansize }}</span>
+        <a href="/files/download?root={{ active_root }}&path={{ e.rel }}" class="dl">скачать</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">Папка пуста.</p>{% endif %}
+</section>
+{% endblock %}

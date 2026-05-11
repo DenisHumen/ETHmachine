@@ -1,13 +1,23 @@
 """
 YesCaptcha Solver - решение hCaptcha, Turnstile и reCAPTCHA через YesCaptcha API.
 https://yescaptcha.com/
+Docs: https://yescaptcha.atlassian.net/wiki/spaces/YESCAPTCHA/overview
 
 Курс: 100 RMB = 125,000 Points, 100 RMB ~ 13.7 USDT
 => 1 Point ~ 0.0001096 USDT
+
+Supported task types:
+  - HCaptchaTaskProxyless        → hcaptcha
+  - TurnstileTaskProxyless       → turnstile
+  - NoCaptchaTaskProxyless       → recaptcha_v2
+  - RecaptchaV3TaskProxyless     → recaptcha_v3
 """
 import time
 import requests
 from typing import Optional, Dict
+
+
+SUPPORTED_CAPTCHA_TYPES = ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3']
 from modules.simple_logger import logger
 
 

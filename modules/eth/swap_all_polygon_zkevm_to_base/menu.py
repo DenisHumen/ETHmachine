@@ -14,9 +14,10 @@ from modules.eth.swap_all_polygon_zkevm_to_base import (
     database as db, planner, excel_export,
 )
 from modules.eth.swap_all_polygon_zkevm_to_base.executor import SwapAllExecutor
-from config.modules.cfg_base import NUM_THREADS as _CFG_NUM_THREADS
+from config.modules.general_config import NUM_THREADS as _CFG_NUM_THREADS
 
 PLAN_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
+SWAP_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 
 # В этом модуле прогресс по кошелькам читается из [i/N] в каждой строке —
 # отдельный tqdm-бар не нужен.
@@ -117,36 +118,61 @@ def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
     return counters
 
 
-def _swap_all(records, executor: SwapAllExecutor) -> dict:
+def _swap_all(records, executor: SwapAllExecutor,
+              num_threads: int = SWAP_NUM_THREADS) -> dict:
     """Phase 2: пройтись по всем кошелькам и свапнуть тех, у кого
     есть pending-задачи. Счётчик [i/N] — по всем кошелькам из data.csv."""
     total = len(records)
     pending_set = {w.lower() for w in db.list_wallets_with_pending()}
     counters = {"swapped": 0, "skipped": 0, "errors": 0}
+    todo = [(i, rec) for i, rec in enumerate(records, 1)
+            if rec["wallet"].lower() in pending_set]
+    counters["skipped"] = total - len(todo)
+    threads = max(1, min(int(num_threads), len(todo))) if todo else 1
     log_simple(
         f"💱 swap-all: всего {total} кошельков, "
-        f"к работе {len(pending_set)} (с pending-задачами)", "info",
+        f"к работе {len(todo)} (threads={threads})", "info",
     )
-    for i, rec in enumerate(records, 1):
+    if not todo:
+        return counters
+    lock = threading.Lock()
+
+    def _one(idx: int, rec) -> None:
         wallet = rec["wallet"]
         name = rec.get("name") or ""
-        if wallet.lower() not in pending_set:
-            counters["skipped"] += 1
-            continue
-        log_wallet_task(wallet, i, total, "💱 swapping…", "info",
+        log_wallet_task(wallet, idx, total, "💱 swapping…", "info",
                         account_name=name)
         try:
-            executor.run_wallet(wallet, task_index=i, task_total=total)
+            executor.run_wallet(wallet, task_index=idx, task_total=total)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            log_wallet_task(wallet, i, total, f"unhandled error: {exc}",
-                            "error", account_name=name)
-            counters["errors"] += 1
-            continue
-        counters["swapped"] += 1
-        log_wallet_task(wallet, i, total, "✅ done", "success",
+            with lock:
+                log_wallet_task(wallet, idx, total,
+                                f"unhandled error: {exc}", "error",
+                                account_name=name)
+                counters["errors"] += 1
+            return
+        with lock:
+            counters["swapped"] += 1
+        log_wallet_task(wallet, idx, total, "✅ done", "success",
                         account_name=name)
+
+    if threads <= 1 or len(todo) <= 1:
+        for idx, rec in todo:
+            _one(idx, rec)
+        return counters
+
+    with ThreadPoolExecutor(max_workers=threads,
+                             thread_name_prefix="swap_pzk") as ex:
+        futs = [ex.submit(_one, idx, rec) for idx, rec in todo]
+        try:
+            for fut in as_completed(futs):
+                fut.result()
+        except KeyboardInterrupt:
+            for f in futs:
+                f.cancel()
+            raise
     return counters
 
 

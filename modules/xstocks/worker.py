@@ -15,7 +15,7 @@ from config.modules.cfg_xstocks import (
     SHUFFLE_WALLETS, LOOP_CHECK_INTERVAL,
     REFERRAL_MAX_USAGE_DIFF_PERCENT,
 )
-from config.modules.cfg_base import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
+from config.modules.general_config import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
 from modules.xstocks.xstocks_proxy import XStocksProxyManager
 from modules.xstocks.client import XStocksClient
 from modules.xstocks import database as db

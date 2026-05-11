@@ -24,7 +24,7 @@ from modules.eth.swap_all_polygon_zkevm_to_base.layerswap import (
     LayerswapClient, LayerswapError, SUPPORTED_PAIRS,
 )
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     NUM_THREADS as _CFG_NUM_THREADS,
     SLEEP_BETWEEN_ACTIONS as _CFG_SLEEP_BETWEEN_ACTIONS,
     DELAY_BETWEEN_ACCOUNTS as _CFG_DELAY_BETWEEN_ACCOUNTS,

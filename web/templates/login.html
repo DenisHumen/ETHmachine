@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Login — ETHmachine{% endblock %}
+{% block content %}
+<div class="auth-card">
+  <h1 class="glitch" data-text="// LOGIN">// LOGIN</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/login" class="auth-form">
+    <label>Username
+      <input name="username" autofocus required maxlength="64" autocomplete="username">
+    </label>
+    <label>Password
+      <input name="password" type="password" required maxlength="200" autocomplete="current-password">
+    </label>
+    <button type="submit" class="primary">LOGIN ►</button>
+  </form>
+</div>
+{% endblock %}

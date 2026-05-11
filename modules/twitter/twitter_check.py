@@ -15,7 +15,7 @@ sys.path.append(str(project_root))
 from modules.simple_logger import logger, setup_file_logging
 from modules.proxy_manager import get_random_proxy, get_proxy_dict, mask_proxy
 from config.modules.cfg_twitter import MAIN_AUTH_TOKEN, MAIN_PROXY_TWITTER, RANDOM_PROXIES_TWITTER, COUNT_REPLACE_TWITTER_AUTH_TOKEN
-from config.modules.cfg_base import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
+from config.modules.general_config import NUM_THREADS, SLEEP_BETWEEN_ACTIONS
 
 # Настройка логирования для модуля twitter_check
 _logging_configured = False

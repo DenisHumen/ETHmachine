@@ -7,7 +7,7 @@
 # Прочие токены пропускаются (статус "skipped").
 #
 # Глобальные параметры (NUM_THREADS, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS,
-# TX_SEND_ATTEMPTS, RETRY_COUNT) берутся из config/modules/cfg_base.py.
+# TX_SEND_ATTEMPTS, RETRY_COUNT) берутся из config/modules/general_config.py.
 # Здесь — только специфичные для swap-all.
 
 # --- Параметры свапа ---

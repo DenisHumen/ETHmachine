@@ -27,7 +27,7 @@ init(autoreset=True)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.modules.cfg_base import NUM_THREADS
+from config.modules.general_config import NUM_THREADS
 from config.networks import NETWORKS, get_network_display_name
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
@@ -377,14 +377,7 @@ def check_wallet_balances_menu():
     
     # Telegram
     try:
-        from modules.notifications import send_telegram_notification
         results_list = list(all_results.values())
-        send_telegram_notification(
-            notif_type="success",
-            title="Проверка балансов завершена",
-            message=f"Всего: {len(results_list)}\nУспешно: {len([r for r in results_list if r['success']])}",
-            main_title="ETHmachine Balance Check"
-        )
     except:
         pass
 

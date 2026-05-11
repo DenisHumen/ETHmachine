@@ -239,7 +239,7 @@ cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 🆙 Выполнение обновления (git pull)...
 ❌ Ошибка при обновлении:
 error: Your local changes to the following files would be overwritten by merge:
-	config/modules/cfg_base.py
+	config/modules/general_config.py
 
 ⚠️ Обнаружены конфликты с локальными изменениями.
 💾 Попробовать сохранить изменения через git stash и повторить?

@@ -19,7 +19,7 @@ sys.path.append(project_root)
 from modules.simple_logger import logger
 # Импорты из проекта
 from config.modules.cfg_relay import SUM_TO_RELAY, GAS
-from config.modules.cfg_base import MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
+from config.modules.general_config import MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
 from config.networks import NETWORKS, SOL_NETWORKS, get_explorer_url
 from modules.relay_link.settings.settings_relay_link import *
 

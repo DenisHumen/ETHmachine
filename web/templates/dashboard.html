@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ETHmachine{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1 class="glitch" data-text="// LIVE LOGS">// LIVE LOGS</h1>
+  <div class="meta">
+    <span id="ws-status" class="ws-disc">●</span>
+    <span class="muted">streaming</span>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card">
+    <h3>Active runs</h3>
+    <div id="runs-active" class="runs-list">{% if active_runs %}{% for r in active_runs %}
+      <div class="run">
+        <span class="rmod">{{ r.module }}</span>
+        <span class="rpid">PID {{ r.pid }}</span>
+        <span class="rts muted">{{ r.started_at }}</span>
+      </div>
+    {% endfor %}{% else %}<span class="muted">— нет запущенных модулей —</span>{% endif %}</div>
+  </div>
+  <div class="card">
+    <h3>Filter</h3>
+    <div class="filter-row">
+      <label class="chk"><input type="checkbox" data-lvl="ERROR" checked> ERROR</label>
+      <label class="chk"><input type="checkbox" data-lvl="WARNING" checked> WARN</label>
+      <label class="chk"><input type="checkbox" data-lvl="SUCCESS" checked> OK</label>
+      <label class="chk"><input type="checkbox" data-lvl="INFO" checked> INFO</label>
+      <label class="chk"><input type="checkbox" data-lvl="DEBUG"> DEBUG</label>
+    </div>
+    <input id="log-filter" type="search" placeholder="Текст-фильтр…" autocomplete="off">
+    <button id="log-clear" class="ghost">очистить</button>
+    <label class="chk"><input id="log-pause" type="checkbox"> pause</label>
+  </div>
+</section>
+
+<section id="logs-pane" class="logs-pane" aria-live="polite"></section>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+<script src="/static/js/logs.js"></script>
+{% endblock %}

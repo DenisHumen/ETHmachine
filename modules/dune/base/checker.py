@@ -22,7 +22,7 @@ patchright-Chromium (обход Cloudflare) открывает страницу,
 результаты в Excel без повторного парсинга или очистить и начать заново.
 
 Используются:
-  • config/modules/cfg_base.py — потоки, задержки, RETRY_COUNT
+  • config/modules/general_config.py — потоки, задержки, RETRY_COUNT
   • modules/data_manager.py    — загрузка строк data.csv
   • modules/proxy_manager.py   — маскирование прокси в логах
   • modules/simple_logger.py   — единый формат логирования
@@ -46,7 +46,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from tqdm import tqdm
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     DELAY_BETWEEN_ACCOUNTS,
     NUM_THREADS,
     RETRY_COUNT,

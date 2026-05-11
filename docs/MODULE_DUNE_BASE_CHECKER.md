@@ -61,7 +61,7 @@ ETHmachine → 🎮 PROJECTS → 🟦 Dune → 🟦 Base
 ## Конфигурация
 
 Все параметры берутся из
-[`config/modules/cfg_base.py`](../config/modules/cfg_base.py):
+[`config/modules/general_config.py`](../config/modules/general_config.py):
 
 | Параметр                   | Назначение                                            |
 |----------------------------|-------------------------------------------------------|
@@ -157,7 +157,7 @@ modules/dune/
 
 ## Быстрый чек-лист
 
-1. В `config/modules/cfg_base.py` задать `DUNE_API_KEY`.
+1. В `config/modules/general_config.py` задать `DUNE_API_KEY`.
 2. Подготовить `data/data.csv` — заполнить `private_key` и `proxy`
    (по 1 строке на кошелёк).
 3. `python main.py` → `🎮 PROJECTS` → `🟦 Dune` → `🟦 Base`

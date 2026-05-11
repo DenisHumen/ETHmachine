@@ -3,11 +3,15 @@ Captcha Manager - централизованное управление реше
 
 Поддерживаемые сервисы: 2captcha, anticaptcha, capsolver, yescaptcha, capmonster
 Поддерживаемые типы капчи: hcaptcha, turnstile, recaptcha_v2, recaptcha_v3
+
+Список поддерживаемых типов берётся из константы `SUPPORTED_CAPTCHA_TYPES`
+в каждом solver-модуле — единый источник истины.
 """
+import threading
 from typing import Optional
 from modules.simple_logger import logger
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     CAPTCHA_SERVICE,
     TWOCAPTCHA_API_KEY,
     ANTICAPTCHA_API_KEY,
@@ -17,16 +21,25 @@ from config.modules.cfg_base import (
     MAIN_PROXY,
 )
 
-# Какие типы капчи поддерживает каждый сервис
+from modules.captcha import (
+    solver_2captcha,
+    solver_anticaptcha,
+    solver_capsolver,
+    solver_yescaptcha,
+    solver_capmonster,
+)
+
+# Какие типы капчи поддерживает каждый сервис.
+# Источник правды — `SUPPORTED_CAPTCHA_TYPES` в каждом solver-модуле.
 SERVICE_CAPABILITIES = {
-    '2captcha':    ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3'],
-    'anticaptcha': ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3'],
-    'capsolver':   ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3'],
-    'yescaptcha':  ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3'],
-    'capmonster':  ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3'],
+    '2captcha':    solver_2captcha.SUPPORTED_CAPTCHA_TYPES,
+    'anticaptcha': solver_anticaptcha.SUPPORTED_CAPTCHA_TYPES,
+    'capsolver':   solver_capsolver.SUPPORTED_CAPTCHA_TYPES,
+    'yescaptcha':  solver_yescaptcha.SUPPORTED_CAPTCHA_TYPES,
+    'capmonster':  solver_capmonster.SUPPORTED_CAPTCHA_TYPES,
 }
 
-# Маппинг сервис -> API ключ
+# Маппинг сервис -> API ключ (lazy, чтобы поддерживать hot-reload конфига)
 _SERVICE_KEYS = {
     '2captcha':    lambda: TWOCAPTCHA_API_KEY,
     'anticaptcha': lambda: ANTICAPTCHA_API_KEY,
@@ -35,9 +48,29 @@ _SERVICE_KEYS = {
     'capmonster':  lambda: CAPMONSTER_API_KEY,
 }
 
+# Какое поле в general_config.py хранит ключ для каждого сервиса (для подсказок).
+SERVICE_CONFIG_FIELDS = {
+    '2captcha':    'TWOCAPTCHA_API_KEY',
+    'anticaptcha': 'ANTICAPTCHA_API_KEY',
+    'capsolver':   'CAPSOLVER_API_KEY',
+    'yescaptcha':  'YESCAPTCHA_API_KEY',
+    'capmonster':  'CAPMONSTER_API_KEY',
+}
+
 
 def _get_service_names():
     return ', '.join(f"'{s}'" for s in SERVICE_CAPABILITIES)
+
+
+def services_for_captcha_type(captcha_type: str) -> list[str]:
+    """Список сервисов, которые поддерживают данный тип капчи."""
+    return [s for s, types in SERVICE_CAPABILITIES.items() if captcha_type in types]
+
+
+def configured_services_for_type(captcha_type: str) -> list[str]:
+    """Список сервисов с заполненным API-ключом и поддержкой данного типа капчи."""
+    return [s for s in services_for_captcha_type(captcha_type)
+            if (_SERVICE_KEYS[s]() or '').strip()]
 
 
 def check_captcha_support(service: str, captcha_type: str) -> bool:
@@ -46,7 +79,7 @@ def check_captcha_support(service: str, captcha_type: str) -> bool:
     if captcha_type in caps:
         return True
 
-    suitable = [s for s, types in SERVICE_CAPABILITIES.items() if captcha_type in types]
+    suitable = services_for_captcha_type(captcha_type)
     logger.warning(
         f"[Captcha] Сервис '{service}' не поддерживает тип '{captcha_type}'. "
         f"Подходящие сервисы: {', '.join(suitable) if suitable else 'нет'}"
@@ -57,22 +90,37 @@ def check_captcha_support(service: str, captcha_type: str) -> bool:
 def _create_solver(service: str, api_key: str, proxy: Optional[str] = None):
     """Создаёт экземпляр solver для указанного сервиса."""
     if service == '2captcha':
-        from modules.captcha.solver_2captcha import TwoCaptchaSolver
-        return TwoCaptchaSolver(api_key=api_key, proxy=proxy)
+        return solver_2captcha.TwoCaptchaSolver(api_key=api_key, proxy=proxy)
     elif service == 'anticaptcha':
-        from modules.captcha.solver_anticaptcha import AntiCaptchaSolver
-        return AntiCaptchaSolver(api_key=api_key, proxy=proxy)
+        return solver_anticaptcha.AntiCaptchaSolver(api_key=api_key, proxy=proxy)
     elif service == 'capsolver':
-        from modules.captcha.solver_capsolver import CapsolverSolver
-        return CapsolverSolver(api_key=api_key, proxy=proxy)
+        return solver_capsolver.CapsolverSolver(api_key=api_key, proxy=proxy)
     elif service == 'yescaptcha':
-        from modules.captcha.solver_yescaptcha import YesCaptchaSolver
-        return YesCaptchaSolver(api_key=api_key, proxy=proxy)
+        return solver_yescaptcha.YesCaptchaSolver(api_key=api_key, proxy=proxy)
     elif service == 'capmonster':
-        from modules.captcha.solver_capmonster import CapMonsterSolver
-        return CapMonsterSolver(api_key=api_key, proxy=proxy)
+        return solver_capmonster.CapMonsterSolver(api_key=api_key, proxy=proxy)
     else:
         raise ValueError(f"Неизвестный сервис капчи: '{service}'. Доступные: {_get_service_names()}")
+
+
+_announce_lock = threading.Lock()
+_announced_choices: set = set()
+_announced_no_service: bool = False
+
+
+def _announce_once(message: str, level: str, key) -> None:
+    """Логировать сообщение один раз за процесс (по ключу)."""
+    global _announced_no_service
+    with _announce_lock:
+        if key == "no_service":
+            if _announced_no_service:
+                return
+            _announced_no_service = True
+        else:
+            if key in _announced_choices:
+                return
+            _announced_choices.add(key)
+    getattr(logger, level)(message)
 
 
 def get_captcha_solver(proxy_url: Optional[str] = None):
@@ -94,10 +142,16 @@ def get_captcha_solver(proxy_url: Optional[str] = None):
     for svc, key_fn in _SERVICE_KEYS.items():
         api_key = key_fn()
         if api_key:
-            logger.info(f"[Captcha] Сервис '{service}' не настроен, используем '{svc}' как fallback")
+            _announce_once(
+                f"[Captcha] '{service}' не настроен, используем '{svc}' как fallback",
+                "info", ("fallback", service, svc),
+            )
             return _create_solver(svc, api_key, captcha_proxy)
 
-    logger.warning("[Captcha] Ни один сервис капчи не настроен (нет API ключей)")
+    _announce_once(
+        "[Captcha] ни один сервис капчи не настроен (нет API ключей)",
+        "warning", "no_service",
+    )
     return None
 
 
@@ -165,7 +219,7 @@ class CaptchaManager:
 
     def _check_and_warn(self, captcha_type: str) -> bool:
         if not self._solver:
-            logger.error("[CaptchaManager] Solver не инициализирован. Настройте API ключ в cfg_base.py")
+            logger.error("[CaptchaManager] Solver не инициализирован. Настройте API ключ в general_config.py")
             return False
         return check_captcha_support(self._service, captcha_type)
 

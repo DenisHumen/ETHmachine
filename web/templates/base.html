@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}ETHmachine — Web{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/theme.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+{% block head %}{% endblock %}
+</head>
+<body class="theme-cyberred">
+{% if user %}
+<aside class="sidebar">
+  <div class="brand glitch" data-text="ETHmachine">ETHmachine</div>
+  <nav>
+    <a href="/dashboard" class="{% if path=='/dashboard' %}active{% endif %}">▣ Dashboard</a>
+    <a href="/databases" class="{% if path.startswith('/databases') %}active{% endif %}">▤ Databases</a>
+    <a href="/files"     class="{% if path.startswith('/files') %}active{% endif %}">▥ Files</a>
+    <a href="/configs"   class="{% if path.startswith('/configs') %}active{% endif %}">▦ Configs</a>
+    <a href="/settings"  class="{% if path=='/settings' %}active{% endif %}">⚙ Settings</a>
+  </nav>
+  <div class="user-strip">
+    <span class="username">{{ user.username }}</span>
+    <span class="role role-{{ user.role }}">{{ user.role }}</span>
+    <form action="/logout" method="post" class="logout-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="logout">logout</button>
+    </form>
+  </div>
+</aside>
+{% endif %}
+<main class="main {% if not user %}fullscreen{% endif %}">
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

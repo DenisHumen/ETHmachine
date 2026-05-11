@@ -220,7 +220,7 @@ Remove-Item db\twitter_tasks_progress.db
 
 **Настройка потоков:**
 ```python
-# config/modules/cfg_base.py
+# config/modules/general_config.py
 NUM_THREADS = 50  # Количество одновременных операций
 ```
 

@@ -25,7 +25,7 @@ from questionary import Choice, select
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
 )
 from config.modules.cfg_debank_protocol import (
@@ -788,16 +788,9 @@ def debank_protocol_menu():
     console.print("\n[bold green]✅ Проверка протоколов DeBank завершена![/bold green]\n")
 
     try:
-        from modules.notifications import send_telegram_notification
         results_list = list(results.values())
         success_count = len([r for r in results_list if r['success']])
         total_usd = sum(r.get('total_usd', 0) for r in results_list if r['success'])
-        send_telegram_notification(
-            notif_type="success",
-            title="DeBank Protocol проверка завершена",
-            message=f"Всего: {len(results_list)}\nУспешно: {success_count}\nDeFi стоимость: ${total_usd:,.2f}",
-            main_title="ETHmachine DeBank Protocol Checker"
-        )
     except Exception:
         pass
 

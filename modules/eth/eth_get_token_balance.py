@@ -22,7 +22,7 @@ init(autoreset=True)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.modules.cfg_base import NUM_THREADS
+from config.modules.general_config import NUM_THREADS
 from config.networks import NETWORKS, get_network_display_name
 from config import token_address_erc20
 from modules.eth.database import (
@@ -406,14 +406,7 @@ def check_token_balance_menu():
     console.print("\n[bold green]✅ Проверка токенов завершена![/bold green]\n")
     
     try:
-        from modules.notifications import send_telegram_notification
         results_list = list(results.values())
-        send_telegram_notification(
-            notif_type="success",
-            title=f"Проверка баланса {selected_token.upper()} завершена",
-            message=f"Сеть: {selected_network}\nВсего: {len(results_list)}\nУспешно: {len([r for r in results_list if r['success']])}",
-            main_title="ETHmachine Token Balance Check"
-        )
     except:
         pass
 

@@ -13,7 +13,7 @@ from typing import List
 from modules.simple_logger import logger, setup_file_logging
 from modules.proxy_manager import load_proxies
 
-from config.modules.cfg_base import NUM_THREADS
+from config.modules.general_config import NUM_THREADS
 
 from .database import ProxyCheckerDB
 from .excel_export import export_run_to_xlsx

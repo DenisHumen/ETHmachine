@@ -18,7 +18,7 @@ STATUS_AWAITING = "awaiting_arrival"
 STATUS_ARRIVED = "arrived"
 STATUS_FAILED = "failed"
 
-TERMINAL = (STATUS_SKIPPED, STATUS_ARRIVED, STATUS_FAILED)
+TERMINAL = (STATUS_SKIPPED, STATUS_ARRIVED)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS swap_all_tasks (
@@ -110,7 +110,7 @@ def upsert_task(*, wallet_address: str, account_name: str, private_key: str,
             )
             return int(cur.lastrowid)
         keep_status = existing["status"]
-        if keep_status in (STATUS_PENDING, STATUS_SKIPPED):
+        if keep_status in (STATUS_PENDING, STATUS_SKIPPED, STATUS_FAILED):
             new_status = STATUS_PENDING if supported else STATUS_SKIPPED
         else:
             new_status = keep_status
@@ -150,11 +150,22 @@ def list_pending_for_wallet(wallet_address: str) -> List[Dict[str, Any]]:
             """SELECT * FROM swap_all_tasks
                WHERE wallet_address = ?
                  AND supported = 1
-                 AND status NOT IN (?, ?, ?)
+                 AND status NOT IN (?, ?)
                ORDER BY id ASC""",
-            (wallet_address.lower(), STATUS_ARRIVED, STATUS_SKIPPED, STATUS_FAILED),
+            (wallet_address.lower(), STATUS_ARRIVED, STATUS_SKIPPED),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_failed_tokens_for_wallet(wallet_address: str) -> List[str]:
+    with _connect() as c:
+        rows = c.execute(
+            """SELECT token FROM swap_all_tasks
+               WHERE wallet_address = ? AND supported = 1 AND status = ?
+               ORDER BY token""",
+            (wallet_address.lower(), STATUS_FAILED),
+        ).fetchall()
+        return [r["token"] for r in rows]
 
 
 def list_all_tasks() -> List[Dict[str, Any]]:
@@ -169,8 +180,8 @@ def list_wallets_with_pending() -> List[str]:
     with _connect() as c:
         rows = c.execute(
             """SELECT DISTINCT wallet_address FROM swap_all_tasks
-               WHERE supported = 1 AND status NOT IN (?, ?, ?)""",
-            (STATUS_ARRIVED, STATUS_SKIPPED, STATUS_FAILED),
+               WHERE supported = 1 AND status NOT IN (?, ?)""",
+            (STATUS_ARRIVED, STATUS_SKIPPED),
         ).fetchall()
         return [r["wallet_address"] for r in rows]
 
@@ -187,7 +198,8 @@ def get_statistics() -> Dict[str, int]:
 
 __all__ = [
     "init_database", "reset_database", "upsert_task", "update_task",
-    "increment_attempts", "list_pending_for_wallet", "list_all_tasks",
+    "increment_attempts", "list_pending_for_wallet",
+    "list_failed_tokens_for_wallet", "list_all_tasks",
     "list_wallets_with_pending", "get_statistics", "DB_PATH",
     "STATUS_PENDING", "STATUS_SKIPPED", "STATUS_SWAP_CREATED",
     "STATUS_TX_SENT", "STATUS_AWAITING", "STATUS_ARRIVED", "STATUS_FAILED",

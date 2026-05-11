@@ -390,7 +390,7 @@ Proxy: user:pass@proxy.com:8080
 Случайные паузы между запросами:
 
 ```python
-# config/modules/cfg_base.py
+# config/modules/general_config.py
 SLEEP_BETWEEN_ACTIONS = (2, 5)  # От 2 до 5 секунд
 
 # В коде:
@@ -596,7 +596,7 @@ async def check_with_notifications(nickname):
 ### Рекомендуемая конфигурация
 
 ```python
-# config/modules/cfg_twitter.py & cfg_base.py
+# config/modules/cfg_twitter.py & general_config.py
 
 # Для малой нагрузки (до 20 аккаунтов)
 MAIN_AUTH_TOKEN = ['token1', 'token2']

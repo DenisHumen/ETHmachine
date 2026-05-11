@@ -31,7 +31,7 @@ from modules.eth.swap_all_zksync_era_to_base.rhinofi import (
     TERMINAL_OK, TERMINAL_FAIL,
 )
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     NUM_THREADS as _CFG_NUM_THREADS,
     SLEEP_BETWEEN_ACTIONS as _CFG_SLEEP_BETWEEN_ACTIONS,
     DELAY_BETWEEN_ACCOUNTS as _CFG_DELAY_BETWEEN_ACCOUNTS,
@@ -101,17 +101,32 @@ def _sleep_action() -> None:
     time.sleep(random.uniform(float(lo), float(hi)))
 
 
-def _retry(fn, *, attempts: int, label: str):
+def _retry(fn, *, attempts: int, label: str, should_retry=None):
     last: Optional[Exception] = None
     for i in range(1, attempts + 1):
         try:
             return fn()
         except Exception as exc:
             last = exc
+            if should_retry is not None and not should_retry(exc):
+                raise
             logger.warning(f"{label}: попытка {i}/{attempts} → {exc}")
             if i < attempts:
                 time.sleep(random.uniform(1.0, 2.5))
     raise last  # type: ignore[misc]
+
+
+_INSUFFICIENT_GAS_MARKERS = (
+    "insufficient funds for gas",
+    "insufficient balance for transfer",
+    "insufficient for gas",
+    "native balance",
+)
+
+
+def _is_insufficient_gas_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _INSUFFICIENT_GAS_MARKERS)
 
 
 def _format_proxies(proxy: Optional[str]) -> Optional[Dict[str, str]]:
@@ -379,7 +394,31 @@ class SwapAllExecutor:
         send_raw = real_raw
         send_human = Decimal(send_raw) / scale
 
-        # 2. Baseline USDC на Base
+        # 2.0 Pre-check: достаточно ли native ETH на zkSync для approve+deposit.
+        try:
+            native_balance = int(
+                w3_src.eth.get_balance(Web3.to_checksum_address(wallet)))
+            gas_price_check = int(_build_legacy_fees(w3_src)["gasPrice"])
+            # approve (~80k) + depositWithId (~470k оценки на zkSync) с запасом.
+            required_native = 600_000 * gas_price_check
+            if native_balance < required_native:
+                db.update_task(
+                    task["id"], status=db.STATUS_SKIPPED,
+                    error_message=(f"insufficient native ETH for gas "
+                                   f"(have={native_balance}, "
+                                   f"need≈{required_native})")[:400],
+                )
+                self._wlog(
+                    wallet, ctx,
+                    f"⏭  {token} skipped: мало ETH на газ "
+                    f"(have={native_balance} < need≈{required_native})",
+                    "warning",
+                )
+                return
+        except Exception:
+            pass
+
+        # 2.1 Baseline USDC на Base
         try:
             dst_before = _get_token_balance(w3_dst, wallet,
                                              USDC_BASE_CONTRACT, False)
@@ -396,8 +435,21 @@ class SwapAllExecutor:
                     source_token=token, amount=send_human,
                     destination_address=wallet, depositor=wallet,
                     proxies=proxies),
-                attempts=RETRY_COUNT, label="rhinofi.quote+commit")
+                attempts=RETRY_COUNT, label="rhinofi.quote+commit",
+                should_retry=lambda e: "NegativeReceiveAmount" not in str(e))
         except RhinoFiError as e:
+            if "NegativeReceiveAmount" in str(e):
+                db.update_task(
+                    task["id"], status=db.STATUS_SKIPPED,
+                    error_message=f"amount too small for rhino.fi: {e}"[:400],
+                )
+                self._wlog(
+                    wallet, ctx,
+                    f"⏭  {token} skipped: сумма меньше комиссии Rhino.fi "
+                    f"({send_human})",
+                    "warning",
+                )
+                return
             db.update_task(task["id"], status=db.STATUS_FAILED,
                             error_message=f"quote/commit: {e}"[:400])
             return
@@ -430,7 +482,8 @@ class SwapAllExecutor:
                 lambda: _send_approve(
                     w3=w3_src, account=account, contract=contract,
                     spender=RHINOFI_BRIDGE_CONTRACT, amount=send_raw),
-                attempts=TX_SEND_ATTEMPTS, label="approve")
+                attempts=TX_SEND_ATTEMPTS, label="approve",
+                should_retry=lambda e: not _is_insufficient_gas_error(e))
             if ap is not None:
                 self._wlog(wallet, ctx,
                             f"🔓 approve tx {ap['tx_hash'][:14]}…", "info")
@@ -440,6 +493,15 @@ class SwapAllExecutor:
                     raise RuntimeError(
                         f"approve reverted (block={rc['block']})")
         except Exception as e:
+            if _is_insufficient_gas_error(e):
+                db.update_task(
+                    task["id"], status=db.STATUS_SKIPPED,
+                    error_message=f"approve: insufficient gas: {e}"[:400],
+                )
+                self._wlog(wallet, ctx,
+                           f"⏭  {token} skipped: мало ETH на approve",
+                           "warning")
+                return
             db.update_task(task["id"], status=db.STATUS_FAILED,
                             error_message=f"approve failed: {e}"[:400])
             return
@@ -451,8 +513,18 @@ class SwapAllExecutor:
                 lambda: _send_deposit_with_id(
                     w3=w3_src, account=account, token_contract=contract,
                     amount_raw=send_raw, commitment_id=commitment),
-                attempts=TX_SEND_ATTEMPTS, label="depositWithId")
+                attempts=TX_SEND_ATTEMPTS, label="depositWithId",
+                should_retry=lambda e: not _is_insufficient_gas_error(e))
         except Exception as e:
+            if _is_insufficient_gas_error(e):
+                db.update_task(
+                    task["id"], status=db.STATUS_SKIPPED,
+                    error_message=f"deposit: insufficient gas: {e}"[:400],
+                )
+                self._wlog(wallet, ctx,
+                           f"⏭  {token} skipped: мало ETH на deposit",
+                           "warning")
+                return
             db.update_task(task["id"], status=db.STATUS_FAILED,
                             error_message=f"deposit tx failed: {e}"[:400])
             return

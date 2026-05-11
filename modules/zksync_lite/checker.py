@@ -19,7 +19,7 @@ from colorama import Fore, Style
 from eth_account import Account
 from tqdm import tqdm
 
-from config.modules.cfg_base import (
+from config.modules.general_config import (
     DELAY_BETWEEN_ACCOUNTS,
     NUM_THREADS,
     RETRY_COUNT,

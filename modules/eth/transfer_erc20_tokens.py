@@ -35,7 +35,7 @@ from modules.simple_logger import logger
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from config.modules.cfg_base import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT
+from config.modules.general_config import TX_SEND_ATTEMPTS, WHAITE_TRANSACTION_PENDING, WHAITE_TRANSACTION_PENDING_COUNT
 from config.modules.cfg_transfer_erc20 import (
     expected_completion_time_token, MIN_FROM_BALANCE_TOKEN, trim_the_number_of_characters_enable_token,
     trim_the_number_of_characters_token, loop_transfer_enable_token, loop_transfer_count_token,
@@ -45,7 +45,6 @@ from config.modules.cfg_transfer_erc20 import (
 )
 from config.networks import get_explorer_url, get_network_display_name
 from config.token_address_erc20 import *
-from modules.notifications import send_telegram_notification, send_telegram_file
 
 # ERC-20 ABI для взаимодействия с токенами
 ERC20_ABI = [
@@ -112,17 +111,8 @@ def init_token_stats(network, token_symbol, use_intermediary=False, loop_mode=Fa
     
     # Отправляем уведомление о начале работы
     if TELEGRAM_LOG_LEVEL_transfer_token >= 1:
-        send_telegram_notification(
-            notif_type="info",
-            title="🚀 Запуск модуля переводов токенов",
-            message=f"Начинаем обработку переводов токенов {token_symbol.upper()}",
-            network=network,
-            token=token_symbol.upper(),
-            mode="Через посредника" if use_intermediary else "Напрямую",
-            loop_mode="Включен" if loop_mode else "Отключен",
-            main_title="ETHmachine Token Transfer"
-        )
 
+        pass
 def update_token_stats(success=True, amount=0, tx_hash=None, error_msg=None):
     """Обновление статистики переводов токенов"""
     global TOKEN_TRANSFER_STATS
@@ -186,22 +176,12 @@ def finalize_token_stats():
 ✅ <b>Успешные tx:</b> {len(TOKEN_TRANSFER_STATS['successful_txs'])}
         """
         
-        send_telegram_notification(
-            notif_type="success",
-            title="📊 Завершение работы модуля токенов",
-            message=stats_message,
-            main_title="ETHmachine Token Transfer Completed"
-        )
 
         # Отправляем файл результатов если есть
         result_file = "result/token_transfer_result.csv"
         if os.path.exists(result_file):
-            send_telegram_file(
-                file_path=result_file,
-                caption="📄 Результаты переводов токенов",
-                main_title="ETHmachine Token Results"
-            )
 
+            pass
 def get_network_rpc(network):
     """Получение RPC URL для сети"""
     from config.networks import get_network_rpc_urls
@@ -531,13 +511,7 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
                 logger.error(error_msg)
             update_token_stats(success=False, error_msg=error_msg)
             if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                send_telegram_notification(
-                    notif_type="error",
-                    title="❌ Ошибка создания аккаунта",
-                    message=str(e),
-                    wallet_address=from_priv[:10] + "...",
-                    main_title="ETHmachine Token Transfer Error"
-                )
+                pass
             return
 
         # Подключаемся к сети
@@ -664,30 +638,14 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
 
                     # Уведомление о первой транзакции
                     if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                        send_telegram_notification(
-                            notif_type="tx",
-                            title="📤 Транзакция токенов отправлена (1/2)",
-                            message="from → intermediary",
-                            wallet_address=from_acc.address[:10] + "...",
-                            tx_hash=tx_hash1_hex[:10] + "...",
-                            explorer_url=explorer_url,
-                            token=token_symbol_actual,
-                            amount=f"{send_amount_formatted:.6f} {token_symbol_actual}",
-                            main_title="ETHmachine Token Transfer"
-                        )
+                        pass
                     break
                 except Exception as e:
                     logger.error(f"❌ Ошибка отправки токенов from -> intermediary (попытка {attempt+1}): {e}")
                     if attempt == TX_SEND_ATTEMPTS - 1:
                         update_token_stats(success=False, error_msg=f"Ошибка отправки токенов from->intermediary: {e}")
                         if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка транзакции токенов (1/2)",
-                                message=f"from → intermediary: {e}",
-                                wallet_address=from_acc.address,
-                                main_title="ETHmachine Token Transfer Error"
-                            )
+                            pass
                     tx1_data['nonce'] += 1
                     time.sleep(3)
             else:
@@ -763,30 +721,14 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
 
                     # Уведомление о второй транзакции
                     if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                        send_telegram_notification(
-                            notif_type="tx",
-                            title="📤 Транзакция токенов отправлена (2/2)",
-                            message="intermediary → to",
-                            wallet_address=to_address[:10] + "...",
-                            tx_hash=tx_hash2_hex[:10] + "...",
-                            explorer_url=explorer_url,
-                            token=token_symbol_actual,
-                            amount=f"{intermediary_amount_formatted:.6f} {token_symbol_actual}",
-                            main_title="ETHmachine Token Transfer"
-                        )
+                        pass
                     break
                 except Exception as e:
                     logger.error(f"❌ Ошибка отправки токенов intermediary -> to (попытка {attempt+1}): {e}")
                     if attempt == TX_SEND_ATTEMPTS - 1:
                         update_token_stats(success=False, error_msg=f"Ошибка отправки токенов intermediary->to: {e}")
                         if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка транзакции токенов (2/2)",
-                                message=f"intermediary → to: {e}",
-                                wallet_address=to_address,
-                                main_title="ETHmachine Token Transfer Error"
-                            )
+                            pass
                     tx2_data['nonce'] += 1
                     time.sleep(3)
             else:
@@ -820,18 +762,6 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
                 to_token_balance = get_token_balance(w3, token_address, to_address)
                 to_token_balance_formatted = to_token_balance / (10 ** token_decimals)
                 
-                send_telegram_notification(
-                    notif_type="success",
-                    title="✅ Цепочка переводов токенов завершена",
-                    message=f"from → intermediary → to",
-                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
-                    token=token_symbol_actual,
-                    balance=f"{to_token_balance_formatted:.6f} {token_symbol_actual}",
-                    tx1=tx_hash1_hex[:10] + "...",
-                    tx2=tx_hash2_hex[:10] + "...",
-                    total_amount=f"{send_amount_formatted:.6f} {token_symbol_actual}",
-                    main_title="ETHmachine Token Transfer Success"
-                )
 
             # Финальный вывод для цепочки
             if not MULTI_THREADING_TOKEN:
@@ -890,13 +820,7 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
                     if attempt == TX_SEND_ATTEMPTS - 1:
                         update_token_stats(success=False, error_msg=f"Ошибка отправки токенов: {e}")
                         if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-                            send_telegram_notification(
-                                notif_type="error",
-                                title="❌ Ошибка отправки токенов",
-                                message=f"{token_symbol_actual}: {e}",
-                                wallet_address=from_acc.address,
-                                main_title="ETHmachine Token Transfer Error"
-                            )
+                            pass
                     tx_data['nonce'] += 1
                     time.sleep(3)
             else:
@@ -950,17 +874,6 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
                 to_token_balance = get_token_balance(w3, token_address, to_address)
                 to_token_balance_formatted = to_token_balance / (10 ** token_decimals)
                 
-                send_telegram_notification(
-                    notif_type="success",
-                    title="✅ Перевод токенов завершен",
-                    message=f"from → to",
-                    wallet_address=f"{from_acc.address[:10]}...→{to_address[:10]}...",
-                    token=token_symbol_actual,
-                    balance=f"{to_token_balance_formatted:.6f} {token_symbol_actual}",
-                    tx_hash=tx_hash_hex[:10] + "...",
-                    amount=f"{send_amount_formatted:.6f} {token_symbol_actual}",
-                    main_title="ETHmachine Token Transfer Success"
-                )
 
             # Финальный вывод
             if not MULTI_THREADING_TOKEN:
@@ -974,13 +887,7 @@ def transfer_erc20_tokens(from_priv, intermediary_priv, to_wallet_value, network
         logger.error(f"Ошибка в процессе перевода токенов: {e}")
         update_token_stats(success=False, error_msg=str(e))
         if TELEGRAM_LOG_LEVEL_transfer_token == 2:
-            send_telegram_notification(
-                notif_type="error",
-                title="❌ Ошибка в процессе перевода токенов",
-                message=str(e),
-                wallet_address=from_priv[:10] + "...",
-                main_title="ETHmachine Token Transfer Error"
-            )
+            pass
     finally:
         if session:
             session.close()
@@ -1101,16 +1008,9 @@ def process_token_transfers_loop(transfer_data, proxies, network, delay_between,
             
             # Отправляем уведомление о завершении цикла
             if TELEGRAM_LOG_LEVEL_transfer_token >= 1:
-                send_telegram_notification(
-                    notif_type="info",
-                    title=f"🔄 Цикл {cycle + 1} завершен",
-                    message=f"Обработано {successful_in_cycle}/{len(valid_wallets)} кошельков",
-                    token=token_symbol.upper(),
-                    cycle=f"{cycle + 1}/{loop_transfer_count_token}",
-                    main_title="ETHmachine Token Transfer Cycle"
-                )
             
             # Задержка между циклами
+                pass
             if cycle < loop_transfer_count_token - 1:
                 sleep_time = random.randint(sleep_time_between_loops_token[0], sleep_time_between_loops_token[1])
                 logger.info(f"⏳ Ожидание {sleep_time} сек до следующего цикла...")

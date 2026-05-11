@@ -1,11 +1,21 @@
 """
 CapSolver - решение hCaptcha, Turnstile и reCAPTCHA через CapSolver API.
 https://www.capsolver.com/
+Docs: https://docs.capsolver.com/
+
+Supported task types:
+  - HCaptchaTaskProxyless        → hcaptcha
+  - AntiTurnstileTaskProxyless   → turnstile
+  - ReCaptchaV2TaskProxyless     → recaptcha_v2
+  - ReCaptchaV3TaskProxyless     → recaptcha_v3
 """
 import time
 import requests
 from typing import Optional, Dict
 from modules.simple_logger import logger
+
+
+SUPPORTED_CAPTCHA_TYPES = ['hcaptcha', 'turnstile', 'recaptcha_v2', 'recaptcha_v3']
 
 
 class CapsolverSolver:
@@ -36,7 +46,6 @@ class CapsolverSolver:
         return resp.json()
 
     def _solve(self, task: dict, task_type: str, token_field: str = "token") -> Optional[str]:
-        start_time = time.time()
         data = self._make_request("createTask", {"clientKey": self.api_key, "task": task})
 
         if data.get("errorId", 0) != 0:
@@ -53,9 +62,7 @@ class CapsolverSolver:
                 solution = result.get("solution", {})
                 token = solution.get(token_field) or solution.get("gRecaptchaResponse") or solution.get("token")
                 if token:
-                    elapsed = time.time() - start_time
                     self._solve_count += 1
-                    logger.info(f"[CapSolver] {task_type} solved in {elapsed:.1f}s | Solves: {self._solve_count}")
                     return token
                 raise Exception(f"No token in CapSolver solution: {solution}")
             if result.get("errorId", 0) != 0:
