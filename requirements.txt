@@ -29,6 +29,7 @@ patchright>=1.40.0
 tls-client>=1.0.0
 cloudscraper>=1.2.71
 openpyxl
+Pillow>=10.0.0
 
 # === Web dashboard (web/) ===
 # aiohttp/loguru уже выше; jinja2 нужен только для веб-морды.

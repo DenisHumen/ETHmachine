@@ -147,3 +147,320 @@ LITVM_BRIDGE_SEPOLIA_RPCS = [
     "https://endpoints.omniatech.io/v1/eth/sepolia/public",
 ]
 
+
+# ============================================================================
+# Lester Minter — ERC-20 token factory на LiteForge
+# ============================================================================
+# Контракт: createToken(name, symbol, totalSupply, decimals,
+#                       mintable, burnable, pausable) payable
+# Фабрика берёт фиксированную комиссию (0.05 zkLTC) и деплоит токен,
+# минтит totalSupply владельцу (caller).
+LITVM_MINTER_FACTORY = "0x93acc61fcdc2e3407A0c03450Adfd8aE78964948"
+LITVM_MINTER_DEPLOY_FEE_WEI = 50_000_000_000_000_000  # 0.05 zkLTC
+
+# Сколько токенов деплоим с одного кошелька (random в диапазоне).
+LITVM_MINTER_TX_PER_WALLET = [1, 1]
+
+# Decimals — взвешенный выбор. 18 — стандарт, реже 6/8/9.
+LITVM_MINTER_DECIMALS_CHOICES = [6, 8, 9, 18, 18, 18, 18, 18]
+
+# Total supply: random integer внутри диапазона (в whole tokens, без decimals).
+LITVM_MINTER_SUPPLY_RANGE = [100_000, 1_000_000_000]
+
+# Вероятность каждого feature (mintable/burnable/pausable) = True.
+LITVM_MINTER_FEATURE_TRUE_PROB = 0.55
+
+# Резерв native для gas (zkLTC). Если на кошельке < fee + reserve — пропуск.
+LITVM_MINTER_GAS_RESERVE_ZKLTC = 0.02
+
+# Пауза между deploy-tx одного кошелька (random.uniform).
+LITVM_MINTER_SLEEP_BETWEEN_TX = [10, 30]
+
+# Подбирать ли логотип с Pinterest (только для метаданных в БД/Excel —
+# фабрика logo не принимает, ImgBB key недоступен).
+LITVM_MINTER_USE_PINTEREST_LOGO = False
+
+# Поведение при ошибке отправки одной tx: сколько раз повторять перед failed.
+LITVM_MINTER_TX_ATTEMPTS = 2
+
+
+
+# ========================================================================================
+# MIDAS PREDICTION MARKET (https://www.midashand.xyz/) — пресет проекта LiteForge
+# ========================================================================================
+# Что делает модуль для каждого кошелька:
+#   1. Регистрация на сайте (если ещё нет): SIWE-like подпись + nickname +
+#      Cloudflare Turnstile token. Сервер возвращает JWT (accessToken).
+#   2. USDC faucet (1h cooldown) — забирает testnet USDC на кошелёк.
+#   3. zkLTC native faucet (24h cooldown) — газ для on-chain транзакций.
+#   4. Daily check-in (раз в UTC-сутки даёт points).
+#   5. N случайных ставок в USDC на случайные исходы случайных активных
+#      USDC-маркетов. На каждый маркет вызывается approve + buy().
+
+# ----------------------------------------------------------------------------------------
+# API
+# ----------------------------------------------------------------------------------------
+MIDAS_API_BASE = "https://predict-testnet-api.midashand.xyz/api"
+MIDAS_SITE_URL = "https://www.midashand.xyz/"
+
+# Cloudflare Turnstile sitekey (виден в JS-бандле фронта; форма register).
+MIDAS_TURNSTILE_SITEKEY = "0x4AAAAAADBuL4jfcuLoSewv"
+
+# Таймауты HTTP-запросов к API.
+MIDAS_HTTP_TIMEOUT = 30
+MIDAS_HTTP_ATTEMPTS = 3            # повторов на каждый запрос при network-ошибках
+MIDAS_HTTP_RETRY_DELAY = 3.0       # секунд между ретраями
+
+# ----------------------------------------------------------------------------------------
+# Faucet cooldowns (берём с запасом + сервер ругнётся `cooldown` если рано)
+# ----------------------------------------------------------------------------------------
+MIDAS_FAUCET_USDC_COOLDOWN_SEC = 60 * 60          # 1h
+MIDAS_FAUCET_NATIVE_COOLDOWN_SEC = 24 * 60 * 60   # 24h
+# Минимальный native баланс (zkLTC), при котором НЕ запрашиваем native faucet.
+# Если на кошельке уже >= этого, считаем что газа хватит и не зовём faucet.
+MIDAS_NATIVE_SUFFICIENT_BALANCE = 0.005
+
+# ----------------------------------------------------------------------------------------
+# Check-in (daily)
+# ----------------------------------------------------------------------------------------
+# Сервер сам контролирует «можно ли». Локально считаем: «делали сегодня по UTC»
+# — пропускаем. Иначе — пробуем; на ответ «уже сделано» помечаем как успех.
+MIDAS_CHECKIN_ENABLED = True
+
+# ----------------------------------------------------------------------------------------
+# Ставки (USDC)
+# ----------------------------------------------------------------------------------------
+# Сколько ставок делает один кошелёк за прогон (random.randint).
+MIDAS_BETS_PER_WALLET = [1, 2]
+
+# Размер одной ставки в USDC (random.uniform). Сервер min=1 USDC, max=1 М USDC
+# (см. /api/markets/collateral-tokens · minTradeSizeInCollateral=1 000 000).
+# Важно: фактически в buy() передаётся maxCost в raw — с учётом
+# alpha-фее и slippage выставляем с запасом.
+MIDAS_BET_AMOUNT_USDC = [1.5, 3.0]
+
+# Минимальный cost одной сделки, raw USDC (жёсткий floor из API).
+MIDAS_USDC_MIN_TRADE_RAW = 1_000_000  # = 1 USDC
+
+# Slippage для maxCost (мультипликатор на view-cost). АММ с alpha-фее
+# может поднимать фактическую цену на десятки процентов — лучше
+# выставлять щедрый буфер (фактический cost «возвращается» refundom).
+MIDAS_BET_MAX_COST_MULTIPLIER = 1.5
+
+# Минимум маркетов, которые должны быть найдены до того как начнём ставки.
+# Если найдено меньше — пропуск bet-phase, лог warning.
+MIDAS_MIN_MARKETS_TO_BET = 1
+
+# Сколько маркетов берём из /markets за один запрос (отфильтруем активные).
+MIDAS_MARKETS_FETCH_LIMIT = 50
+
+# Минимум секунд до экспирации маркета, чтобы он считался «торгуемым».
+MIDAS_MARKET_MIN_TTL_SEC = 5 * 60
+
+# Пауза между двумя bet-операциями одного кошелька (random.uniform).
+MIDAS_SLEEP_BETWEEN_BETS = [10, 30]
+
+# Резерв native (zkLTC) для газа — не трогаем при оценке доступности баланса.
+MIDAS_GAS_RESERVE_ZKLTC = 0.002
+
+# Сколько раз пытаемся отправить on-chain tx (approve / buy) при temporary errors.
+MIDAS_TX_ATTEMPTS = 2
+
+# ----------------------------------------------------------------------------------------
+# Контракты (LiteForge testnet, chain_id=4441)
+# ----------------------------------------------------------------------------------------
+# USDC mock на LiteForge (подтверждено через /api/markets/collateral-tokens).
+MIDAS_USDC_ADDRESS = "0xd5118dee968d1533b2a57ab66c266010ad8957fa"
+MIDAS_USDC_DECIMALS = 6
+
+
+# ========================================================================================
+# Aynilabs — wrap zkLTC → WzkLTC (https://www.aynilabs.xyz/dashboard/)
+# ========================================================================================
+# Контракт-обёртка WzkLTC. Принимает payable deposit() и (по дизайну) минтит 1:1.
+#
+# Замечание по адресам: в JS-бандле сайта зашит адрес "получателя" с опечаткой
+# (b76aea5BB458... вместо b76aea5B8458...). По этому адресу — EOA, не контракт,
+# поэтому функция deposit() фактически игнорируется EVM, и native zkLTC просто
+# уходит на EOA команды. Реальный ERC-20 WzkLTC задеплоен по правильному
+# адресу и кредитуется off-chain (централизованно). Мы повторяем поведение
+# сайта (отправляем на DEPOSIT_TARGET с calldata deposit()), а баланс WzkLTC
+# читаем с TOKEN_ADDRESS — для аудита/Excel, но не как failure-критерий.
+AYNI_WZKLTC_DEPOSIT_TARGET = "0x60a84ebc3483fefb251b76aea5bb458026ef4bea"
+AYNI_WZKLTC_TOKEN_ADDRESS = "0x60A84eBC3483fEFB251B76Aea5B8458026Ef4bea"
+# Старое имя — оставляем как алиас, чтобы не сломать импорты, если где-то ещё используется.
+AYNI_WZKLTC_ADDRESS = AYNI_WZKLTC_DEPOSIT_TARGET
+AYNI_CHAIN_ID = 4441
+
+# Какую долю native zkLTC заворачиваем (random.uniform). 1.0 = всё минус резерв.
+AYNI_WRAP_PCT_RANGE = [0.30, 0.50]
+
+# Резерв на газ (zkLTC) — не трогаем при WRAP_PCT_RANGE[1] = 1.0.
+AYNI_GAS_RESERVE_ZKLTC = 0.0005
+
+# Минимальный native zkLTC, при котором имеет смысл вообще делать wrap.
+AYNI_MIN_NATIVE_BALANCE_ZKLTC = 0.001
+
+# Сколько попыток на отправку tx до признания failed.
+AYNI_TX_ATTEMPTS = 2
+
+# Сколько ждём receipt (сек).
+AYNI_TX_TIMEOUT_SEC = 180
+
+# Пауза между двумя wrap-tx одного кошелька (если будут несколько). Сейчас 1 tx/кошелёк.
+AYNI_SLEEP_BETWEEN_TX = [3.0, 6.0]
+
+# ========================================================================================
+# Onmi.fun — meme coin launchpad на LITVM (https://app.onmi.fun/?chain=LITVM)
+# ========================================================================================
+# Token-launch factory: createToken / createTokenAndBuy (создание + опционально баи в одной tx).
+# Бондинг-кривая (для последующих trade-операций после создания): bondingCurveManager.
+ONMI_TOKEN_FACTORY = "0x432b8b70a63eBB6b90CDFa1F7FeCDf2DD34e7c4E"
+ONMI_BONDING_CURVE_MANAGER = "0x2B151AC223aD45C6c06379D68F4BeF67fB08E6e5"
+ONMI_PLATFORM = "0x174F8a75F9acf9c2DBb4aD20482Ab4bC4c41828C"
+ONMI_CHAIN_ID = 4441
+
+# API роуты (Next.js на app.onmi.fun + публичный api.onmi.fun).
+ONMI_API_BASE = "https://app.onmi.fun"
+ONMI_AI_API_BASE = "https://api.onmi.fun"
+ONMI_HTTP_TIMEOUT = 60
+
+# Сколько native zkLTC засовываем как Initial Buy при createTokenAndBuy.
+# Если 0..ONMI_INITIAL_BUY_RANGE_ZKLTC[0] выпадает — создаём БЕЗ initial buy (createToken).
+ONMI_INITIAL_BUY_PROBABILITY = 0.85   # с какой вероятностью делать createTokenAndBuy (vs createToken)
+ONMI_INITIAL_BUY_RANGE_ZKLTC = [0.0005, 0.002]
+
+# Описание заполняем только в ~5% случаев (по ТЗ пользователя).
+ONMI_DESCRIPTION_PROBABILITY = 0.05
+
+# Резервы / лимиты.
+ONMI_GAS_RESERVE_ZKLTC = 0.0008
+ONMI_MIN_NATIVE_BALANCE_ZKLTC = 0.002
+
+# Tx retry / timing.
+ONMI_TX_ATTEMPTS = 2
+ONMI_TX_TIMEOUT_SEC = 240
+ONMI_SLEEP_BETWEEN_TX = [3.0, 6.0]
+
+# Картинка (требования сайта: max 1 MB, jpg/png/gif, min 1000x1000, 1:1).
+ONMI_IMAGE_MAX_BYTES = 1024 * 1024
+ONMI_IMAGE_SIDE = 1000  # квадратный crop, минимум 1000x1000
+ONMI_IMAGE_JPEG_QUALITY = 85
+ONMI_PINTEREST_QUERIES = [
+    "meme coin art", "pepe meme", "doge meme", "crypto cat", "shiba inu",
+    "moon rocket", "neon cat", "pixel art frog", "cute cartoon mascot",
+    "retro gaming sprite", "psychedelic mushroom", "rainbow cat",
+    "kawaii animal", "comic mascot", "8bit character",
+]
+
+# Сколько раз можно подряд пробовать получить картинку с Pinterest, если не подходит.
+ONMI_IMAGE_FETCH_ATTEMPTS = 5
+
+
+# ========================================================================================
+# Onmi.fun — Wallet ↔ Wallet trading (buy/sell на bonding curve)
+# ========================================================================================
+# Trading router (factory.getRouter()). Принимает buyExactIn(payable) и sellExactIn.
+ONMI_TRADE_ROUTER = "0xb0e39b72824fA03b2CbD4486ddDc3630D680eA1b"
+
+# Сколько всего операций (buy/sell) делать за одну сессию.
+ONMI_TRADE_TOTAL_OPS_RANGE = [30, 100]
+
+# Размер buy-операции (native zkLTC).
+ONMI_TRADE_BUY_VALUE_RANGE_ZKLTC = [0.0001, 0.003]
+
+# Размер sell-операции — процент от текущего token-баланса кошелька.
+ONMI_TRADE_SELL_PCT_RANGE = [10.0, 95.0]
+
+# Если у кошелька есть баланс токена > dust — вероятность что он SELL (иначе BUY).
+ONMI_TRADE_PROB_SELL_IF_HAS = 0.45
+
+# Минимальный native баланс кошелька для участия в trade-сессии.
+ONMI_TRADE_MIN_NATIVE_BALANCE_ZKLTC = 0.0005
+
+# Резерв native zkLTC под gas (не тратим на buy).
+ONMI_TRADE_GAS_RESERVE_ZKLTC = 0.0005
+
+# Случайная пауза между операциями [мин, макс] секунд (чтобы выглядеть живым).
+ONMI_TRADE_SLEEP_BETWEEN_OPS = [3.0, 18.0]
+
+ONMI_TRADE_TX_TIMEOUT_SEC = 240
+ONMI_TRADE_TX_ATTEMPTS = 2
+
+# Минимальный остаток токена (в wei) — ниже этого считаем что баланса нет.
+ONMI_TRADE_ERC20_DUST_WEI = 10**9
+
+# Если у кошелька есть несколько токенов — вероятность выбрать тот, что уже в портфеле
+# (vs случайный из общего списка known_tokens, чтобы выглядело как органическая торговля).
+ONMI_TRADE_PROB_REUSE_PORTFOLIO_TOKEN = 0.55
+
+
+# ========================================================================================
+# Onmi.fun · OnmiSwap — UniswapV2-style swap для graduated токенов
+# ========================================================================================
+# UniswapV2 router (factory.getRouter())
+ONMI_SWAP_ROUTER = "0xe351c47c3b96844F46e9808a7D5bBa8101BfFB57"
+# Pair factory
+ONMI_SWAP_FACTORY = "0x9ec0eFf74A188B33C29c31849e6D37CbA6E0F586"
+# Wrapped native (WzkLTC). Используется как промежуточный токен в path.
+ONMI_SWAP_WETH = "0x60A84eBC3483fEFB251B76Aea5B8458026Ef4bea"
+# initCodeHash для CREATE2 pair-address (если потребуется офчейн).
+ONMI_SWAP_INIT_CODE_HASH = "0x8f3e81720db33e14925a307158d291bb5d812d5cb6c34e54ecf0b33c126eab3f"
+
+# Сколько свапов делать за сессию.
+ONMI_SWAP_TOTAL_OPS_RANGE = [10, 40]
+# Размер native-leg buy (zkLTC → token).
+ONMI_SWAP_NATIVE_VALUE_RANGE = [0.0001, 0.002]
+# Размер sell (% от token-баланса).
+ONMI_SWAP_SELL_PCT_RANGE = [20.0, 90.0]
+# Вероятность SELL если у кошелька есть LP-токен (иначе BUY).
+ONMI_SWAP_PROB_SELL_IF_HAS = 0.45
+# Минимальный native баланс для участия в swap-сессии.
+ONMI_SWAP_MIN_NATIVE_BALANCE = 0.0005
+# Резерв под gas.
+ONMI_SWAP_GAS_RESERVE = 0.0005
+# Минимальный остаток ERC-20 (wei) — ниже = "ничего нет".
+ONMI_SWAP_ERC20_DUST_WEI = 10**9
+# Случайная пауза между операциями.
+ONMI_SWAP_SLEEP_BETWEEN_OPS = [3.0, 15.0]
+# Slippage (доля). 0.05 = принимаем -5% от quote.
+ONMI_SWAP_SLIPPAGE = 0.05
+# Только пары с native (WETH) в одной стороне. Пары token/token игнорируем.
+ONMI_SWAP_NATIVE_PAIRS_ONLY = True
+# Минимум резервов pair (wei native) — ниже бесполезно свапать.
+ONMI_SWAP_MIN_RESERVE_NATIVE_WEI = 10**16  # 0.01 zkLTC
+ONMI_SWAP_TX_TIMEOUT_SEC = 240
+ONMI_SWAP_TX_ATTEMPTS = 2
+# deadline для swap — теперь + N сек.
+ONMI_SWAP_DEADLINE_SEC = 600
+
+
+# ========================================================================================
+# Onmi.fun · Liquidity (add/remove на UniswapV2-style router)
+# ========================================================================================
+# Размер LP-операции в native (zkLTC). На добавление и токен закупим эквивалент.
+ONMI_LIQ_ADD_VALUE_RANGE = [0.0002, 0.001]
+# Сколько LP-add попыток за одну сессию.
+ONMI_LIQ_ADD_OPS_RANGE = [1, 3]
+# Минимальный native для add.
+ONMI_LIQ_MIN_NATIVE_BALANCE = 0.001
+# Резерв под gas.
+ONMI_LIQ_GAS_RESERVE = 0.0008
+# Случайная пауза между add-операциями.
+ONMI_LIQ_SLEEP_BETWEEN_OPS = [4.0, 20.0]
+# deadline.
+ONMI_LIQ_DEADLINE_SEC = 600
+ONMI_LIQ_TX_TIMEOUT_SEC = 240
+ONMI_LIQ_TX_ATTEMPTS = 2
+# Slippage для add (минимумы).
+ONMI_LIQ_SLIPPAGE = 0.10
+
+
+# ========================================================================================
+# Onmi.fun — Web URLs (для подсказок в меню)
+# ========================================================================================
+ONMI_SITE_BOARD = "https://app.onmi.fun/board?chain=LITVM"
+ONMI_SITE_CREATE = "https://app.onmi.fun/create-token?chain=LITVM"
+ONMI_SITE_SWAP = "https://app.onmi.fun/swap?chain=LITVM"
+ONMI_SITE_LIQUIDITY = "https://app.onmi.fun/liquidity?chain=LITVM"
+ONMI_SITE_DOCS = "https://docs.onmi.fun/"

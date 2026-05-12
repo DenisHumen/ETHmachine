@@ -91,9 +91,10 @@ def get_tokens_for_network(network_name: str) -> dict:
     return {}
 
 
-def get_token_balance_rpc(wallet: str, token_address: str, rpc_url: str, proxy_dict: dict = None) -> float:
-    data = f"0x70a08231000000000000000000000000{wallet[2:].lower()}"
-    
+_DECIMALS_CACHE = {}
+
+
+def _eth_call(rpc_url: str, token_address: str, data: str, proxy_dict: dict = None):
     try:
         resp = requests.post(
             rpc_url,
@@ -114,26 +115,51 @@ def get_token_balance_rpc(wallet: str, token_address: str, rpc_url: str, proxy_d
                 if hex_value.startswith('0x'):
                     hex_value = hex_value[2:]
                 if hex_value:
-                    balance = int(hex_value, 16) / 10**18 
-                    return balance
-            return 0  
-        return -1
+                    return int(hex_value, 16)
+                return 0
+            return 0
     except:
+        return None
+    return None
+
+
+def resolve_token_decimals(token_address: str, rpc_urls: list, proxies: list) -> int:
+    cache_key = token_address.lower()
+    if cache_key in _DECIMALS_CACHE:
+        return _DECIMALS_CACHE[cache_key]
+
+    for rpc_url in rpc_urls[:3]:
+        proxy_str = random.choice(proxies) if proxies else None
+        proxy_dict = make_proxy_dict(proxy_str)
+        value = _eth_call(rpc_url, token_address, "0x313ce567", proxy_dict)
+        if value is not None and 0 <= value <= 30:
+            _DECIMALS_CACHE[cache_key] = value
+            return value
+
+    _DECIMALS_CACHE[cache_key] = 18
+    return 18
+
+
+def get_token_balance_rpc(wallet: str, token_address: str, rpc_url: str, decimals: int, proxy_dict: dict = None) -> float:
+    data = f"0x70a08231000000000000000000000000{wallet[2:].lower()}"
+    raw = _eth_call(rpc_url, token_address, data, proxy_dict)
+    if raw is None:
         return -1
+    return raw / 10 ** decimals
 
 
-def check_wallet_token(wallet: str, token_address: str, rpc_urls: list, proxies: list, proxy_idx: int) -> dict:
+def check_wallet_token(wallet: str, token_address: str, rpc_urls: list, decimals: int, proxies: list, proxy_idx: int) -> dict:
     proxy_str = proxies[proxy_idx % len(proxies)] if proxies else None
     proxy_dict = make_proxy_dict(proxy_str)
-    
-    for rpc_url in rpc_urls[:3]: 
-        balance = get_token_balance_rpc(wallet, token_address, rpc_url, proxy_dict)
+
+    for rpc_url in rpc_urls[:3]:
+        balance = get_token_balance_rpc(wallet, token_address, rpc_url, decimals, proxy_dict)
         if balance >= 0:
             return {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
         if proxies:
             proxy_str = random.choice(proxies)
             proxy_dict = make_proxy_dict(proxy_str)
-    
+
     return {'wallet': wallet, 'balance': 0, 'success': False, 'error': 'RPC failed'}
 
 
@@ -208,13 +234,15 @@ def process_wallets_tokens(wallets: list, token_address: str, rpc_urls: list,
     
     proxies = load_proxies()
     max_workers = min(NUM_THREADS, total, 20)
-    
-    logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках", "INFO"))
-    
+
+    decimals = resolve_token_decimals(token_address, rpc_urls, proxies)
+
+    logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках (decimals={decimals})", "INFO"))
+
     with Live(create_panel(network_name, token_symbol, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(check_wallet_token, wallet, token_address, rpc_urls, proxies, idx): wallet
+                executor.submit(check_wallet_token, wallet, token_address, rpc_urls, decimals, proxies, idx): wallet
                 for idx, wallet in enumerate(wallets)
             }
             

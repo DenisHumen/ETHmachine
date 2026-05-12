@@ -5,6 +5,10 @@ from typing import Callable, List, Optional
 
 # Стиль красного бейджа — совпадает с уровнем ERROR в modules/simple_logger.py
 _BADGE_RED = "\033[41m\033[97;1m {text} \033[0m"
+# Стиль жёлтого бейджа — для предупреждений / placeholder-модулей.
+_BADGE_YELLOW = "\033[43m\033[30;1m {text} \033[0m"
+
+_BADGE_STYLES = {"red": _BADGE_RED, "yellow": _BADGE_YELLOW}
 
 # Целевая визуальная ширина колонки "иконка + label" (в ячейках терминала)
 _LABEL_COLUMN_WIDTH = 35
@@ -51,13 +55,17 @@ class MenuItem:
     handler: Optional[Callable] = None   # Функция-обработчик (опционально)
     requires_os: Optional[str] = None    # Требуемая ОС (windows/linux/macos)
     is_wip: bool = False                 # В разработке (показывает предупреждение)
-    badge: Optional[str] = None          # Бейдж в красной рамке (как в логере) — например "ПАУЗА"
+    badge: Optional[str] = None          # Бейдж в цветной рамке (как в логере) — например "ПАУЗА"
+    badge_style: str = "red"             # "red" | "yellow" (см. _BADGE_STYLES)
 
     def get_choice_text(self) -> str:
         padded_label = _pad_label(self.icon, self.label)
         if self.badge:
-            badge = _BADGE_RED.format(text=self.badge)
-            return f"{padded_label}🌟 {badge} {self.description}"
+            tpl = _BADGE_STYLES.get(self.badge_style, _BADGE_RED)
+            badge = tpl.format(text=self.badge)
+            if self.description:
+                return f"{padded_label}🌟 {badge} {self.description}"
+            return f"{padded_label}🌟 {badge}"
         return f"{padded_label}🌟 {self.description}"
 
 
