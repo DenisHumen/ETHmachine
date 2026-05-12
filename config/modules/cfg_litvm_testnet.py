@@ -52,6 +52,12 @@ LITVM_FAUCET_CAPTCHA_TYPE = "turnstile"
 LITVM_VERCEL_BYPASS_HEADLESS = True
 # Таймаут на одну попытку обхода (от старта браузера до появления _vcrcs).
 LITVM_VERCEL_BYPASS_TIMEOUT_SEC = 60
+# Максимум одновременно живых browser-contexts (LRU). Каждый context
+# съедает 100–200MB ОЗУ; без лимита при 100+ кошельках = OOM.
+LITVM_VERCEL_BYPASS_MAX_CONTEXTS = 4
+# После N выполненных tRPC-вызовов — перезапускаем весь Chromium
+# (боремся с внутренними ликами patchright/chromium).
+LITVM_VERCEL_BYPASS_RESTART_EVERY = 60
 
 # Кулдаун крана (часов). Стандарт Caldera Hub — раз в 24h на адрес.
 LITVM_FAUCET_COOLDOWN_HOURS = 24

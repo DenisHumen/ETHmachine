@@ -36,12 +36,15 @@ import queue
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from config.modules.cfg_litvm_testnet import (
     LITVM_FAUCET_URL,
     LITVM_VERCEL_BYPASS_HEADLESS,
+    LITVM_VERCEL_BYPASS_MAX_CONTEXTS,
+    LITVM_VERCEL_BYPASS_RESTART_EVERY,
     LITVM_VERCEL_BYPASS_TIMEOUT_SEC,
 )
 from modules.simple_logger import logger
@@ -114,8 +117,12 @@ class _BrowserWorker:
         self._started = threading.Event()
         self._pw = None
         self._browser = None
-        # contexts: key = proxy-string, value = dict(context, page)
-        self._contexts: Dict[str, Dict[str, Any]] = {}
+        # contexts: LRU. key = proxy-string, value = dict(context, page)
+        # Ограничен сверху LITVM_VERCEL_BYPASS_MAX_CONTEXTS — при переполнении
+        # самый старый закрывается, чтобы не жрать ОЗУ при многих кошельках.
+        self._contexts: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        # Счётчик операций для периодического перезапуска chromium.
+        self._op_count: int = 0
 
     # ---- public API (called from any thread) ----
 
@@ -309,6 +316,7 @@ def _op_open_context(w: _BrowserWorker, proxy: Optional[str]) -> None:
         raise
 
     w._contexts[key] = {"context": ctx, "page": page}
+    _evict_lru_contexts(w)
     logger.success(
         f"[litvm-vercel] браузер готов за {time.time() - t0:.1f}s · proxy={proxy_label}"
     )
@@ -323,6 +331,38 @@ def _op_close_context(w: _BrowserWorker, proxy: Optional[str]) -> None:
         ctx["context"].close()
     except Exception:
         pass
+
+
+def _evict_lru_contexts(w: _BrowserWorker) -> None:
+    """Держим не более LITVM_VERCEL_BYPASS_MAX_CONTEXTS живых contexts.
+    Самые давно не использовавшиеся закрываются — это основной фикс лика."""
+    cap = max(1, int(LITVM_VERCEL_BYPASS_MAX_CONTEXTS))
+    while len(w._contexts) > cap:
+        old_key, old_ctx = w._contexts.popitem(last=False)
+        try:
+            old_ctx["context"].close()
+        except Exception:
+            pass
+        logger.info(
+            f"[litvm-vercel] LRU evict context proxy={old_key or 'direct'} "
+            f"(живых осталось {len(w._contexts)}/{cap})"
+        )
+
+
+def _maybe_restart_browser(w: _BrowserWorker) -> None:
+    """Каждые N tRPC-вызовов полностью перезапускаем chromium —
+    chromium сам по себе ликает память при длительной работе с разными contexts."""
+    every = int(LITVM_VERCEL_BYPASS_RESTART_EVERY)
+    if every <= 0:
+        return
+    if w._op_count < every:
+        return
+    logger.info(
+        f"[litvm-vercel] перезапуск chromium после {w._op_count} операций "
+        f"(боремся с памятью)"
+    )
+    w._teardown()
+    w._op_count = 0
 
 
 # Глобальный rate-limit для tRPC submits.
@@ -342,9 +382,14 @@ _TRPC_LAST_SUBMIT_AT = 0.0
 
 def _op_trpc_call(w: _BrowserWorker, proxy: Optional[str], procedure: str, payload: dict) -> dict:
     global _TRPC_LAST_SUBMIT_AT
+    _maybe_restart_browser(w)
     key = (proxy or "").strip()
     if key not in w._contexts:
         _op_open_context(w, proxy)
+    else:
+        # LRU touch: свежеиспользованный context — в конец OrderedDict.
+        w._contexts.move_to_end(key)
+    w._op_count += 1
     page = w._contexts[key]["page"]
     path = f"/api/trpc/{procedure}?batch=1"
     body = {"0": {"json": payload}}
