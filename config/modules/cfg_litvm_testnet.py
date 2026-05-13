@@ -407,8 +407,11 @@ ONMI_SWAP_WETH = "0x60A84eBC3483fEFB251B76Aea5B8458026Ef4bea"
 # initCodeHash для CREATE2 pair-address (если потребуется офчейн).
 ONMI_SWAP_INIT_CODE_HASH = "0x8f3e81720db33e14925a307158d291bb5d812d5cb6c34e54ecf0b33c126eab3f"
 
-# Сколько свапов делать за сессию.
+# Сколько свапов делать за сессию (DEPRECATED — оставлено для обратной совместимости,
+# сейчас сессия идёт по всем кошелькам, а число операций определяется per-wallet ниже).
 ONMI_SWAP_TOTAL_OPS_RANGE = [10, 40]
+# Сколько свапов делает КАЖДЫЙ кошелёк за сессию (random.randint в этом диапазоне).
+ONMI_SWAP_OPS_PER_WALLET_RANGE = [1, 3]
 # Размер native-leg buy (zkLTC → token).
 ONMI_SWAP_NATIVE_VALUE_RANGE = [0.0001, 0.002]
 # Размер sell (% от token-баланса).
@@ -440,8 +443,10 @@ ONMI_SWAP_DEADLINE_SEC = 600
 # ========================================================================================
 # Размер LP-операции в native (zkLTC). На добавление и токен закупим эквивалент.
 ONMI_LIQ_ADD_VALUE_RANGE = [0.0002, 0.001]
-# Сколько LP-add попыток за одну сессию.
+# Сколько LP-add попыток за одну сессию (DEPRECATED — см. ONMI_LIQ_OPS_PER_WALLET_RANGE).
 ONMI_LIQ_ADD_OPS_RANGE = [1, 3]
+# Сколько LP-add операций делает КАЖДЫЙ кошелёк за сессию.
+ONMI_LIQ_OPS_PER_WALLET_RANGE = [1, 2]
 # Минимальный native для add.
 ONMI_LIQ_MIN_NATIVE_BALANCE = 0.001
 # Резерв под gas.

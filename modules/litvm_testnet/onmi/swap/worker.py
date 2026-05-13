@@ -26,14 +26,15 @@ from config.modules.cfg_litvm_testnet import (
     ONMI_SWAP_MIN_NATIVE_BALANCE,
     ONMI_SWAP_MIN_RESERVE_NATIVE_WEI,
     ONMI_SWAP_NATIVE_VALUE_RANGE,
+    ONMI_SWAP_OPS_PER_WALLET_RANGE,
     ONMI_SWAP_PROB_SELL_IF_HAS,
     ONMI_SWAP_SELL_PCT_RANGE,
     ONMI_SWAP_SLEEP_BETWEEN_OPS,
     ONMI_SWAP_SLIPPAGE,
-    ONMI_SWAP_TOTAL_OPS_RANGE,
     ONMI_SWAP_TX_ATTEMPTS,
     ONMI_SWAP_WETH,
 )
+from config.modules.general_config import SHUFLE_ACCOUNTS
 from modules.simple_logger import log_simple, log_wallet_task
 from modules.litvm_testnet.onmi.swap import database as db
 from modules.litvm_testnet.onmi.swap import swap_client as sc
@@ -180,6 +181,12 @@ def run_random_session(
     *,
     total_ops_override: Optional[int] = None,
 ) -> dict:
+    """Каждый кошелёк делает random.randint(ONMI_SWAP_OPS_PER_WALLET_RANGE)
+    свапов на случайных парах со случайными суммами.
+
+    `total_ops_override` — если задан, используется как фиксированное число
+    операций НА КАЖДЫЙ кошелёк (а не суммарно).
+    """
     db.init_database()
 
     pairs = db.list_known_pairs(
@@ -204,12 +211,24 @@ def run_random_session(
         log_simple("Нет кошельков с private_key", "error")
         return {"ops": 0, "buys": 0, "sells": 0, "failures": 0}
 
-    lo, hi = ONMI_SWAP_TOTAL_OPS_RANGE
-    total_ops = int(total_ops_override) if total_ops_override else random.randint(
-        int(lo), int(hi))
+    wallets = list(eligible)
+    if SHUFLE_ACCOUNTS:
+        random.shuffle(wallets)
+
+    ops_lo, ops_hi = ONMI_SWAP_OPS_PER_WALLET_RANGE
+    # план: сколько ops у каждого кошелька
+    if total_ops_override is not None:
+        per_wallet_plan = [int(total_ops_override)] * len(wallets)
+    else:
+        per_wallet_plan = [
+            random.randint(int(ops_lo), int(ops_hi)) for _ in wallets
+        ]
+    total_ops = sum(per_wallet_plan)
+
     log_simple(
-        f"🎲 OnmiSwap session: {total_ops} операций · "
-        f"{len(pairs)} пар · {len(eligible)} кошельков",
+        f"🎲 OnmiSwap session: {len(wallets)} кошельков · "
+        f"{total_ops} операций ({ops_lo}..{ops_hi} на кошелёк) · "
+        f"{len(pairs)} пар",
         "info",
     )
 
@@ -225,189 +244,215 @@ def run_random_session(
 
     buys = sells = failures = ops_done = 0
     interrupted = False
-    consecutive_skips = 0
-    MAX_SKIPS = max(50, total_ops * 3)
+    op_idx = 0
 
-    for op_idx in range(1, total_ops + 1):
-        if consecutive_skips >= MAX_SKIPS:
-            log_simple(
-                f"⚠ слишком много подряд пропусков ({consecutive_skips}) "
-                f"— завершаю",
-                "warning",
-            )
-            break
-        try:
-            record = random.choice(eligible)
+    try:
+        for wallet_idx, record in enumerate(wallets, 1):
+            ops_for_wallet = per_wallet_plan[wallet_idx - 1]
+            if ops_for_wallet <= 0:
+                continue
             account = _account_from_record(record)
             if account is None:
-                consecutive_skips += 1
                 continue
             addr = account.address
             name = record.get("name") or None
 
+            # native check 1 раз на кошелёк
             try:
                 native_wei, _ = _native_balance(addr, record)
             except sc.SwapError as e:
+                op_idx += 1  # покажем в логе
                 log_wallet_task(addr, op_idx, total_ops,
-                                f"⚠ native balance: {e}", "warning",
-                                account_name=name)
-                consecutive_skips += 1
+                                f"⚠ native balance: {e} — skip wallet",
+                                "warning", account_name=name)
                 continue
             if native_wei < min_native_wei:
-                consecutive_skips += 1
-                continue
-
-            # выбор пары
-            pair = random.choice(pairs)
-            token_addr = pair["token_address"]
-            symbol = pair.get("token_symbol") or "?"
-
-            # token balance?
-            try:
-                tok_bal = _token_balance(token_addr, addr, record)
-            except sc.SwapError:
-                tok_bal = 0
-
-            if tok_bal > dust and random.random() < prob_sell:
-                side = "sell"
-            else:
-                side = "buy"
-
-            # размер
-            if side == "buy":
-                amt_native = random.uniform(float(buy_lo), float(buy_hi))
-                amount_in_wei = int(amt_native * 1e18)
-                spendable = max(0, native_wei - gas_reserve_wei)
-                if amount_in_wei > spendable:
-                    amount_in_wei = spendable
-                if amount_in_wei < int(float(buy_lo) * 1e18 * 0.3):
-                    consecutive_skips += 1
-                    continue
-                path = [ONMI_SWAP_WETH, token_addr]
-            else:
-                pct = random.uniform(float(sell_lo_pct), float(sell_hi_pct))
-                amount_in_wei = int(tok_bal * pct / 100.0)
-                if amount_in_wei < dust:
-                    amount_in_wei = tok_bal
-                if amount_in_wei < dust:
-                    consecutive_skips += 1
-                    continue
-                path = [token_addr, ONMI_SWAP_WETH]
-
-            # min_out via quote
-            try:
-                quote = sc.get_amounts_out(
-                    int(amount_in_wei), path, proxy=_primary_proxy(record),
+                op_idx += 1
+                log_wallet_task(
+                    addr, op_idx, total_ops,
+                    f"⏭ native {native_wei/1e18:.6f} < min "
+                    f"{ONMI_SWAP_MIN_NATIVE_BALANCE} — skip wallet",
+                    "warning", account_name=name,
                 )
-                expected_out = int(quote[-1])
-                min_out = int(expected_out * (1.0 - slippage))
-                if min_out <= 0:
-                    min_out = 1
-            except Exception as e:
-                log_wallet_task(addr, op_idx, total_ops,
-                                f"⚠ quote failed: {e}", "warning",
-                                account_name=name)
-                consecutive_skips += 1
                 continue
 
-            consecutive_skips = 0
-
-            swap_id = db.insert_swap(
-                wallet_address=addr, wallet_name=name,
-                pair_address=pair["pair_address"], token_address=token_addr,
-                token_symbol=symbol, side=side,
-                amount_in_wei=amount_in_wei, min_out_wei=min_out,
-            )
-
-            human_in = (f"{amount_in_wei/1e18:.6f} zkLTC" if side == "buy"
-                        else f"{amount_in_wei/1e18:.4f} {symbol}")
-            log_wallet_task(
-                addr, op_idx, total_ops,
-                f"📤 SWAP {side.upper()} {symbol} · in={human_in} · "
-                f"minOut={min_out}",
-                "info", account_name=name,
-            )
-
-            tx_hash: Optional[str] = None
-            receipt: Optional[dict] = None
-            amount_out = 0
-            last_err: Optional[str] = None
-            deadline_ts = int(time.time()) + int(ONMI_SWAP_DEADLINE_SEC)
-
-            for attempt in range(1, attempts_per_op + 1):
-                db.update_swap(swap_id, status="sent", attempts=attempt,
-                               sent_at=time.time())
-                try:
-                    proxy = _primary_proxy(record)
-                    if side == "buy":
-                        tx_hash, receipt, amount_out = sc.swap_exact_eth_for_tokens(
-                            account=account, token=token_addr,
-                            value_wei=int(amount_in_wei),
-                            min_out_wei=int(min_out),
-                            deadline_ts=deadline_ts, proxy=proxy,
-                        )
-                    else:
-                        tx_hash, receipt, amount_out = sc.swap_exact_tokens_for_eth(
-                            account=account, token=token_addr,
-                            amount_in_wei=int(amount_in_wei),
-                            min_out_wei=int(min_out),
-                            deadline_ts=deadline_ts, proxy=proxy,
-                        )
+            wallet_skips = 0
+            for w_op in range(ops_for_wallet):
+                op_idx += 1
+                if wallet_skips >= 5:
+                    # уходим к следующему кошельку, если у этого всё пропускается
                     break
-                except sc.SwapError as e:
-                    last_err = str(e)
+                try:
+                    # refresh native между операциями
+                    try:
+                        native_wei, _ = _native_balance(addr, record)
+                    except sc.SwapError:
+                        pass
+                    if native_wei < min_native_wei:
+                        break
+
+                    # случайная пара
+                    pair = random.choice(pairs)
+                    token_addr = pair["token_address"]
+                    symbol = pair.get("token_symbol") or "?"
+
+                    # token balance?
+                    try:
+                        tok_bal = _token_balance(token_addr, addr, record)
+                    except sc.SwapError:
+                        tok_bal = 0
+
+                    if tok_bal > dust and random.random() < prob_sell:
+                        side = "sell"
+                    else:
+                        side = "buy"
+
+                    # размер
+                    if side == "buy":
+                        amt_native = random.uniform(float(buy_lo), float(buy_hi))
+                        amount_in_wei = int(amt_native * 1e18)
+                        spendable = max(0, native_wei - gas_reserve_wei)
+                        if amount_in_wei > spendable:
+                            amount_in_wei = spendable
+                        if amount_in_wei < int(float(buy_lo) * 1e18 * 0.3):
+                            wallet_skips += 1
+                            continue
+                        path = [ONMI_SWAP_WETH, token_addr]
+                    else:
+                        pct = random.uniform(
+                            float(sell_lo_pct), float(sell_hi_pct))
+                        amount_in_wei = int(tok_bal * pct / 100.0)
+                        if amount_in_wei < dust:
+                            amount_in_wei = tok_bal
+                        if amount_in_wei < dust:
+                            wallet_skips += 1
+                            continue
+                        path = [token_addr, ONMI_SWAP_WETH]
+
+                    # min_out
+                    try:
+                        quote = sc.get_amounts_out(
+                            int(amount_in_wei), path,
+                            proxy=_primary_proxy(record),
+                        )
+                        expected_out = int(quote[-1])
+                        min_out = int(expected_out * (1.0 - slippage))
+                        if min_out <= 0:
+                            min_out = 1
+                    except Exception as e:
+                        log_wallet_task(addr, op_idx, total_ops,
+                                        f"⚠ quote failed: {e}", "warning",
+                                        account_name=name)
+                        wallet_skips += 1
+                        continue
+
+                    wallet_skips = 0
+                    swap_id = db.insert_swap(
+                        wallet_address=addr, wallet_name=name,
+                        pair_address=pair["pair_address"],
+                        token_address=token_addr,
+                        token_symbol=symbol, side=side,
+                        amount_in_wei=amount_in_wei, min_out_wei=min_out,
+                    )
+
+                    human_in = (f"{amount_in_wei/1e18:.6f} zkLTC"
+                                if side == "buy"
+                                else f"{amount_in_wei/1e18:.4f} {symbol}")
                     log_wallet_task(
                         addr, op_idx, total_ops,
-                        f"⚠ attempt {attempt}/{attempts_per_op}: {e}",
-                        "warning", account_name=name,
+                        f"📤 SWAP {side.upper()} {symbol} · in={human_in} · "
+                        f"minOut={min_out}",
+                        "info", account_name=name,
                     )
-                    if attempt < attempts_per_op:
-                        time.sleep(min(15, 3 * attempt))
 
-            if tx_hash is None or receipt is None:
-                db.update_swap(
-                    swap_id, status="failed",
-                    error_message=(last_err or "unknown")[:500],
-                )
-                failures += 1
-                log_wallet_task(
-                    addr, op_idx, total_ops,
-                    f"❌ SWAP {side.upper()} failed: {last_err}",
-                    "error", account_name=name,
-                )
-            else:
-                gas_used = int(receipt.get("gasUsed") or 0)
-                db.update_swap(
-                    swap_id, tx_hash=tx_hash, gas_used=gas_used,
-                    amount_out_wei=str(int(amount_out)),
-                    status="arrived", confirmed_at=time.time(),
-                )
-                out_human = (f"{amount_out/1e18:.4f} {symbol}"
-                             if side == "buy"
-                             else f"{amount_out/1e18:.6f} zkLTC")
-                log_wallet_task(
-                    addr, op_idx, total_ops,
-                    f"✅ SWAP {side.upper()} · tx={_short_tx(tx_hash)} · "
-                    f"gas={gas_used} · out={out_human}",
-                    "success", account_name=name,
-                )
-                if side == "buy":
-                    buys += 1
-                else:
-                    sells += 1
+                    tx_hash: Optional[str] = None
+                    receipt: Optional[dict] = None
+                    amount_out = 0
+                    last_err: Optional[str] = None
+                    deadline_ts = int(time.time()) + int(ONMI_SWAP_DEADLINE_SEC)
 
-            ops_done += 1
-            time.sleep(random.uniform(float(sleep_lo), float(sleep_hi)))
+                    for attempt in range(1, attempts_per_op + 1):
+                        db.update_swap(swap_id, status="sent", attempts=attempt,
+                                       sent_at=time.time())
+                        try:
+                            proxy = _primary_proxy(record)
+                            if side == "buy":
+                                tx_hash, receipt, amount_out = (
+                                    sc.swap_exact_eth_for_tokens(
+                                        account=account, token=token_addr,
+                                        value_wei=int(amount_in_wei),
+                                        min_out_wei=int(min_out),
+                                        deadline_ts=deadline_ts, proxy=proxy,
+                                    )
+                                )
+                            else:
+                                tx_hash, receipt, amount_out = (
+                                    sc.swap_exact_tokens_for_eth(
+                                        account=account, token=token_addr,
+                                        amount_in_wei=int(amount_in_wei),
+                                        min_out_wei=int(min_out),
+                                        deadline_ts=deadline_ts, proxy=proxy,
+                                    )
+                                )
+                            break
+                        except sc.SwapError as e:
+                            last_err = str(e)
+                            log_wallet_task(
+                                addr, op_idx, total_ops,
+                                f"⚠ attempt {attempt}/{attempts_per_op}: {e}",
+                                "warning", account_name=name,
+                            )
+                            if attempt < attempts_per_op:
+                                time.sleep(min(15, 3 * attempt))
 
-        except KeyboardInterrupt:
-            log_simple("⚠ прервано пользователем", "warning")
-            interrupted = True
-            break
-        except Exception as e:  # noqa: BLE001
-            log_simple(f"⚠ op {op_idx} unexpected error: {e}", "warning")
-            failures += 1
-            consecutive_skips += 1
-            continue
+                    if tx_hash is None or receipt is None:
+                        db.update_swap(
+                            swap_id, status="failed",
+                            error_message=(last_err or "unknown")[:500],
+                        )
+                        failures += 1
+                        log_wallet_task(
+                            addr, op_idx, total_ops,
+                            f"❌ SWAP {side.upper()} failed: {last_err}",
+                            "error", account_name=name,
+                        )
+                    else:
+                        gas_used = int(receipt.get("gasUsed") or 0)
+                        db.update_swap(
+                            swap_id, tx_hash=tx_hash, gas_used=gas_used,
+                            amount_out_wei=str(int(amount_out)),
+                            status="arrived", confirmed_at=time.time(),
+                        )
+                        out_human = (f"{amount_out/1e18:.4f} {symbol}"
+                                     if side == "buy"
+                                     else f"{amount_out/1e18:.6f} zkLTC")
+                        log_wallet_task(
+                            addr, op_idx, total_ops,
+                            f"✅ SWAP {side.upper()} · "
+                            f"tx={_short_tx(tx_hash)} · gas={gas_used} · "
+                            f"out={out_human}",
+                            "success", account_name=name,
+                        )
+                        if side == "buy":
+                            buys += 1
+                        else:
+                            sells += 1
+
+                    ops_done += 1
+                    time.sleep(random.uniform(float(sleep_lo), float(sleep_hi)))
+
+                except Exception as e:  # noqa: BLE001
+                    log_wallet_task(
+                        addr, op_idx, total_ops,
+                        f"⚠ op error: {e}", "warning", account_name=name,
+                    )
+                    failures += 1
+                    wallet_skips += 1
+                    continue
+
+    except KeyboardInterrupt:
+        log_simple("⚠ прервано пользователем", "warning")
+        interrupted = True
 
     summary = {
         "ops": ops_done, "buys": buys, "sells": sells,

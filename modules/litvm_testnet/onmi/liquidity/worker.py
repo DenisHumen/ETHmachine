@@ -34,11 +34,13 @@ from config.modules.cfg_litvm_testnet import (
     ONMI_LIQ_DEADLINE_SEC,
     ONMI_LIQ_GAS_RESERVE,
     ONMI_LIQ_MIN_NATIVE_BALANCE,
+    ONMI_LIQ_OPS_PER_WALLET_RANGE,
     ONMI_LIQ_SLEEP_BETWEEN_OPS,
     ONMI_LIQ_SLIPPAGE,
     ONMI_LIQ_TX_ATTEMPTS,
     ONMI_SWAP_MIN_RESERVE_NATIVE_WEI,
 )
+from config.modules.general_config import SHUFLE_ACCOUNTS
 from modules.simple_logger import log_simple, log_wallet_task
 from modules.litvm_testnet.onmi.liquidity import database as db
 from modules.litvm_testnet.onmi.swap import database as swap_db
@@ -132,12 +134,22 @@ def run_add_liquidity_session(
         log_simple("Нет кошельков с private_key", "error")
         return {"ops": 0, "adds": 0, "failures": 0}
 
-    lo, hi = ONMI_LIQ_ADD_OPS_RANGE
-    total_ops = int(total_ops_override) if total_ops_override else random.randint(
-        int(lo), int(hi))
+    wallets = list(eligible)
+    if SHUFLE_ACCOUNTS:
+        random.shuffle(wallets)
+
+    ops_lo, ops_hi = ONMI_LIQ_OPS_PER_WALLET_RANGE
+    if total_ops_override is not None:
+        per_wallet_plan = [int(total_ops_override)] * len(wallets)
+    else:
+        per_wallet_plan = [
+            random.randint(int(ops_lo), int(ops_hi)) for _ in wallets
+        ]
+    total_ops = sum(per_wallet_plan)
     log_simple(
-        f"💧 LP add session: {total_ops} операций · {len(pairs)} пар · "
-        f"{len(eligible)} кошельков",
+        f"💧 LP add session: {len(wallets)} кошельков · "
+        f"{total_ops} операций ({ops_lo}..{ops_hi} на кошелёк) · "
+        f"{len(pairs)} пар",
         "info",
     )
 
@@ -150,22 +162,22 @@ def run_add_liquidity_session(
 
     adds = failures = ops_done = 0
     interrupted = False
-    consecutive_skips = 0
-    MAX_SKIPS = max(30, total_ops * 3)
+    op_idx = 0
 
-    for op_idx in range(1, total_ops + 1):
-        if consecutive_skips >= MAX_SKIPS:
-            log_simple(
-                f"⚠ слишком много пропусков ({consecutive_skips}) — стоп",
-                "warning",
-            )
-            break
-        try:
-            record = random.choice(eligible)
-            account = _account_from_record(record)
-            if account is None:
-                consecutive_skips += 1
-                continue
+    try:
+     for wallet_idx, record in enumerate(wallets, 1):
+        ops_for_wallet = per_wallet_plan[wallet_idx - 1]
+        if ops_for_wallet <= 0:
+            continue
+        account = _account_from_record(record)
+        if account is None:
+            continue
+        wallet_skips = 0
+        for _w_op in range(ops_for_wallet):
+         op_idx += 1
+         if wallet_skips >= 5:
+             break
+         try:
             addr = account.address
             name = record.get("name") or None
 
@@ -175,11 +187,15 @@ def run_add_liquidity_session(
                 log_wallet_task(addr, op_idx, total_ops,
                                 f"⚠ native: {e}", "warning",
                                 account_name=name)
-                consecutive_skips += 1
+                wallet_skips += 1
                 continue
             if native_wei < min_native_wei + gas_reserve_wei:
-                consecutive_skips += 1
-                continue
+                log_wallet_task(
+                    addr, op_idx, total_ops,
+                    f"⏭ native {native_wei/1e18:.6f} < min — skip wallet",
+                    "warning", account_name=name,
+                )
+                break
 
             pair = random.choice(pairs)
             token_addr = pair["token_address"]
@@ -193,11 +209,11 @@ def run_add_liquidity_session(
                 N = spendable
             min_total = int(float(val_lo) * 1e18 * 0.5)
             if N < min_total:
-                consecutive_skips += 1
+                wallet_skips += 1
                 continue
             buy_part = N // 2
             add_eth_part = N - buy_part
-            consecutive_skips = 0
+            wallet_skips = 0
 
             log_wallet_task(
                 addr, op_idx, total_ops,
@@ -315,15 +331,16 @@ def run_add_liquidity_session(
             ops_done += 1
             time.sleep(random.uniform(float(sleep_lo), float(sleep_hi)))
 
-        except KeyboardInterrupt:
-            log_simple("⚠ прервано пользователем", "warning")
-            interrupted = True
-            break
-        except Exception as e:  # noqa: BLE001
-            log_simple(f"⚠ op {op_idx} unexpected: {e}", "warning")
-            failures += 1
-            consecutive_skips += 1
-            continue
+         except KeyboardInterrupt:
+             raise
+         except Exception as e:  # noqa: BLE001
+             log_simple(f"⚠ op {op_idx} unexpected: {e}", "warning")
+             failures += 1
+             wallet_skips += 1
+             continue
+    except KeyboardInterrupt:
+        log_simple("⚠ прервано пользователем", "warning")
+        interrupted = True
 
     summary = {
         "ops": ops_done, "adds": adds, "failures": failures,
