@@ -13,7 +13,13 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Arbitrum One': {
-        'rpc_urls': ['https://arbitrum.drpc.org'],
+        'rpc_urls': [
+            'https://arbitrum.drpc.org',
+            'https://arb1.arbitrum.io/rpc',
+            'https://arbitrum-one.publicnode.com',
+            'https://1rpc.io/arb',
+            'https://arbitrum.llamarpc.com',
+        ],
         'symbol': 'ETH',
         'tx_url': "https://arbiscan.io/tx/",
         'type': 'mainnet'

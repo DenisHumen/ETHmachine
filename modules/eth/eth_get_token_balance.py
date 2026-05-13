@@ -68,33 +68,51 @@ def make_proxy_dict(proxy_str: str) -> dict:
 def get_tokens_for_network(network_name: str) -> dict:
     var_name = network_name.lower().replace(' ', '_').replace('-', '_')
     var_name = var_name.replace('🚀_', '').replace('🔧_', '')
-    
+
     if hasattr(token_address_erc20, var_name):
         return getattr(token_address_erc20, var_name)
-    
-    alternatives = {
+
+    aliases = {
         'ethereum': 'ethereum_mainnet',
-        'eth': 'ethereum_mainnet',
+        'arbitrum_one': 'arbitrum',
+        'optimism_mainnet': 'optimism',
         'bsc': 'binance_smart_chain',
         'bnb': 'binance_smart_chain',
-        'arb': 'arbitrum',
-        'op': 'optimism',
-        'poly': 'polygon',
         'avax': 'avalanche',
     }
-    
-    for key, alt_name in alternatives.items():
-        if key in var_name.lower():
-            if hasattr(token_address_erc20, alt_name):
-                return getattr(token_address_erc20, alt_name)
-    
+
+    alt_name = aliases.get(var_name)
+    if alt_name and hasattr(token_address_erc20, alt_name):
+        return getattr(token_address_erc20, alt_name)
+
     return {}
 
 
 _DECIMALS_CACHE = {}
 
+KNOWN_TOKEN_DECIMALS = {
+    '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 6,
+    '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 6,
+    '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': 6,
+    '0x0b2c639c533813f4aa9d7837caf62653d097ff85': 6,
+    '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 6,
+    '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 6,
+    '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': 18,
+    '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e': 6,
+    '0x04068da6c83afcfa0e13ba15a6696662335d5b75': 6,
+    '0xdac17f958d2ee523a2206206994597c13d831ec7': 6,
+    '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 6,
+    '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': 6,
+    '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 6,
+    '0x55d398326f99059ff775485246999027b3197955': 18,
+    '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7': 6,
+    '0x049d68029688eabf473097a2fc38ef61633a3c7a': 6,
+    '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 8,
+}
+
 
 def _eth_call(rpc_url: str, token_address: str, data: str, proxy_dict: dict = None):
+    """eth_call helper. Returns int on success, None on any error (RPC error, empty result, network failure)."""
     try:
         resp = requests.post(
             rpc_url,
@@ -105,39 +123,62 @@ def _eth_call(rpc_url: str, token_address: str, data: str, proxy_dict: dict = No
                 "id": 1
             },
             proxies=proxy_dict,
-            timeout=10,
+            timeout=15,
             headers={'Content-Type': 'application/json'}
         )
-        if resp.status_code == 200:
+        if resp.status_code != 200:
+            return None
+        try:
             result = resp.json()
-            if 'result' in result and result['result'] and result['result'] != '0x':
-                hex_value = result['result']
-                if hex_value.startswith('0x'):
-                    hex_value = hex_value[2:]
-                if hex_value:
-                    return int(hex_value, 16)
-                return 0
-            return 0
-    except:
+        except ValueError:
+            return None
+        if not isinstance(result, dict):
+            return None
+        if 'error' in result:
+            return None
+        if 'result' not in result:
+            return None
+        hex_value = result['result']
+        if not isinstance(hex_value, str) or not hex_value or hex_value == '0x':
+            return None
+        if hex_value.startswith('0x'):
+            hex_value = hex_value[2:]
+        if not hex_value:
+            return None
+        try:
+            return int(hex_value, 16)
+        except ValueError:
+            return None
+    except Exception:
         return None
-    return None
 
 
-def resolve_token_decimals(token_address: str, rpc_urls: list, proxies: list) -> int:
+def resolve_token_decimals(token_address: str, rpc_urls: list, proxies: list):
+    """Возвращает (decimals: int, resolved: bool). resolved=False означает fallback на 18."""
     cache_key = token_address.lower()
     if cache_key in _DECIMALS_CACHE:
-        return _DECIMALS_CACHE[cache_key]
+        cached = _DECIMALS_CACHE[cache_key]
+        return cached, True
 
-    for rpc_url in rpc_urls[:3]:
-        proxy_str = random.choice(proxies) if proxies else None
-        proxy_dict = make_proxy_dict(proxy_str)
-        value = _eth_call(rpc_url, token_address, "0x313ce567", proxy_dict)
-        if value is not None and 0 <= value <= 30:
-            _DECIMALS_CACHE[cache_key] = value
-            return value
+    attempts_per_rpc = 3
+    for rpc_url in rpc_urls:
+        for attempt in range(attempts_per_rpc):
+            if proxies and attempt < attempts_per_rpc - 1:
+                proxy_str = random.choice(proxies)
+                proxy_dict = make_proxy_dict(proxy_str)
+            else:
+                proxy_dict = None
+            value = _eth_call(rpc_url, token_address, "0x313ce567", proxy_dict)
+            if value is not None and 0 <= value <= 30:
+                _DECIMALS_CACHE[cache_key] = value
+                return value, True
 
-    _DECIMALS_CACHE[cache_key] = 18
-    return 18
+    known = KNOWN_TOKEN_DECIMALS.get(cache_key)
+    if known is not None:
+        _DECIMALS_CACHE[cache_key] = known
+        return known, True
+
+    return 18, False
 
 
 def get_token_balance_rpc(wallet: str, token_address: str, rpc_url: str, decimals: int, proxy_dict: dict = None) -> float:
@@ -149,18 +190,26 @@ def get_token_balance_rpc(wallet: str, token_address: str, rpc_url: str, decimal
 
 
 def check_wallet_token(wallet: str, token_address: str, rpc_urls: list, decimals: int, proxies: list, proxy_idx: int) -> dict:
-    proxy_str = proxies[proxy_idx % len(proxies)] if proxies else None
-    proxy_dict = make_proxy_dict(proxy_str)
+    last_error = 'RPC failed'
+    for rpc_url in rpc_urls:
+        for attempt in range(2):
+            if proxies:
+                if attempt == 0:
+                    proxy_str = proxies[proxy_idx % len(proxies)]
+                else:
+                    proxy_str = random.choice(proxies)
+                proxy_dict = make_proxy_dict(proxy_str)
+            else:
+                proxy_dict = None
+            balance = get_token_balance_rpc(wallet, token_address, rpc_url, decimals, proxy_dict)
+            if balance >= 0:
+                return {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
 
-    for rpc_url in rpc_urls[:3]:
-        balance = get_token_balance_rpc(wallet, token_address, rpc_url, decimals, proxy_dict)
+        balance = get_token_balance_rpc(wallet, token_address, rpc_url, decimals, None)
         if balance >= 0:
             return {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
-        if proxies:
-            proxy_str = random.choice(proxies)
-            proxy_dict = make_proxy_dict(proxy_str)
 
-    return {'wallet': wallet, 'balance': 0, 'success': False, 'error': 'RPC failed'}
+    return {'wallet': wallet, 'balance': 0, 'success': False, 'error': last_error}
 
 
 def create_panel(network: str, token: str, total: int, success: int, failed: int, logs: list) -> Panel:
@@ -235,9 +284,12 @@ def process_wallets_tokens(wallets: list, token_address: str, rpc_urls: list,
     proxies = load_proxies()
     max_workers = min(NUM_THREADS, total, 20)
 
-    decimals = resolve_token_decimals(token_address, rpc_urls, proxies)
+    decimals, resolved = resolve_token_decimals(token_address, rpc_urls, proxies)
 
-    logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках (decimals={decimals})", "INFO"))
+    if resolved:
+        logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках (decimals={decimals})", "INFO"))
+    else:
+        logs.append((time.strftime("%H:%M:%S"), f"⚠️ Не удалось получить decimals токена через RPC, используется fallback={decimals}. Балансы могут быть некорректны!", "WARNING"))
 
     with Live(create_panel(network_name, token_symbol, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
