@@ -7,7 +7,7 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Base': {
-        'rpc_urls': ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.llamarpc.com'],
+        'rpc_urls': ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
         'symbol': 'ETH',
         'tx_url': "https://basescan.org/tx/",
         'type': 'mainnet'
@@ -18,7 +18,6 @@ NETWORKS = {
             'https://arb1.arbitrum.io/rpc',
             'https://arbitrum-one.publicnode.com',
             'https://1rpc.io/arb',
-            'https://arbitrum.llamarpc.com',
         ],
         'symbol': 'ETH',
         'tx_url': "https://arbiscan.io/tx/",
@@ -55,10 +54,40 @@ NETWORKS = {
         'tx_url': "https://bscscan.com/tx/",
         'type': 'mainnet'
     },
-    '🚀 Avalanche': {
-        'rpc_urls': ['https://avax-pokt.nodies.app/ext/bc/C/rpc', 'https://avax.meowrpc.com', 'https://1rpc.io/avax/c'],
+    '🚀 Avalanche C-Chain': {
+        'rpc_urls': [
+            'https://api.avax.network/ext/bc/C/rpc',
+            'https://avalanche-c-chain-rpc.publicnode.com',
+            'https://1rpc.io/avax/c',
+            'https://avalanche.drpc.org',
+        ],
         'symbol': 'AVAX',
-        'tx_url': "https://subnets.avax.network/p-chain/tx/",
+        'tx_url': "https://snowtrace.io/tx/",
+        'chain_id': 43114,
+        'type': 'mainnet'
+    },
+    '🚀 Core DAO': {
+        'rpc_urls': [
+            'https://rpc.coredao.org',
+            'https://core.drpc.org',
+            'https://1rpc.io/core',
+            'https://rpc-core.icecreamswap.com',
+        ],
+        'symbol': 'CORE',
+        'tx_url': "https://scan.coredao.org/tx/",
+        'chain_id': 1116,
+        'type': 'mainnet'
+    },
+    '🚀 Kava': {
+        'rpc_urls': [
+            'https://evm.kava.io',
+            'https://evm.kava-rpc.com',
+            'https://kava-evm.publicnode.com',
+            'https://kava.drpc.org',
+        ],
+        'symbol': 'KAVA',
+        'tx_url': "https://kavascan.com/tx/",
+        'chain_id': 2222,
         'type': 'mainnet'
     },
     '🚀 Fantom': {
@@ -275,7 +304,9 @@ optimism = NETWORKS['🚀 Optimism']['rpc_urls']
 soneium = NETWORKS['🚀 Soneium']['rpc_urls']
 Polygon = NETWORKS['🚀 Polygon']['rpc_urls']
 Binance_Smart_Chain = NETWORKS['🚀 Binance Smart Chain']['rpc_urls']
-Avalanche = NETWORKS['🚀 Avalanche']['rpc_urls']
+Avalanche = NETWORKS['🚀 Avalanche C-Chain']['rpc_urls']
+core_dao = NETWORKS['🚀 Core DAO']['rpc_urls']
+kava = NETWORKS['🚀 Kava']['rpc_urls']
 Fantom = NETWORKS['🚀 Fantom']['rpc_urls']
 Gravity_Alpha_Mainnet = NETWORKS['🚀 Gravity Alpha Mainnet (сеть Gravity )']['rpc_urls']
 zora = NETWORKS['🚀 Zora']['rpc_urls']

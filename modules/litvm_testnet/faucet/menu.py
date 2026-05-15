@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from colorama import Fore, Style
+from eth_account import Account
 from questionary import Choice, select
 
 from config.modules.general_config import NUM_THREADS
@@ -116,6 +117,73 @@ def _format_summary(stats: dict) -> str:
     return " · ".join(parts)
 
 
+def _derive_address(record: dict) -> str | None:
+    pk = (record.get("private_key") or "").strip()
+    if not pk:
+        return None
+    if not pk.startswith("0x"):
+        pk = "0x" + pk
+    try:
+        return Account.from_key(pk).address
+    except Exception:
+        return None
+
+
+def _partition_by_history(records: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Делит кошельки на (новые, уже запрашивавшие).
+
+    «Новый» = в `request_history` нет ни одной записи по этому адресу.
+    Новые идут первой фазой — приоритет раздать кран адресам, которые ещё
+    ни разу его не видели (особенно важно при ограниченных captcha/proxy
+    ресурсах). Если все кошельки уже хотя бы раз запрашивали — поведение
+    совпадает с прежним (один проход в порядке data.csv).
+
+    Записи с битым private_key падают в «новые»: process_wallet их сам
+    отбросит, но они хотя бы окажутся в начале лога."""
+    addresses = [_derive_address(r) for r in records]
+    valid = [a for a in addresses if a]
+    ever_requested = db.wallets_with_request_history(valid) if valid else set()
+    new_wallets: list[dict] = []
+    old_wallets: list[dict] = []
+    for rec, addr in zip(records, addresses):
+        if addr and addr.lower() in ever_requested:
+            old_wallets.append(rec)
+        else:
+            new_wallets.append(rec)
+    return new_wallets, old_wallets
+
+
+def _run_phase(records: list[dict], start_offset: int, total: int,
+               threads: int) -> bool:
+    """Прогоняет батч кошельков (последовательно или через ThreadPoolExecutor).
+
+    `start_offset` — сколько кошельков уже обработано в предыдущих фазах,
+    чтобы лог-индекс `idx/total` оставался сквозным 1..total.
+    Возвращает True, если пользователь нажал Ctrl+C."""
+    if not records:
+        return False
+    if threads <= 1 or len(records) <= 1:
+        for i, rec in enumerate(records, 1):
+            try:
+                process_wallet(rec, start_offset + i, total)
+            except KeyboardInterrupt:
+                log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
+                return True
+        return False
+    with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="litvm-faucet") as ex:
+        futs = [ex.submit(process_wallet, rec, start_offset + i, total)
+                for i, rec in enumerate(records, 1)]
+        try:
+            for fut in as_completed(futs):
+                fut.result()
+        except KeyboardInterrupt:
+            for f in futs:
+                f.cancel()
+            log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
+            return True
+    return False
+
+
 def _run_continue() -> None:
     if not _check_captcha_ready(LITVM_FAUCET_CAPTCHA_TYPE):
         return
@@ -135,30 +203,30 @@ def _run_continue() -> None:
 
     set_auto_progress(False)
     threads = max(1, min(int(NUM_THREADS), total))
-    log_simple(f"🚰 LiteForge Faucet: старт для {total} кошельков "
-               f"(threads={threads})", "info")
+
+    new_wallets, old_wallets = _partition_by_history(records)
+    if new_wallets and old_wallets:
+        log_simple(
+            f"🚰 LiteForge Faucet: старт для {total} кошельков (threads={threads}); "
+            f"приоритет — {len(new_wallets)} новых (нет в request_history), "
+            f"далее {len(old_wallets)} ранее запрошенных",
+            "info",
+        )
+    else:
+        log_simple(
+            f"🚰 LiteForge Faucet: старт для {total} кошельков (threads={threads})",
+            "info",
+        )
 
     interrupted = False
-    if threads <= 1 or total <= 1:
-        for i, rec in enumerate(records, 1):
-            try:
-                process_wallet(rec, i, total)
-            except KeyboardInterrupt:
-                log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
-                interrupted = True
-                break
-    else:
-        with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="litvm-faucet") as ex:
-            futs = [ex.submit(process_wallet, rec, i, total)
-                    for i, rec in enumerate(records, 1)]
-            try:
-                for fut in as_completed(futs):
-                    fut.result()
-            except KeyboardInterrupt:
-                for f in futs:
-                    f.cancel()
-                log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
-                interrupted = True
+    running_offset = 0
+    for phase_records in (new_wallets, old_wallets):
+        if not phase_records:
+            continue
+        interrupted = _run_phase(phase_records, running_offset, total, threads)
+        if interrupted:
+            break
+        running_offset += len(phase_records)
 
     # Закрываем patchright — иначе фоновый Chromium висит до выхода из ETHmachine.
     try:

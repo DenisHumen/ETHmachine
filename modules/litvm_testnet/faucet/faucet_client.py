@@ -30,6 +30,7 @@ from config.modules.cfg_litvm_testnet import (
 from modules.litvm_testnet.vercel_bypass import (
     VercelBypassError,
     VercelCheckpointError,
+    VercelTooBusyError,
     get_client,
 )
 
@@ -97,6 +98,11 @@ class LitvmFaucetVercelChallenge(LitvmFaucetError):
     """В ответ пришёл Vercel Security Checkpoint."""
 
 
+class LitvmFaucetTooBusyError(LitvmFaucetError):
+    """Очередь submit-слотов переполнена — worker должен подождать и повторить
+    ПОЗЖЕ, не тратя капчу прямо сейчас."""
+
+
 def classify_error(message: str) -> str:
     """'cooldown' | 'ineligible' | 'captcha' | 'server_busy' | 'transient'."""
     low = (message or "").lower()
@@ -132,6 +138,8 @@ def submit_claim(
             recipient_address=wallet,
             turnstile_token=turnstile_token,
         )
+    except VercelTooBusyError as e:
+        raise LitvmFaucetTooBusyError(str(e)) from e
     except VercelCheckpointError as e:
         raise LitvmFaucetVercelChallenge(str(e)) from e
     except VercelBypassError as e:

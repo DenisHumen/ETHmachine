@@ -61,9 +61,27 @@ binance_smart_chain = {
     'usdt': '0x55d398326f99059fF775485246999027B3197955',
 }
 
+# Сентинел 'native' — для нативного токена сети (без ERC-20 контракта).
+# Модуль детектит его и шлёт обычную EVM-транзакцию (eth.get_balance + tx с value).
 avalanche = {
+    'AVAX': 'native',
+    'WAVAX': '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
     'usdc': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
     'usdt': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+}
+
+core_dao = {
+    'CORE': 'native',
+    'WCORE': '0x40375C92d9FAf44d2f9db9Bd9ba41a3317a2404f',
+    'usdt': '0x900101d06A7426441Ae63e9AB3B9b0F63Be145F1',
+    'usdc': '0xa4151B2B3e269645181dCcF2D426cE75fcbDeca9',
+}
+
+kava = {
+    'KAVA': 'native',
+    'WKAVA': '0xc86c7C0eFbd6A49B35E8714C5f59D99De09A225b',
+    'usdt': '0x919C1c267BC06a7039e03fcc2eF738525769109c',
+    'usdc': '0xfA9343C3897324496A05fC75abeD6bAC29f8A40f',
 }
 
 fantom = {

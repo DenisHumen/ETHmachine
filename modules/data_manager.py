@@ -398,7 +398,6 @@ def get_transfer_rows(filepath: Path = None) -> List[Dict[str, str]]:
         from_wallet  → private_key
         to_wallet    → evm_cex_address
         amount       → transfer_amount
-        intermediary → '' (резерв на будущее, для USE_INTERMEDIARY_TOKEN)
 
     Возвращаются только строки, где заполнены все три ключевых поля.
     """
@@ -413,7 +412,6 @@ def get_transfer_rows(filepath: Path = None) -> List[Dict[str, str]]:
                 'from_wallet': from_w,
                 'to_wallet': to_w,
                 'amount': amt,
-                'intermediary': '',
             })
     return out
 

@@ -41,7 +41,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from config.modules.cfg_litvm_testnet import (
+    LITVM_FAUCET_SUBMIT_MAX_WAITERS,
+    LITVM_FAUCET_SUBMIT_MIN_SPACING_SEC,
     LITVM_FAUCET_URL,
+    LITVM_VERCEL_BROWSER_OP_TIMEOUT_SEC,
     LITVM_VERCEL_BYPASS_HEADLESS,
     LITVM_VERCEL_BYPASS_MAX_CONTEXTS,
     LITVM_VERCEL_BYPASS_RESTART_EVERY,
@@ -85,6 +88,66 @@ class VercelBypassError(Exception):
 
 class VercelCheckpointError(VercelBypassError):
     """Hub отдал Vercel Security Checkpoint вместо обычного ответа."""
+
+
+class VercelTooBusyError(VercelBypassError):
+    """Слишком много worker'ов уже стоят в очереди на submit-слот.
+    Worker должен откатиться, не тратя капчу, и попробовать позже."""
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Submit slot pacing — выполняется в WORKER-thread, НЕ в browser-thread.
+#
+# Раньше пейсинг (`time.sleep(15)`) был внутри `_op_trpc_call`, который
+# выполняется в browser-thread'е. Это блокировало ВСЁ — пока один submit
+# спал 15 секунд, остальные jobs (warmup новых contexts, balance check, etc.)
+# ждали в очереди. С 5 worker-thread'ами и 15 секунд пейсинга максимальный
+# throughput был ~4 submit/мин, а submit() с timeout=180s массово тайм-аутил.
+#
+# Теперь worker сам ждёт слот через Condition. Browser-thread свободен и
+# обслуживает каждый submit за ~2s. Throughput вырос примерно в 7 раз.
+# ───────────────────────────────────────────────────────────────────────────
+
+_SLOT_LOCK = threading.Lock()
+_SLOT_COND = threading.Condition(_SLOT_LOCK)
+_SLOT_LAST_AT = 0.0  # timestamp (time.time()) последнего grant
+_SLOT_WAITERS = 0    # сколько worker'ов прямо сейчас спят в acquire
+
+
+def _acquire_submit_slot(min_spacing_sec: float, max_waiters: int) -> None:
+    """Блокирует worker-thread до момента, когда пройдёт min_spacing_sec
+    с прошлого grant'а слота. Если уже >= max_waiters в очереди — бросает
+    VercelTooBusyError, не дожидаясь, чтобы worker не палил капчу впустую.
+
+    Корректно работает с многими worker'ами: каждый grant двигает
+    _SLOT_LAST_AT, следующий waiter будет ждать min_spacing_sec уже
+    относительно этого нового момента."""
+    global _SLOT_LAST_AT, _SLOT_WAITERS
+    with _SLOT_COND:
+        if _SLOT_WAITERS >= max(1, int(max_waiters)):
+            raise VercelTooBusyError(
+                f"submit-queue переполнена ({_SLOT_WAITERS} worker'ов ждут "
+                f"слота, лимит {max_waiters}); попробуй позже"
+            )
+        _SLOT_WAITERS += 1
+        try:
+            while True:
+                now = time.time()
+                wait = (_SLOT_LAST_AT + float(min_spacing_sec)) - now
+                if wait <= 0:
+                    _SLOT_LAST_AT = now
+                    _SLOT_COND.notify()  # разбудить следующего waiter'а
+                    return
+                _SLOT_COND.wait(timeout=wait)
+        finally:
+            _SLOT_WAITERS -= 1
+
+
+def _submit_queue_status() -> tuple[int, float]:
+    """Возвращает (текущее число waiters, время с прошлого grant в секундах).
+    Удобно для диагностики/логирования из worker'а."""
+    with _SLOT_COND:
+        return _SLOT_WAITERS, time.time() - _SLOT_LAST_AT
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +198,15 @@ class _BrowserWorker:
         self._thread.start()
         self._started.wait(timeout=5)
 
-    def submit(self, fn: Callable, *args, timeout: float = 180.0, **kwargs) -> Any:
+    def submit(self, fn: Callable, *args, timeout: Optional[float] = None, **kwargs) -> Any:
         """Послать функцию `fn(self, *args, **kwargs)` в browser-thread и
         дождаться результата. `fn` получает _BrowserWorker как первый arg
-        чтобы пользоваться приватным состоянием (self._browser, ...)."""
+        чтобы пользоваться приватным состоянием (self._browser, ...).
+
+        Если timeout не задан — берётся LITVM_VERCEL_BROWSER_OP_TIMEOUT_SEC."""
         self.start()
+        if timeout is None:
+            timeout = float(LITVM_VERCEL_BROWSER_OP_TIMEOUT_SEC)
         job = _Job(fn, args, kwargs)
         self._queue.put(job)
         if not job.event.wait(timeout=timeout):
@@ -365,23 +432,12 @@ def _maybe_restart_browser(w: _BrowserWorker) -> None:
     w._op_count = 0
 
 
-# Глобальный rate-limit для tRPC submits.
-# Caldera Hub faucet — общая для всех кошельков hot-wallet на стороне сервера,
-# подписывает и отправляет zkLTC. Если два submit'а долетают почти одновременно,
-# server-side faucet получает nonce-конфликт и отвечает "Failed to send
-# transaction". Размазываем submit'ы во времени минимум на N секунд между двумя
-# подряд — все worker-потоки разделяют один browser-thread, так что одного
-# глобального лока достаточно.
-_TRPC_MIN_SPACING_SEC = 15.0  # эмпирически: блок-тайм Caldera ~2s, faucet tx
-                              # confirm ~5s; 15s даёт server-side signer'у
-                              # надёжный запас под nonce-стабилизацию даже
-                              # при сильной конкуренции (50%+ кошельков
-                              # с первой попытки).
-_TRPC_LAST_SUBMIT_AT = 0.0
-
-
 def _op_trpc_call(w: _BrowserWorker, proxy: Optional[str], procedure: str, payload: dict) -> dict:
-    global _TRPC_LAST_SUBMIT_AT
+    """Выполняет один tRPC-вызов через ранее открытый browser-context.
+
+    ВНИМАНИЕ: пейсинг submit'ов перенесён В WORKER-ПОТОК
+    (см. _acquire_submit_slot выше). Здесь больше НЕТ time.sleep —
+    browser-thread свободен максимально быстро (~2s на job)."""
     _maybe_restart_browser(w)
     key = (proxy or "").strip()
     if key not in w._contexts:
@@ -393,16 +449,6 @@ def _op_trpc_call(w: _BrowserWorker, proxy: Optional[str], procedure: str, paylo
     page = w._contexts[key]["page"]
     path = f"/api/trpc/{procedure}?batch=1"
     body = {"0": {"json": payload}}
-
-    # rate-limit: ждём пока с прошлого submit пройдёт _TRPC_MIN_SPACING_SEC.
-    if procedure == "faucet.requestFaucetFunds":
-        now = time.time()
-        wait = (_TRPC_LAST_SUBMIT_AT + _TRPC_MIN_SPACING_SEC) - now
-        if wait > 0:
-            logger.info(f"[litvm-vercel] rate-limit: подожду {wait:.1f}s "
-                        f"перед submit (proxy={key or 'direct'})")
-            time.sleep(wait)
-        _TRPC_LAST_SUBMIT_AT = time.time()
 
     # AbortController в js: 60s — некоторые ответы хаба занимают 30+ сек,
     # 30s было слишком жёстко (мы видели AbortError).
@@ -469,6 +515,22 @@ def _op_trpc_call(w: _BrowserWorker, proxy: Optional[str], procedure: str, paylo
     raw = result.get("body") or ""
     if status == 429 or "Vercel Security Checkpoint" in raw:
         raise VercelCheckpointError(f"HTTP {status} от /api/trpc/{procedure}")
+    # CDN/прокси может отдать HTML вместо tRPC JSON: Framer landing,
+    # Vercel maintenance, generic 404/500. Это значит наш context "отравился"
+    # — конкретный proxy-IP маршрутизируется не в tRPC backend, а в статику.
+    # Поднимаем VercelCheckpointError, чтобы submit_faucet_request пересоздал
+    # context (на retry браузер откроет другой выходной IP пути CDN).
+    raw_lstrip = raw.lstrip()
+    if raw_lstrip.startswith("<") and (
+        "<!doctype" in raw_lstrip[:64].lower()
+        or "<html" in raw_lstrip[:64].lower()
+    ):
+        # Берём первую содержательную строку для diagnostic'а.
+        first_line = raw_lstrip.splitlines()[0][:120] if raw_lstrip else ""
+        raise VercelCheckpointError(
+            f"HTML вместо tRPC (HTTP {status}, body={first_line!r}) — "
+            f"context отравился, пересоздать"
+        )
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -519,11 +581,20 @@ class VercelClient:
         recipient_address: str,
         turnstile_token: str,
     ) -> dict:
+        """Acquire submit-slot (worker-side wait), затем послать tRPC-вызов
+        в browser-thread. На VercelCheckpointError — один retry с пересозданием
+        context'а (под тем же слотом не ждём — checkpoint редкое событие)."""
         payload = {
             "rollupSubdomain": rollup_subdomain,
             "recipientAddress": recipient_address,
             "turnstileToken": turnstile_token,
         }
+        # Worker ждёт здесь свой rate-limit-слот — НЕ блокируя browser-thread.
+        # При переполнении очереди ждущих — VercelTooBusyError, worker откатится.
+        _acquire_submit_slot(
+            min_spacing_sec=float(LITVM_FAUCET_SUBMIT_MIN_SPACING_SEC),
+            max_waiters=int(LITVM_FAUCET_SUBMIT_MAX_WAITERS),
+        )
         try:
             return self._worker.submit(
                 _op_trpc_call, proxy, "faucet.requestFaucetFunds", payload,
@@ -535,7 +606,8 @@ class VercelClient:
             )
             self._worker.submit(_op_close_context, proxy)
             db.invalidate_vcrcs(proxy)
-            # Один retry с свежим context
+            # Retry — слот уже использован; для checkpoint-recovery (~раз в час)
+            # это терпимо, повторно ждать пейсинг было бы вреднее (token устаревает).
             return self._worker.submit(
                 _op_trpc_call, proxy, "faucet.requestFaucetFunds", payload,
             )

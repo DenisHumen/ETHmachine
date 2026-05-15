@@ -8,13 +8,8 @@
 #                    вместе с private_key (отправитель) и evm_cex_address (получатель).
 #                    Токен выбирается из меню при запуске.
 
-MULTI_THREADING_TOKEN = False  # Включить/выключить многопоточность для переводов токенов (True/False)
-NUM_THREADS_TOKEN = 5  # Количество потоков для переводов токенов (работает только при MULTI_THREADING_TOKEN = True)
-
-USE_INTERMEDIARY_TOKEN = False  # Использовать посредника для отправки токенов
-    # FALSE — отправка напрямую (работает с data/data.csv)
-    # TRUE  — через посредника; data_manager пока не поддерживает поле intermediary,
-    #         оставьте FALSE или расширьте data_manager и data.csv колонкой intermediary
+MULTI_THREADING_TOKEN = True  # Включить/выключить многопоточность для переводов токенов (True/False)
+NUM_THREADS_TOKEN = 2  # Количество потоков для переводов токенов (работает только при MULTI_THREADING_TOKEN = True)
 
 TYPE_VALUE_TO_WALLET_TOKEN = 1  # Тип значения для конечного кошелька в data/data.csv поле 'evm_cex_address' (0 - приватный ключ, 1 - адрес кошелька)
 

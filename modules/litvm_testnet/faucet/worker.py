@@ -35,6 +35,7 @@ from modules.litvm_testnet.faucet.faucet_client import (
     LitvmFaucetCaptchaError,
     LitvmFaucetCooldownError,
     LitvmFaucetError,
+    LitvmFaucetTooBusyError,
     LitvmFaucetVercelChallenge,
     classify_error,
     is_test_sitekey,
@@ -364,6 +365,13 @@ def process_wallet(record: dict, idx: int, total: int) -> None:
         return
 
     max_attempts = max(1, int(RETRY_COUNT))
+    # Защита от «один кошелёк блокирует worker на 5+ минут»:
+    # после N подряд server_busy / transient ошибок — сдаёмся и идём дальше.
+    # Кошелёк снова попадёт в очередь в следующей сессии.
+    MAX_SERVER_BUSY = 2     # «Failed to send transaction», 5xx и т.п.
+    MAX_TRANSIENT = 3       # AbortError/HTML/timeout/невалидный JSON
+    server_busy_count = 0
+    transient_count = 0
     last_error = ""
     arrival_timeout = _arrival_timeout_seconds()
     log_wallet_task(
@@ -382,6 +390,20 @@ def process_wallet(record: dict, idx: int, total: int) -> None:
         )
         try:
             ok, tx_hash, msg, request_id = _attempt_claim(address, proxy, sitekey)
+        except LitvmFaucetTooBusyError as e:
+            # Очередь submit-слотов переполнена. Капча ещё НЕ потрачена
+            # (slot acquisition происходит ВНУТРИ submit_claim после captcha,
+            # но TooBusyError возвращается без обращения к серверу). Ждём
+            # дольше обычного и переходим к следующей попытке БЕЗ
+            # инкремента ошибки — это не наш фейл, это бэкпрешер.
+            backoff = min(120, 10 * attempt)
+            log_wallet_task(
+                address, idx, total,
+                f"🐢 too-busy: {str(e)[:120]} · ждём {backoff}s",
+                "warning", account_name=account_name,
+            )
+            time.sleep(backoff)
+            continue
         except LitvmFaucetCaptchaError as e:
             # Turnstile token отвергнут — пересолвить и попробовать снова
             last_error = f"captcha rejected: {e}"
@@ -432,11 +454,22 @@ def process_wallet(record: dict, idx: int, total: int) -> None:
             return
         except LitvmFaucetError as e:
             last_error = f"{type(e).__name__}: {e}"
+            transient_count += 1
             log_wallet_task(
                 address, idx, total,
-                f"⚠ ошибка: {str(e)[:140]}",
+                f"⚠ ошибка ({transient_count}/{MAX_TRANSIENT}): {str(e)[:140]}",
                 "warning", account_name=account_name,
             )
+            if transient_count >= MAX_TRANSIENT:
+                log_wallet_task(
+                    address, idx, total,
+                    f"⏭ слишком много transient-ошибок ({transient_count}) — "
+                    f"перенесём кошелёк на следующую сессию",
+                    "warning", account_name=account_name,
+                )
+                db.update_task(address, status="failed",
+                               error_message=f"transient_limit: {last_error[:240]}")
+                return
             time.sleep(SLEEP_BETWEEN_ACTIONS[0] if SLEEP_BETWEEN_ACTIONS else 2)
             continue
 
@@ -457,23 +490,40 @@ def process_wallet(record: dict, idx: int, total: int) -> None:
             # Делаем нарастающий backoff и сначала проверяем баланс: может
             # предыдущий "failed" реально дошёл до блокчейна.
             if kind == "server_busy":
-                # 30s, 60s, 90s, ..., capped at 180s
-                backoff = min(180, 30 * attempt)
+                server_busy_count += 1
+                # Сразу проверим баланс — может предыдущий «failed» реально
+                # дошёл до блокчейна (Caldera Hub отвечает ошибкой даже когда
+                # tx всё-таки протолкнули в pending mempool).
                 arrived_now = _check_arrival_now(address, proxy, balance_before)
                 if arrived_now is not None:
                     _mark_arrived(address, balance_before, arrived_now,
                                   idx, total, account_name,
                                   origin="по предыдущей заявке")
                     return
+
+                # Если нагребли лимит — перестаём блокировать worker на этом
+                # кошельке и идём дальше. Кошелёк будет повторён в следующей
+                # сессии (когда server-side hot-wallet'у Caldera Hub полегчает).
+                if server_busy_count >= MAX_SERVER_BUSY:
+                    log_wallet_task(
+                        address, idx, total,
+                        f"⏭ {server_busy_count} server-busy подряд — "
+                        f"переносим на следующую сессию (Caldera signer перегружен)",
+                        "warning", account_name=account_name,
+                    )
+                    db.update_task(address, status="failed",
+                                   error_message=f"server_busy_limit: {(msg or '')[:200]}")
+                    return
+
+                # Короткий backoff (раньше было 30/60/90/180s — слишком долго).
+                # 15s даёт server-signer'у пару блоков на стабилизацию.
+                backoff = min(45, 15 * server_busy_count)
                 log_wallet_task(
                     address, idx, total,
-                    f"⏳ server-busy: {(msg or '')[:80]} · ждём {backoff}s "
-                    f"и проверяем баланс перед повтором",
+                    f"⏳ server-busy ({server_busy_count}/{MAX_SERVER_BUSY}): "
+                    f"{(msg or '')[:80]} · ждём {backoff}s, мониторим баланс",
                     "warning", account_name=account_name,
                 )
-                # Спим, периодически проверяя баланс — если zkLTC всё-таки
-                # пришли (server-side faucet всё-таки протолкнул tx), сразу
-                # выходим, не тратим CapSolver-кредит.
                 slept = 0
                 step = max(1, int(LITVM_FAUCET_BALANCE_POLL_INTERVAL))
                 while slept < backoff:

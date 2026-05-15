@@ -59,6 +59,39 @@ LITVM_VERCEL_BYPASS_MAX_CONTEXTS = 4
 # (боремся с внутренними ликами patchright/chromium).
 LITVM_VERCEL_BYPASS_RESTART_EVERY = 60
 
+# ──────────────────────────────────────────────────────────────────────────
+# Rate-limit faucet submits (КРИТИЧНО для процента успеха)
+# ──────────────────────────────────────────────────────────────────────────
+# Минимальный интервал между двумя tRPC submit'ами faucet (секунды).
+# Назначение: дать server-side hot-wallet'у Caldera Hub стабилизировать
+# nonce между двумя подряд идущими запросами (иначе сервер отвечает
+# "Failed to send transaction").
+#
+# ВАЖНО: пейсинг происходит в WORKER-thread'ах через Condition (см.
+# vercel_bypass._acquire_submit_slot). Worker, которому слот ещё не достался,
+# ждёт сам — browser-thread в это время свободен и может обслуживать
+# ДРУГИЕ операции (warmup, balance check и т.п.).
+#
+# Эмпирическая шкала:
+#   3-5s — агрессивно, server-side signer ловит nonce-конфликты ("Failed to send transaction")
+#   6-8s — баланс throughput/стабильности (рекомендуется)
+#   10-15s — консервативно, throughput ~4 submit/мин
+# 11.05.26: подняли с 6 на 8 — на 6s Caldera Hub стабильно отвечал
+# server-busy примерно каждый 3-й submit.
+LITVM_FAUCET_SUBMIT_MIN_SPACING_SEC = 8
+
+# Максимум одновременно ожидающих submit-слот worker-потоков. При превышении
+# новые worker'ы получают «too busy» и откладывают попытку — НЕ тратя капчу.
+# Защищает от ситуации «50 кошельков подняли капчу, но через 5 минут она
+# уже устарела и сервер отвергнет».
+LITVM_FAUCET_SUBMIT_MAX_WAITERS = 8
+
+# Таймаут на одну browser-thread операцию (открыть context / выполнить tRPC).
+# Раньше было хардкоднуто 180s; при rate-limit'е в browser-thread это давало
+# массовые таймауты. Теперь rate-limit вынесен в worker, browser-thread
+# освободился — но для надёжности оставляем запас.
+LITVM_VERCEL_BROWSER_OP_TIMEOUT_SEC = 180
+
 # Кулдаун крана (часов). Стандарт Caldera Hub — раз в 24h на адрес.
 LITVM_FAUCET_COOLDOWN_HOURS = 24
 
@@ -469,3 +502,51 @@ ONMI_SITE_CREATE = "https://app.onmi.fun/create-token?chain=LITVM"
 ONMI_SITE_SWAP = "https://app.onmi.fun/swap?chain=LITVM"
 ONMI_SITE_LIQUIDITY = "https://app.onmi.fun/liquidity?chain=LITVM"
 ONMI_SITE_DOCS = "https://docs.onmi.fun/"
+
+# ========================================================================================
+# ZNS.bio (ZNS Connect) — регистрация .lit доменов на LiteForge
+# ========================================================================================
+# Контракт NFT-реестра (registerDomains, priceToRegister, domainLookup, ...).
+# Найден через парсинг JS-бандлов zns.bio (chunk 7278) → LITFORGE branch.
+ZNS_REGISTRY = "0x1c6C28403400c44D8D351dEaBcF7B1365F96EbF1"
+# NFT-контракт (ownerOf), отдельный адрес у Registry в этом проекте.
+# Здесь не используется — Registry сам ERC-721 (ownerOf доступен на нём).
+ZNS_TLD = "lit"
+
+# Default referral address (0x000... = без рефералки).
+ZNS_REFERRAL_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+# Распределение длительности аренды: 1 / 2 / 3 года.
+# Поумолчанию: 89% — 1 год, 10% — 2 года, 1% — 3 года (по запросу пользователя).
+# Учти: для длины ≥5 priceToRenew(len) = 0.8 zkLTC/год, поэтому 2-3 года
+# на testnet практически недоступны без faucet'а.
+ZNS_YEARS_WEIGHTS = {1: 89, 2: 10, 3: 1}
+
+# Сколько доменов регистрируем на КАЖДЫЙ кошелёк за сессию.
+ZNS_OPS_PER_WALLET_RANGE = [1, 1]
+
+# Длина никнейма (sanitised: [a-z0-9]+).
+ZNS_NAME_LENGTH_RANGE = [5, 10]
+# Сколько раз пытаемся сгенерить свободное имя.
+ZNS_NAME_MAX_TRIES = 12
+
+# Минимальный native баланс кошелька, чтобы участвовать (зависит от выбранного years).
+# При 1 годе: 0.002 zkLTC + газ. Возьмём safe-минимум 0.003.
+ZNS_MIN_NATIVE_BALANCE = 0.003
+# Резерв под gas (zkLTC) — overhead поверх payable value.
+ZNS_GAS_RESERVE = 0.0008
+
+# Паузы / повторы.
+ZNS_SLEEP_BETWEEN_OPS = [3.0, 12.0]
+ZNS_TX_ATTEMPTS = 2
+ZNS_TX_TIMEOUT_SEC = 240
+
+# Адрес-overpay safety multiplier (на случай неточности в priceToRegister/Renew).
+# 1.0 = ровно сколько контракт сказал. Increase if NotEnoughNativeTokenPaid.
+ZNS_PRICE_MULTIPLIER = 1.0
+
+# Сайт (для info-экрана).
+ZNS_SITE_HOME = "https://zns.bio/"
+ZNS_SITE_SEARCH = "https://zns.bio/search?tld=.lit"
+ZNS_SITE_CART = "https://zns.bio/cart"
+ZNS_SITE_DOCS = "https://docs.znsconnect.io/"

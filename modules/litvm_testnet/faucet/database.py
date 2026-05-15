@@ -272,6 +272,41 @@ def cooldown_remaining(address: str, cooldown_hours: int) -> Optional[timedelta]
     return cooldown - elapsed
 
 
+def wallets_with_request_history(addresses: list[str]) -> set[str]:
+    """Возвращает подмножество переданных адресов (lowercased), у которых
+    в `request_history` есть хотя бы одна запись (любого статуса — success
+    или fail).
+
+    Используется на старте сессии faucet'а, чтобы отделить «новые» кошельки
+    (кран ни разу не запрашивался) от «уже запрашивавших». Новые идут
+    первой фазой — приоритет тратить captcha-кредиты на адреса, которые
+    ещё ни разу крана не видели."""
+    if not addresses:
+        return set()
+    uniq = list({a.lower() for a in addresses if a})
+    if not uniq:
+        return set()
+    # SQLITE_MAX_VARIABLE_NUMBER по дефолту 999 в старых сборках — режем
+    # на чанки, чтобы не упасть на большом data.csv.
+    chunk_size = 500
+    found: set[str] = set()
+    with _lock:
+        conn = _connect()
+        try:
+            for i in range(0, len(uniq), chunk_size):
+                chunk = uniq[i:i + chunk_size]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"SELECT DISTINCT address FROM request_history "
+                    f"WHERE address IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(r["address"] for r in rows)
+        finally:
+            conn.close()
+    return found
+
+
 def avg_arrival_seconds(samples: int = 20) -> Optional[float]:
     """Среднее время зачисления крана по `samples` последним записям с фактом arrival.
     Возвращает None если статистики ещё нет."""

@@ -81,6 +81,13 @@ LITVM_TESTNET_SUBMENU = SubMenu(
             icon='💧',
             enabled=True,
         ),
+        MenuItem(
+            key='zns_bio',
+            label='ZNS.bio · Регистрация .lit доменов',
+            description='Регистрация случайных никнеймов в TLD .lit на ZNS Connect',
+            icon='🪪',
+            enabled=True,
+        ),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ],
 )
@@ -134,4 +141,8 @@ def litvm_testnet_menu() -> None:
         elif action == 'onmi_liquidity':
             from modules.litvm_testnet.onmi.liquidity import run_litvm_onmi_liquidity
             run_litvm_onmi_liquidity()
+            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+        elif action == 'zns_bio':
+            from modules.litvm_testnet.zns_bio import run_litvm_zns_bio
+            run_litvm_zns_bio()
             input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
