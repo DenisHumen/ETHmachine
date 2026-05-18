@@ -326,7 +326,7 @@ AYNI_WZKLTC_ADDRESS = AYNI_WZKLTC_DEPOSIT_TARGET
 AYNI_CHAIN_ID = 4441
 
 # Какую долю native zkLTC заворачиваем (random.uniform). 1.0 = всё минус резерв.
-AYNI_WRAP_PCT_RANGE = [0.30, 0.50]
+AYNI_WRAP_PCT_RANGE = [0.01, 0.02]
 
 # Резерв на газ (zkLTC) — не трогаем при WRAP_PCT_RANGE[1] = 1.0.
 AYNI_GAS_RESERVE_ZKLTC = 0.0005

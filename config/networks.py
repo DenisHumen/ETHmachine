@@ -58,7 +58,6 @@ NETWORKS = {
         'rpc_urls': [
             'https://api.avax.network/ext/bc/C/rpc',
             'https://avalanche-c-chain-rpc.publicnode.com',
-            'https://1rpc.io/avax/c',
             'https://avalanche.drpc.org',
         ],
         'symbol': 'AVAX',

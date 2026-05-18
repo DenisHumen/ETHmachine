@@ -256,6 +256,7 @@ TRANSACTIONS_SUBMENU = SubMenu(
         MenuItem(key='collectors', label='Collectors', description='Сборщик балансов на main кошелек', icon='🧹', enabled=True),
         MenuItem(key='transfer_wallets_to_wallets_call', label='Transfer Wallets to Wallets', description='Отправить нативные токены между кошельками', icon='🔄', enabled=True),
         MenuItem(key='transfer_erc20_tokens_call', label='Transfer ERC20 Tokens', description='Отправить ERC20 токены между кошельками', icon='💎', enabled=True),
+        MenuItem(key='transfer_kava_to_cex_call', label='Transfer KAVA → CEX', description='Native KAVA на CEX (kava1 bech32 → 0x)', icon='🚀', enabled=True),
         MenuItem(key='relay_bridge', label='Relay Bridge', description='Мост между сетями через Relay Link', icon='🌉', enabled=True),
         MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
     ]

@@ -431,6 +431,9 @@ class MenuHandlers:
             case 'transfer_erc20_tokens_call':
                 from modules.eth.transfer_erc20_tokens import run_transfer_erc20_tokens
                 run_transfer_erc20_tokens()
+            case 'transfer_kava_to_cex_call':
+                from modules.eth.transfer_kava_to_cex import run_transfer_kava_to_cex
+                run_transfer_kava_to_cex()
             case 'relay_bridge':
                 relay_bridge_main()
     

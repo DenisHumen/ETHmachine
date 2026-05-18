@@ -3,7 +3,7 @@
 # ========================================================================================
 # Эти параметры используются во многих модулях
 
-NUM_THREADS = 5  # если больше 100, нужно добавить больше rpc для перебора, не меньше 5 (чем больше тем лучше)
+NUM_THREADS = 2  # если больше 100, нужно добавить больше rpc для перебора, не меньше 5 (чем больше тем лучше)
 SLEEP_BETWEEN_ACTIONS = [2, 4]  # Задержка между действиями
 DELAY_BETWEEN_ACCOUNTS = [3, 5]  # Задержка между стартом аккаунтов
 TX_SEND_ATTEMPTS = 1  # Количество попыток отправки транзакции
@@ -20,7 +20,7 @@ CAPTCHA_SERVICE = 'yescaptcha'  # Выбранный сервис решения
 TWOCAPTCHA_API_KEY = ''     # API ключ для 2Captcha - https://2captcha.com/
 ANTICAPTCHA_API_KEY = ''    # API ключ для Anti-Captcha - https://anti-captcha.com/
 CAPSOLVER_API_KEY = ''      # API ключ для CapSolver - https://www.capsolver.com/
-YESCAPTCHA_API_KEY = ''     # API ключ для YesCaptcha - https://yescaptcha.com/
+YESCAPTCHA_API_KEY = '6c2df04e345a1d8936c611b0376b0d9a4f5b78cc54766'     # API ключ для YesCaptcha - https://yescaptcha.com/
 CAPMONSTER_API_KEY = ''     # API ключ для CapMonster Cloud - https://capmonster.cloud/
 
 # ========================================================================================
