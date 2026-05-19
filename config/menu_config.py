@@ -306,6 +306,7 @@ PROJECTS_SUBMENU = SubMenu(
         MenuItem(key='dune', label='Dune', description='Аналитика и проверка кошельков через Dune Analytics', icon='🟢', enabled=True),
         MenuItem(key='fhenix', label='Fhenix', description='Кран ghostchain (Sepolia) и др.', icon='🟢', enabled=True),
         MenuItem(key='litvm_testnet', label='LiteForge testnet', description='Кран zkLTC и др. активности на LiteForge', icon='🟢', enabled=True),
+        MenuItem(key='safepal_x1', label='SafePal X1', description='Проверка eligibility на claim SafePal X1 hardware wallet', icon='🟪', enabled=True),
         MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
     ]
 )

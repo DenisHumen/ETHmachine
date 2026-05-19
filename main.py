@@ -544,6 +544,9 @@ class MenuHandlers:
             elif choice == 'litvm_testnet':
                 from modules.litvm_testnet import litvm_testnet_menu
                 litvm_testnet_menu()
+            elif choice == 'safepal_x1':
+                from modules.eth.safepal_x1_checker import safepal_x1_checker_menu
+                safepal_x1_checker_menu()
             elif choice == 'back' or choice is None:
                 break
     

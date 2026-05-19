@@ -363,7 +363,7 @@ ONMI_HTTP_TIMEOUT = 60
 ONMI_INITIAL_BUY_PROBABILITY = 0.85   # с какой вероятностью делать createTokenAndBuy (vs createToken)
 ONMI_INITIAL_BUY_RANGE_ZKLTC = [0.0005, 0.002]
 
-# Описание заполняем только в ~5% случаев (по ТЗ пользователя).
+# Описание заполняем только в ~5% случаев 
 ONMI_DESCRIPTION_PROBABILITY = 0.05
 
 # Резервы / лимиты.
