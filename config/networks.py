@@ -49,9 +49,29 @@ NETWORKS = {
         'type': 'mainnet'
     },
     '🚀 Binance Smart Chain': {
-        'rpc_urls': ['https://binance.llamarpc.com'],
+        'rpc_urls': [
+            'https://bsc-dataseed.bnbchain.org',
+            'https://bsc-dataseed1.binance.org',
+            'https://bsc-dataseed2.binance.org',
+            'https://bsc.publicnode.com',
+            'https://bsc-rpc.publicnode.com',
+            'https://1rpc.io/bnb',
+            'https://bsc.meowrpc.com',
+            'https://bsc-dataseed1.defibit.io',
+            'https://bsc-dataseed1.ninicoin.io',
+        ],
         'symbol': 'BNB',
         'tx_url': "https://bscscan.com/tx/",
+        'chain_id': 56,
+        'type': 'mainnet'
+    },
+    '🚀 Sahara AI': {
+        'rpc_urls': [
+            'https://mainnet.saharalabs.ai',
+        ],
+        'symbol': 'SAHARA',
+        'tx_url': "https://explorer.saharalabs.ai/tx/",
+        'chain_id': 3132023,
         'type': 'mainnet'
     },
     '🚀 Avalanche C-Chain': {
