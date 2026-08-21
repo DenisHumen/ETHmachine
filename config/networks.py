@@ -138,7 +138,7 @@ NETWORKS = {
         'symbol': 'SOMI',
         'tx_url': "https://explorer.somnia.network/tx/",
         'type': 'mainnet'
-    },    
+    },
     '🚀 Linea': {
         'rpc_urls': ['https://linea.drpc.org', 'https://1rpc.io/linea'],
         'symbol': 'ETH',
@@ -262,8 +262,8 @@ def get_network_display_name(network_name: str):
     значение Choice по-прежнему должно быть оригинальным ключом сети.
 
     Возвращает либо строку (если сеть не закрыта), либо FormattedText
-    (для закрытых сетей) — обе формы корректно принимаются questionary.Choice.
-    Без обёртки questionary рендерит ANSI-escape байты литерально (^[[41m...).
+    (для закрытых сетей) — обе формы корректно принимает меню из modules/ui.
+    Без обёртки ANSI-escape байты рендерятся литерально (^[[41m...).
     """
     if network_name not in CLOSED_NETWORKS:
         return network_name

@@ -814,43 +814,19 @@ def create_zip_archive(files: List[str]) -> Optional[str]:
 
 def pinterest_downloader_menu():
     """Меню Pinterest Downloader — вызывается из main.py."""
-    from questionary import text, confirm
+    from modules.ui import ui
 
-    console.print("\n[bold magenta]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]")
-    console.print("[bold cyan]  📌 Pinterest Random Image Downloader[/]")
-    console.print("[bold magenta]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n")
+    ui.print_lines(ui.header("Pinterest", "скачивание случайных картинок"))
 
-    count_str = text(
-        "Сколько картинок скачать?",
-        default="10",
-        qmark="📌",
-    ).ask()
-
-    if count_str is None:
+    # ask_int сам проверяет границы — ручной разбор строки больше не нужен.
+    count = ui.ask_int("Сколько картинок скачать", minimum=1,
+                       maximum=PINTEREST_MAX_IMAGES, default=10)
+    if count is None:
         return
-
-    try:
-        count = int(count_str)
-        if count <= 0:
-            raise ValueError
-    except ValueError:
-        log_simple("Некорректное число.", status="error", account_name="Pinterest")
-        return
-
-    if count > PINTEREST_MAX_IMAGES:
-        console.print(f"[bold yellow]⚠️  Максимум {PINTEREST_MAX_IMAGES} картинок за раз.[/]")
-        count = PINTEREST_MAX_IMAGES
 
     downloaded = download_pinterest_images(count)
 
-    if downloaded:
-        should_zip = confirm(
-            "Собрать скачанные картинки в ZIP архив?",
-            default=True,
-            qmark="📦",
-        ).ask()
-
-        if should_zip:
-            create_zip_archive(downloaded)
+    if downloaded and ui.confirm("Собрать картинки в ZIP-архив?", default=True):
+        create_zip_archive(downloaded)
 
     console.print(f"\n[bold green]✅ Завершено![/] Файлы в: [underline]{RESULT_DIR}[/]\n")

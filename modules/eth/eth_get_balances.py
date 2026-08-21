@@ -13,7 +13,6 @@ from datetime import datetime
 
 import requests
 from colorama import init
-from questionary import Choice, select
 
 from rich.console import Console
 from rich.live import Live
@@ -29,6 +28,8 @@ sys.path.append(str(project_root))
 
 from config.modules.general_config import NUM_THREADS
 from config.networks import NETWORKS, get_network_display_name
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
     update_task_status, reset_database_for_new_run, get_all_results
@@ -94,7 +95,7 @@ def check_wallet(wallet: str, rpc_urls: list, proxies: list, proxy_idx: int) -> 
     # Получаем прокси по индексу
     proxy_str = proxies[proxy_idx % len(proxies)] if proxies else None
     proxy_dict = make_proxy_dict(proxy_str)
-    
+
     for rpc_url in rpc_urls[:3]:  # Максимум 3 RPC
         balance = get_balance_rpc(wallet, rpc_url, proxy_dict)
         if balance >= 0:
@@ -103,7 +104,7 @@ def check_wallet(wallet: str, rpc_urls: list, proxies: list, proxy_idx: int) -> 
         if proxies:
             proxy_str = random.choice(proxies)
             proxy_dict = make_proxy_dict(proxy_str)
-    
+
     return {'wallet': wallet, 'balance': 0, 'success': False, 'error': 'RPC failed'}
 
 
@@ -111,17 +112,17 @@ def create_panel(network: str, total: int, success: int, failed: int, logs: list
     """Создание панели прогресса в стиле Ubuntu/Neura"""
     processed = success + failed
     percent = (processed / total * 100) if total > 0 else 0
-    
+
     # Прогресс бар
     bar_width = 40
     filled = int(bar_width * percent / 100)
     bar_filled = "━" * filled
     bar_empty = "─" * (bar_width - filled)
-    
+
     # Цвет бара
     success_rate = (success / processed * 100) if processed > 0 else 100
     bar_style = "bright_green" if success_rate >= 80 else "yellow" if success_rate >= 50 else "red"
-    
+
     # Таблица статистики
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("L1", style="dim")
@@ -136,23 +137,23 @@ def create_panel(network: str, total: int, success: int, failed: int, logs: list
         "📊 Всего:", Text(str(total), style="bold"),
         "⚡ Потоков:", Text(str(NUM_THREADS), style="bold cyan")
     )
-    
+
     # Заголовок
     header = Text()
     header.append(f"\n🌐 ", style="bold")
     header.append(f"{network}\n", style="bold cyan")
-    
+
     # Прогресс бар
     progress_bar = Text()
     progress_bar.append(bar_filled, style=f"bold {bar_style}")
     progress_bar.append(bar_empty, style="dim")
     progress_bar.append(f" {percent:.1f}%\n", style=f"bold {bar_style}")
-    
+
     # Обработано
     processed_text = Text()
     processed_text.append(f"Обработано: ", style="dim")
     processed_text.append(f"{processed}/{total}\n\n", style="bold")
-    
+
     # Логи
     logs_section = Text()
     logs_section.append("📝 Последние события:\n", style="bold")
@@ -162,9 +163,9 @@ def create_panel(network: str, total: int, success: int, failed: int, logs: list
         logs_section.append(f"{msg}\n", style=style)
     if not logs:
         logs_section.append("  Ожидание...\n", style="dim")
-    
+
     content = Group(header, progress_bar, processed_text, table, Text(""), logs_section)
-    
+
     return Panel(
         content,
         title="[bold bright_blue]💰 ETH BALANCE CHECKER[/bold bright_blue]",
@@ -181,7 +182,7 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
     success = 0
     failed = 0
     logs = []  # (timestamp, message, level)
-    
+
     proxies = load_proxies()
     max_workers = min(NUM_THREADS, total, 20)
 
@@ -200,7 +201,7 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
             f"⚠️ Не разобрано прокси: {len(bad_proxies)} — часть запросов пойдёт напрямую",
             "WARNING"
         ))
-    
+
     with Live(create_panel(network_name, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Создаём задачи с индексом для прокси
@@ -208,15 +209,15 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
                 executor.submit(check_wallet, wallet, rpc_urls, proxies, idx): wallet
                 for idx, wallet in enumerate(wallets)
             }
-            
+
             for future in as_completed(futures):
                 wallet = futures[future]
                 short = f"{wallet[:6]}...{wallet[-4:]}"
-                
+
                 try:
                     result = future.result(timeout=30)
                     results[wallet] = result
-                    
+
                     if result['success']:
                         success += 1
                         update_task_status(wallet, 'native_balance', 'completed', network=network_name, balance=str(result['balance']))
@@ -233,10 +234,10 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
                     results[wallet] = {'wallet': wallet, 'balance': 0, 'success': False, 'error': str(e)[:30]}
                     update_task_status(wallet, 'native_balance', 'failed', network=network_name, error_message=str(e)[:50])
                     logs.append((time.strftime("%H:%M:%S"), f"[{short}] ❌ {str(e)[:20]}", "ERROR"))
-                
+
                 # Обновляем панель
                 live.update(create_panel(network_name, total, success, failed, logs))
-    
+
     return results
 
 
@@ -275,10 +276,10 @@ def save_results(results: dict, wallets: list, network_name: str, symbol: str):
     """Сохранение результатов в порядке wallets"""
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     clean_network = network_name.replace('🚀 ', '').replace(' ', '_')
-    
+
     for filepath in [result_dir / f"balances_{clean_network}_{timestamp}.csv", result_dir / 'result.csv']:
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -290,7 +291,7 @@ def save_results(results: dict, wallets: list, network_name: str, symbol: str):
                     writer.writerow([wallet, r['balance'], symbol, network_name, status])
                 else:
                     writer.writerow([wallet, 0, symbol, network_name, 'ERROR: Not processed'])
-    
+
     console.print(f"[green]💾 Результаты сохранены в result/result.csv[/green]")
 
 
@@ -299,7 +300,7 @@ def print_summary(results: dict, symbol: str):
     success_list = [r for r in results.values() if r['success']]
     failed_list = [r for r in results.values() if not r['success']]
     total_balance = sum(r['balance'] for r in success_list)
-    
+
     console.print("\n" + "="*60)
     console.print(f"[bold cyan]📊 ИТОГИ ПРОВЕРКИ[/bold cyan]")
     console.print("="*60)
@@ -307,7 +308,7 @@ def print_summary(results: dict, symbol: str):
     console.print(f"[red]❌ Ошибки: {len(failed_list)}[/red]")
     console.print(f"[yellow]💰 Общий баланс: {total_balance:.6f} {symbol}[/yellow]")
     console.print("="*60)
-    
+
     # Топ кошельков с балансом
     with_balance = sorted([r for r in success_list if r['balance'] > 0], key=lambda x: x['balance'], reverse=True)
     if with_balance:
@@ -322,58 +323,43 @@ def check_wallet_balances_menu():
     if not wallets:
         console.print("[red]❌ Нет кошельков![/red]")
         return
-    
+
     console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
-    
+
     # Выбор типа сети
-    network_type = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Выбор типа сети / Network Type            ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   🌐 Mainnet Networks', 'mainnet'),
-            Choice('   🔧 Testnet Networks', 'testnet'),
-            Choice('   🌐 Все Mainnet сети', 'all_mainnet'),
-            Choice('   🔧 Все Testnet сети', 'all_testnet'),
-            Choice('   🔙 Назад / Back', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-    
-    if network_type == 'back' or not network_type:
+    network_type = ui.choose("Какой тип сети?", [
+        ("🌐 Mainnet — выбрать одну сеть", "mainnet"),
+        ("🔧 Testnet — выбрать одну сеть", "testnet"),
+        ("🌐 Все mainnet-сети", "all_mainnet"),
+        ("🔧 Все testnet-сети", "all_testnet"),
+    ])
+
+    if network_type in (None, BACK_KEY):
         return
-    
+
     # Получаем сети
     networks = {k: v for k, v in NETWORKS.items() if v['type'] == ('mainnet' if 'mainnet' in network_type else 'testnet')}
-    
+
     # Если выбрана одна сеть
     if network_type in ['mainnet', 'testnet']:
-        choices = [Choice(get_network_display_name(name), name) for name in networks.keys()] + [Choice('🔙 Назад', 'back')]
-        selected = select("Выберите сеть:", choices=choices, qmark='🛠️', pointer='👉').ask()
-        if selected == 'back' or not selected:
+        selected = ui.choose("В какой сети считаем балансы?", [
+            (get_network_display_name(name), name) for name in networks
+        ])
+        if selected in (None, BACK_KEY):
             return
         networks = {selected: networks[selected]}
-    
+
     # Действие с БД
-    action = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Действие с базой данных                   ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
-            Choice('   🔄 Начать заново (сброс БД)', 'reset'),
-            Choice('   🔙 Назад', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-    
-    if action == 'back' or not action:
+    action = ui.choose("Действие с базой данных", [
+        ("▶️ Продолжить незавершённые задачи", "continue"),
+        ("🔄 Начать заново (сброс БД)", "reset"),
+    ])
+
+    if action in (None, BACK_KEY):
         return
-    
+
     all_results = {}
-    
+
     for network_name, network_data in networks.items():
         # Networks with an `oklink_chain` flag are checked through the OKLink
         # multi-token checker (native + all ERC20 in one shot, with Excel export).
@@ -388,29 +374,29 @@ def check_wallet_balances_menu():
 
         rpc_urls = network_data['rpc_urls']
         symbol = network_data['symbol']
-        
+
         console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
         console.print(f"[bold cyan]🌐 Сеть: {network_name}[/bold cyan]")
         console.print(f"[bold cyan]{'='*60}[/bold cyan]")
-        
+
         init_database()
-        
+
         if action == 'reset':
             reset_database_for_new_run('native_balance', network_name)
             create_balance_tasks(wallets, 'native_balance', network_name)
-        
+
         pending = get_pending_tasks('native_balance', network_name)
         if not pending:
             create_balance_tasks(wallets, 'native_balance', network_name)
             pending = get_pending_tasks('native_balance', network_name)
-        
+
         if not pending:
             console.print(f"[yellow]⚠️ Все задачи уже выполнены[/yellow]")
             continue
-        
+
         wallets_to_check = [t['wallet_address'] for t in pending]
         console.print(f"[cyan]📋 Задач: {len(wallets_to_check)}[/cyan]")
-        
+
         # Обработка
         results = process_wallets(wallets_to_check, rpc_urls, network_name, symbol)
 
@@ -421,9 +407,9 @@ def check_wallet_balances_menu():
         # Сохранение в порядке wallets
         save_results(report, wallets, network_name, symbol)
         print_summary(report, symbol)
-    
+
     console.print("\n[bold green]✅ Проверка завершена![/bold green]\n")
-    
+
     # Telegram
     try:
         results_list = list(all_results.values())

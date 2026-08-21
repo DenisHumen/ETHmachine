@@ -9,7 +9,6 @@ import requests
 import binascii
 from typing import Dict, List, Optional, Tuple
 from web3 import Web3
-from questionary import Choice, select
 
 # Добавляем путь к корневой директории проекта
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +16,8 @@ project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
 from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY
 # Импорты из проекта
 from config.modules.cfg_relay import SUM_TO_RELAY, GAS
 from config.modules.general_config import (
@@ -153,14 +154,14 @@ class RelayBridge:
 
         # Инициализация CSV файла с заголовками
         self._init_csv_file()
-    
+
     def _init_database(self):
         """Инициализация базы данных для отслеживания прогресса"""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS relay_progress (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,23 +179,23 @@ class RelayBridge:
                 error_count INTEGER DEFAULT 0
             )
         ''')
-        
+
         # Проверяем и добавляем поле error_count если его нет (миграция)
         cursor.execute("PRAGMA table_info(relay_progress)")
         columns = [col[1] for col in cursor.fetchall()]
-        
+
         if 'error_count' not in columns:
             cursor.execute('ALTER TABLE relay_progress ADD COLUMN error_count INTEGER DEFAULT 0')
-        
+
         # Миграция: добавляем поле bridge_fee и удаляем старые поля газа
         if 'bridge_fee' not in columns:
             cursor.execute('ALTER TABLE relay_progress ADD COLUMN bridge_fee REAL DEFAULT 0')
-        
+
         # Удаляем старые поля газа если они есть (в SQLite нельзя просто удалить колонки, но можем их игнорировать)
-        
+
         conn.commit()
         conn.close()
-    
+
     def _select_network_and_token(self, prompt_text: str, exclude_chain_id: int = None) -> Tuple[Optional[int], Optional[str]]:
         """
         Интерактивный выбор сети. Токен всегда нативный — см. комментарий ниже.
@@ -206,30 +207,22 @@ class RelayBridge:
         Returns:
             Tuple[chain_id, token_symbol] или (None, None) при отмене
         """
-        # Список доступных сетей
         available_networks = []
         for network_name, chain_id in NETWORK_MAPPING.items():
             if exclude_chain_id and chain_id == exclude_chain_id:
                 continue
-            network_display = f"🌐 {NETWORK_SETTINGS[chain_id]['name']}"
-            available_networks.append(Choice(network_display, (network_name, chain_id)))
-        
-        available_networks.append(Choice('🔙 Назад', None))
-        
-        # Выбор сети
-        logger.info(f"\n{prompt_text}")
-        selected = select(
-            "Выберите сеть:",
-            choices=available_networks,
-            qmark='🛠️',
-            pointer='👉'
-        ).ask()
-        
-        if selected is None:
+            available_networks.append((
+                f"🌐 {NETWORK_SETTINGS[chain_id]['name']}",
+                (network_name, chain_id),
+            ))
+
+        selected = ui.choose(prompt_text, available_networks)
+
+        if selected in (None, BACK_KEY):
             return None, None
-        
+
         network_name, chain_id = selected
-        
+
         # Токен не спрашиваем: весь путь ниже (котировка, расчёт суммы, проверка
         # поступления) работает только с нативной монетой сети. Раньше меню
         # предлагало USDC/USDT, выбор логировался в итоговой конфигурации,
@@ -311,7 +304,7 @@ class RelayBridge:
             min_amount, max_amount = SUM_TO_RELAY
             amount = random.uniform(min_amount, max_amount)
             return amount
-    
+
     def _create_work_plan(self, from_chain_id: int, to_chain_id: int):
         """Создание полного плана работ в базе данных.
 
@@ -320,62 +313,62 @@ class RelayBridge:
         """
         from_network = CHAIN_ID_TO_NAME[from_chain_id]
         to_network = CHAIN_ID_TO_NAME[to_chain_id]
-        
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         # Проверяем, есть ли уже записи в базе
         cursor.execute("SELECT COUNT(*) FROM relay_progress")
         existing_count = cursor.fetchone()[0]
-        
+
         if existing_count == 0:
             for private_key in self.private_keys:
                 # Получение адреса кошелька
                 account = Web3().eth.account.from_key(private_key)
                 wallet_address = account.address
-                
+
                 # Вычисление суммы для бриджа (с поддержкой процентов)
                 amount = self._calculate_bridge_amount(wallet_address, from_chain_id)
-                
+
                 if amount <= 0:
                     logger.warning(f"⚠️ Пропускаем кошелек {wallet_address} - недостаточно средств")
                     continue
-                
+
                 # Добавление записи в БД (используем пустую строку для private_key_hash, т.к. теперь ищем по wallet_address)
                 cursor.execute('''
                     INSERT INTO relay_progress (wallet_address, private_key_hash, from_network, to_network, amount, status)
                     VALUES (?, ?, ?, ?, ?, 'pending')
                 ''', (wallet_address, '', from_network, to_network, amount))
-            
+
             conn.commit()
             logger.success(f"✅ План работ создан для {len(self.private_keys)} кошельков")
         elif existing_count > 0:
             logger.info(f"📋 Найдено {existing_count} записей в базе данных")
-        
+
         conn.close()
         return True
-    
+
     def _init_csv_file(self):
         """Инициализация CSV файла с заголовками"""
         os.makedirs(os.path.dirname(self.result_path), exist_ok=True)
-        
+
         # Всегда создаем новый файл или перезаписываем существующий
         with open(self.result_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             headers = [
                 'Wallet Address',
-                'From Network', 
-                'To Network', 
+                'From Network',
+                'To Network',
                 'Amount Sent',
-                'Transaction Hash', 
-                'Gas Cost (ETH)', 
-                'Status', 
+                'Transaction Hash',
+                'Gas Cost (ETH)',
+                'Status',
                 'Timestamp',
                 'Amount Received',
                 'Bridge Fee'
             ]
             writer.writerow(headers)
-    
+
     def _load_private_keys(self) -> List[str]:
         """Загрузка приватных ключей из data.csv"""
         from modules.data_manager import get_private_keys
@@ -458,26 +451,26 @@ class RelayBridge:
         """Загрузка прокси из data.csv"""
         from modules.data_manager import get_proxies
         return get_proxies()
-    
+
     def _get_random_proxy_for_api(self) -> Optional[str]:
         """Получение случайного прокси для API запросов"""
         # Сначала пробуем использовать случайный прокси из списка
         if self.proxies:
             return random.choice(self.proxies)
-        
+
         # Если список пуст, используем MAIN_PROXY
         if MAIN_PROXY:
             return MAIN_PROXY
-        
+
         # Если нет ни того, ни другого, возвращаем None
         return None
-    
+
     def _get_web3_connection(self, chain_id: int) -> Optional[Web3]:
         """Получение Web3 подключения с ротацией RPC"""
         if chain_id not in self.rpc_pools:
             logger.error(f"❌ Нет RPC для сети {chain_id}")
             return None
-        
+
         cache_key = chain_id
         if cache_key in self.web3_connections:
             web3 = self.web3_connections[cache_key]
@@ -486,10 +479,10 @@ class RelayBridge:
                 return web3
             else:
                 logger.warning(f"⚠️ Кешированное подключение к {NETWORK_SETTINGS[chain_id]['name']} не активно, переподключаемся...")
-        
+
         # Перебираем RPC пока не найдем рабочий (тихо)
         rpc_list = self.rpc_pools[chain_id]
-        
+
         for i, rpc_url in enumerate(rpc_list):
             try:
                 web3 = Web3(Web3.HTTPProvider(rpc_url))
@@ -501,10 +494,10 @@ class RelayBridge:
             except Exception as e:
                 logger.warning(f"⚠️ RPC ошибка: {rpc_url[:50]}... - {e}")
                 continue
-        
+
         logger.error(f"❌ Все RPC для сети {chain_id} ({NETWORK_SETTINGS[chain_id]['name']}) недоступны")
         return None
-    
+
     def _get_native_balance(self, chain_id: int, wallet_address: str, show_log: bool = False) -> float:
         """Получение баланса нативного токена — ответ первой живой ноды.
 
@@ -844,7 +837,7 @@ class RelayBridge:
         # Fallback для неизвестных сетей
         network_name = NETWORK_SETTINGS.get(chain_id, {}).get('name', 'Unknown')
         return f"Транзакция {tx_hash} в сети {network_name}"
-    
+
     def _check_balances(self, wallet_address: str, from_chain_id: int, to_chain_id: int) -> Dict[str, Dict]:
         """Проверка балансов в указанных сетях (включая Solana)"""
         balances = {}
@@ -878,7 +871,7 @@ class RelayBridge:
         if pair:
             return pair['sol_address']
         return None
-    
+
     def _get_quote(self, from_chain_id: int, to_chain_id: int, amount: int, wallet_address: str,
                    sol_recipient: str = None, sol_sender: str = None) -> Tuple[Optional[Dict], Optional[str]]:
         """
@@ -955,7 +948,7 @@ class RelayBridge:
             error_msg = f"Ошибка получения котировки: {e}"
             logger.error(f"❌ {error_msg}")
             return None, error_msg
-    
+
     @staticmethod
     def _arrival_poll_plan() -> Tuple[int, int]:
         """Интервал и число проверок поступления средств.
@@ -1047,39 +1040,39 @@ class RelayBridge:
                     amount_out_wei = int(quote_data['details']['currencyOut']['amount'])
                     amount_out_eth = float(Web3.from_wei(amount_out_wei, 'ether'))
                     quote_fee_eth = sent_amount - amount_out_eth
-            
+
             steps = quote_data.get('steps', [])
             if not steps:
                 logger.error("❌ Нет шагов в котировке")
                 return False
-            
+
             # Находим шаг с транзакцией
             tx_step = None
             for step in steps:
                 if step.get('kind') == 'transaction':
                     tx_step = step
                     break
-            
+
             if not tx_step:
                 logger.error("❌ Не найден шаг с транзакцией")
                 return False
-            
+
             items = tx_step.get('items', [])
             if not items:
                 logger.error("❌ Нет элементов транзакции")
                 return False
-            
+
             tx_data = items[0].get('data', {})
             if not tx_data:
                 logger.error("❌ Нет данных транзакции")
                 return False
-            
+
             # Подключение к сети
             chain_id = tx_data.get('chainId', 1)
             web3 = self._get_web3_connection(chain_id)
             if not web3:
                 return False
-            
+
             # Получаем начальные балансы для проверки
             initial_from_balance = self._get_native_balance(from_chain_id, wallet_address)
             if to_chain_id == SOLANA_CHAIN_ID:
@@ -1090,13 +1083,13 @@ class RelayBridge:
 
             # Подготовка транзакции
             account = web3.eth.account.from_key(private_key)
-            
+
             value_amount = tx_data.get('value', '0')
             if isinstance(value_amount, str):
                 value_amount = int(value_amount) if value_amount != '0' else 0
             elif value_amount is None:
                 value_amount = 0
-            
+
             # Создание и оценка транзакции для получения лимита газа
             transaction_for_estimate = {
                 'from': wallet_address,
@@ -1106,7 +1099,7 @@ class RelayBridge:
                 'nonce': web3.eth.get_transaction_count(wallet_address),
                 'chainId': chain_id  # Добавляем chainId для EIP-155
             }
-            
+
             try:
                 estimated_gas = web3.eth.estimate_gas(transaction_for_estimate)
                 gas_limit = int(estimated_gas * 1.2)
@@ -1116,16 +1109,16 @@ class RelayBridge:
                 if isinstance(gas_limit, str):
                     gas_limit = int(gas_limit)
                 gas_limit = int(gas_limit * 1.1)
-            
+
             # Ожидание приемлемой цены газа с учетом лимита
-            
+
             # Проверяем поддержку EIP-1559 (Type 2 transactions)
             try:
                 latest_block = web3.eth.get_block('latest')
                 supports_eip1559 = hasattr(latest_block, 'baseFeePerGas') and latest_block.baseFeePerGas is not None
             except:
                 supports_eip1559 = False
-            
+
             # Финальная транзакция
             if supports_eip1559:
                 # EIP-1559 транзакция (Type 2)
@@ -1157,7 +1150,7 @@ class RelayBridge:
             else:
                 # Legacy транзакция (Type 0)
                 gas_price = self._wait_for_acceptable_gas_price(web3, gas_limit, chain_id)
-                
+
                 final_transaction = {
                     'to': Web3.to_checksum_address(tx_data['to']),
                     'data': tx_data.get('data', '0x'),
@@ -1167,7 +1160,7 @@ class RelayBridge:
                     'nonce': web3.eth.get_transaction_count(wallet_address),
                     'chainId': chain_id  # Добавляем chainId для EIP-155 (replay protection)
                 }
-            
+
             # Подпись и отправка
             signed_tx = web3.eth.account.sign_transaction(final_transaction, private_key)
             tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
@@ -1180,11 +1173,11 @@ class RelayBridge:
             # Получаем ссылку на explorer
             explorer_link = self._get_transaction_explorer_link(chain_id, tx_hash.hex())
             logger.info(f"📤 Транзакция отправлена: {explorer_link}")
-            
+
             # Ждем небольшое время перед проверкой
             logger.info(f"⏰ Ожидание 30 секунд перед проверкой статуса транзакции...")
             time.sleep(30)
-            
+
             # Проверяем статус транзакции в исходной сети
             try:
                 tx_receipt = web3.eth.get_transaction_receipt(tx_hash)
@@ -1199,18 +1192,18 @@ class RelayBridge:
                     return False
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось получить статус транзакции: {e}")
-            
+
             # Проверяем успешность через изменение балансов
             logger.info(f"🔍 Проверка поступления средств в {NETWORK_SETTINGS[to_chain_id]['name']}...")
             transaction_success = self._check_balance_changes(
-                wallet_address, from_chain_id, to_chain_id, sent_amount, 
+                wallet_address, from_chain_id, to_chain_id, sent_amount,
                 initial_from_balance, initial_to_balance
             )
-            
+
             # Если балансы изменились, транзакция успешна
             if transaction_success:
                 logger.success(f"✅ Транзакция подтверждена")
-            
+
             # Сохранение результата
             if transaction_success:
                 self._save_transaction_result(
@@ -1220,12 +1213,12 @@ class RelayBridge:
             else:
                 self._save_transaction_result(wallet_address, tx_hash.hex(), 0, 'failed')
                 return False
-                
+
         except Exception as e:
             logger.error(f"❌ Ошибка выполнения транзакции: {e}")
             self._save_transaction_result(wallet_address, None, 0, 'error', str(e))
             return False
-    
+
     def _save_transaction_result(self, wallet_address: str, tx_hash: str, bridge_fee: float, status: str, error_msg: str = None):
         """Сохранение результата (и промежуточного состояния) транзакции в БД.
 
@@ -1258,15 +1251,15 @@ class RelayBridge:
 
         conn.commit()
         conn.close()
-    
-    def _save_to_csv(self, wallet_address: str, from_network: str, to_network: str, 
+
+    def _save_to_csv(self, wallet_address: str, from_network: str, to_network: str,
                      amount: float, tx_hash: str, bridge_fee: float, status: str, quote_data: Dict = None):
         """Сохранение результата в CSV файл"""
         os.makedirs(os.path.dirname(self.result_path), exist_ok=True)
-        
+
         with open(self.result_path, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            
+
             # Рассчитываем реальную полученную сумму и комиссию из котировки
             if quote_data and 'details' in quote_data and 'currencyOut' in quote_data['details']:
                 currency_out = quote_data['details']['currencyOut']
@@ -1289,25 +1282,25 @@ class RelayBridge:
                 estimated_received = amount * 0.995  # Примерно 0.5% комиссия
                 calculated_bridge_fee = amount - estimated_received
                 amount_out_eth = estimated_received
-                
+
                 logger.warning("⚠️ Используем примерную комиссию, так как нет данных котировки")
-            
+
             # Используем bridge_fee из базы данных, если он больше 0, иначе рассчитанный
             final_bridge_fee = bridge_fee if bridge_fee > 0 else calculated_bridge_fee
-            
+
             writer.writerow([
-                wallet_address, 
-                from_network.capitalize(), 
-                to_network.capitalize(), 
+                wallet_address,
+                from_network.capitalize(),
+                to_network.capitalize(),
                 f"{amount:.8f}",
-                tx_hash or 'N/A', 
+                tx_hash or 'N/A',
                 f"{final_bridge_fee:.8f}" if final_bridge_fee > 0 else 'N/A',
-                status.upper(), 
+                status.upper(),
                 time.strftime('%Y-%m-%d %H:%M:%S'),
                 f"{amount_out_eth:.8f}",
                 f"{final_bridge_fee:.8f}"
             ])
-    
+
     def _check_quote_fees(self, quote_data: Dict, amount_eth: float, from_chain_id: int, to_chain_id: int, amount_wei: int, wallet_address: str, sol_recipient: str = None, sol_sender: str = None) -> Dict:
         """Проверка комиссий в котировке перед выполнением с ожиданием снижения комиссии"""
         max_fee_usd = GAS.get('LIMIT_GAS_COST', 0.1)
@@ -1535,12 +1528,12 @@ class RelayBridge:
             except:
                 logger.error(f"❌ Ошибка обработки кошелька {wallet_index + 1}: {e}")
             return False
-    
+
     def _check_resume_option(self) -> bool:
         """Проверка возможности продолжения работы"""
         if not os.path.exists(self.db_path):
             return False
-        
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) FROM relay_progress')
@@ -1555,7 +1548,7 @@ class RelayBridge:
         cursor.execute('SELECT COUNT(*) FROM relay_progress WHERE error_count > 0')
         error_count = cursor.fetchone()[0]
         conn.close()
-        
+
         if total_count > 0:
             logger.info(f"📊 Статистика базы данных:")
             logger.info(f"   📋 Всего записей: {total_count}")
@@ -1563,35 +1556,29 @@ class RelayBridge:
             logger.info(f"   ✅ Завершенных: {completed_count}")
             if error_count > 0:
                 logger.info(f"   ❌ С ошибками: {error_count}")
-            
+
             if pending_count > 0:
-                choice = select(
-                    "Найдена существующая база данных с незавершенной работой. Что делать?",
-                    choices=[
-                        Choice("Продолжить работу с того места где остановились", "resume"),
-                        Choice("Очистить базу и начать заново", "restart")
-                    ]
-                ).ask()
+                choice = ui.menu("В базе есть незавершённая работа. Что делать?", [
+                    ("▶️ Продолжить с того места, где остановились", "resume"),
+                    ("🗑️ Очистить базу и начать заново", "restart"),
+                ])
             else:
-                choice = select(
-                    "Найдена существующая база данных (все задания выполнены). Что делать?",
-                    choices=[
-                        Choice("Использовать существующую базу (пропустить выполненные)", "resume"),
-                        Choice("Очистить базу и создать новый план работ", "restart")
-                    ]
-                ).ask()
-            
+                choice = ui.menu("В базе все задания выполнены. Что делать?", [
+                    ("▶️ Использовать базу — пропустить выполненные", "resume"),
+                    ("🗑️ Очистить базу и создать новый план работ", "restart"),
+                ])
+
             if choice == "restart":
                 logger.info("🗑️ Очистка базы данных...")
                 os.remove(self.db_path)
                 self._init_database()
                 return False
-            
+
             logger.info("📂 Использование существующей базы данных")
             return True
-        
+
         return False
-    
+
     def _get_wallet_record(self, private_key: str) -> Optional[Dict]:
         """Получить запись кошелька из базы данных"""
         # Получаем адрес кошелька из приватного ключа
@@ -1601,10 +1588,10 @@ class RelayBridge:
         except Exception as e:
             logger.error(f"❌ Ошибка получения адреса из приватного ключа: {e}")
             return None
-        
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             SELECT id, wallet_address, from_network, to_network, amount, status, error_count, error_message, tx_hash
             FROM relay_progress
@@ -1628,21 +1615,21 @@ class RelayBridge:
                 'tx_hash': result[8]
             }
         return None
-    
+
     def _update_wallet_error(self, wallet_id: int, error_message: str):
         """Обновить счетчик ошибок для кошелька"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
-            UPDATE relay_progress 
+            UPDATE relay_progress
             SET error_count = error_count + 1, error_message = ?
             WHERE id = ?
         ''', (error_message, wallet_id))
-        
+
         conn.commit()
         conn.close()
-    
+
     def _get_native_token_price_in_usdt(self, chain_id: int) -> float:
         """Получение курса нативного токена сети в USDT"""
         # Маппинг chain_id на CoinGecko ID
@@ -1657,11 +1644,11 @@ class RelayBridge:
             59144: 'ethereum',  # Linea - ETH
             SOLANA_CHAIN_ID: 'solana'  # Solana - SOL
         }
-        
+
         coingecko_id = coingecko_ids.get(chain_id, 'ethereum')
         network_name = NETWORK_SETTINGS[chain_id]['name']
         token_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
-        
+
         # Попробуем несколько раз с разными прокси
         max_attempts = 3
         for attempt in range(max_attempts):
@@ -1674,17 +1661,17 @@ class RelayBridge:
                         'http': f'http://{api_proxy}',
                         'https': f'http://{api_proxy}'
                     }
-                
+
                 response = requests.get(
-                    f'https://api.coingecko.com/api/v3/simple/price?ids={coingecko_id}&vs_currencies=usd', 
-                    proxies=proxies, 
+                    f'https://api.coingecko.com/api/v3/simple/price?ids={coingecko_id}&vs_currencies=usd',
+                    proxies=proxies,
                     timeout=10
                 )
                 response.raise_for_status()
                 data = response.json()
                 price = data[coingecko_id]['usd']
                 return float(price)
-                
+
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429 and attempt < max_attempts - 1:
                     logger.warning(f"⚠️ Rate limit попытка {attempt + 1}, пробуем другой прокси...")
@@ -1699,7 +1686,7 @@ class RelayBridge:
                     continue
                 else:
                     raise e
-        
+
         # Если все попытки провалились, используем fallback курсы
         logger.warning(f"⚠️ Не удалось получить курс {token_symbol} после {max_attempts} попыток, используем fallback")
         fallback_prices = {
@@ -1713,50 +1700,50 @@ class RelayBridge:
             SOLANA_CHAIN_ID: 150.0  # SOL
         }
         return fallback_prices.get(chain_id, 3000.0)
-    
+
     def _check_gas_cost_limit(self, chain_id: int, gas_limit: int, gas_price: int) -> bool:
         """Проверка лимита стоимости газа в текущей сети"""
         # Получаем курс нативного токена текущей сети
         token_price = self._get_native_token_price_in_usdt(chain_id)
         token_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
         network_name = NETWORK_SETTINGS[chain_id]['name']
-        
+
         # Вычисляем стоимость газа в нативном токене
         gas_cost_wei = gas_limit * gas_price
         gas_cost_native = Web3.from_wei(gas_cost_wei, 'ether')
-        
+
         # Конвертируем в USDT
         gas_cost_usdt = float(gas_cost_native) * token_price
-        
+
         limit_usdt = GAS['LIMIT_GAS_COST']
-        
+
         logger.info(f"⛽ Стоимость газа в {network_name}: {gas_cost_native:.6f} {token_symbol} (${gas_cost_usdt:.4f})")
         logger.info(f"📊 Лимит: ${limit_usdt}")
-        
+
         if gas_cost_usdt > limit_usdt:
             logger.warning(f"⚠️ Газ слишком дорогой: ${gas_cost_usdt:.4f} > ${limit_usdt}")
             return False
-        
+
         logger.success(f"✅ Газ в пределах лимита: ${gas_cost_usdt:.4f} ≤ ${limit_usdt}")
         return True
-    
+
     def _wait_for_acceptable_gas_price(self, web3: Web3, gas_limit: int, chain_id: int) -> int:
         """Ожидание приемлемой цены газа"""
         while True:
             try:
                 current_gas_price = web3.eth.gas_price
-                
+
                 if self._check_gas_cost_limit(chain_id, gas_limit, current_gas_price):
                     return current_gas_price
-                
+
                 logger.warning(f"⏳ Ожидание снижения цены газа... Повторная проверка через {GAS['WHITE_TIMEOUT']} сек")
                 time.sleep(GAS['WHITE_TIMEOUT'])
-                
+
             except Exception as e:
                 logger.error(f"❌ Ошибка при проверке цены газа: {e}")
                 # В случае ошибки используем умеренную цену
                 return web3.to_wei('20', 'gwei')
-    
+
     def _is_solana_route(self, from_chain_id: int, to_chain_id: int) -> bool:
         """Проверяет, участвует ли Solana в маршруте"""
         return from_chain_id == SOLANA_CHAIN_ID or to_chain_id == SOLANA_CHAIN_ID
@@ -1836,16 +1823,8 @@ class RelayBridge:
                     logger.info(f"🔑 Режим: мнемоники (ETH+SOL деривация)")
                 logger.info("="*60 + "\n")
 
-                # Подтверждение запуска
-                choice = select(
-                    "Запустить мост с этими параметрами?",
-                    choices=[
-                        Choice("✅ Да, запустить", True),
-                        Choice("❌ Нет, отменить", False)
-                    ],
-                    qmark='🛠️',
-                    pointer='👉'
-                ).ask()
+                choice = ui.confirm("Запустить мост с этими параметрами?",
+                                    default=True)
 
                 if not choice:
                     logger.info("👋 Работа отменена пользователем")
