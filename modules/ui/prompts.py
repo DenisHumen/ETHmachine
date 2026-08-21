@@ -105,6 +105,21 @@ def confirm(question: str, *, default: bool = True) -> bool:
     return bool(answer)
 
 
+def confirm_or_back(question: str, *, yes: str = "Да", no: str = "Нет") -> Any:
+    """Да / нет / назад: ``True``, ``False`` или ``BACK`` (``None`` при Ctrl+C).
+
+    Отдельно от ``confirm()``, потому что в мастерах (токен → сеть →
+    подтверждение) нужен третий исход — вернуться на шаг назад, а не
+    отменить всю операцию. Раньше каждый модуль вывода собирал это
+    меню из трёх ``Choice`` сам.
+    """
+    return menu(question, [
+        (f"✅ {yes}", True),
+        (f"❌ {no}", False),
+        (f"{_G.arrow} Назад", _BACK),
+    ])
+
+
 def ask_int(question: str, *, minimum: int | None = None,
             maximum: int | None = None, default: int | None = None) -> int | None:
     """Целое число с валидацией. ``None`` — пользователь отказался."""
@@ -183,6 +198,6 @@ def print_lines(*blocks: str) -> None:
 
 
 __all__ = [
-    "menu", "choose", "confirm", "ask_int", "ask_text", "pause",
-    "print_lines", "QMARK", "POINTER",
+    "menu", "choose", "confirm", "confirm_or_back", "ask_int", "ask_text",
+    "pause", "print_lines", "QMARK", "POINTER",
 ]

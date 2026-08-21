@@ -12,13 +12,14 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 sys.__stdout__ = sys.stdout
-from questionary import Choice, select
 from web3 import Web3
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from modules.simple_logger import logger
 from modules.proxy_manager import get_random_proxy_dict
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY
 
 from config.modules.cfg_cex import TYPE_WITHDRAW, VALUES_TO_WITHDRAW, WAIT_FOR_BALANCE
 from config.modules.general_config import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
@@ -36,9 +37,9 @@ def _setup_logging():
     if _logger_initialized:
         return
     _logger_initialized = True
-    
+
     os.makedirs(log_path, exist_ok=True)
-    
+
     logger.add(
         os.path.join(log_path, 'mexc_withdraw_errors.log'),
         level="ERROR",
@@ -61,43 +62,43 @@ csv_lock = threading.Lock()
 
 class BeautifulProgressBar:
     """Красивый прогресс-бар"""
-    
+
     def __init__(self, total, desc="Progress", width=50):
         self.total = total
         self.current = 0
         self.desc = desc
         self.width = width
         self.start_time = time.time()
-    
+
     def update(self, step=1):
         """Обновить прогресс"""
         self.current += step
         self._display()
-    
+
     def _display(self):
         """Отобразить прогресс-бар"""
         if self.total == 0:
             return
-            
+
         percentage = (self.current / self.total) * 100
         filled_width = int(self.width * self.current // self.total)
         bar = '█' * filled_width + '░' * (self.width - filled_width)
-        
+
         elapsed_time = time.time() - self.start_time
-        
+
         if self.current > 0:
             eta = (elapsed_time / self.current) * (self.total - self.current)
             eta_str = self._format_time(eta)
         else:
             eta_str = "??:??"
-        
+
         elapsed_str = self._format_time(elapsed_time)
-        
+
         print(f'\r\033[K🚀 {self.desc}: |{bar}| {self.current}/{self.total} [{percentage:6.2f}%] ⏱️ {elapsed_str} ⏳ ETA: {eta_str}', end='', flush=True)
-        
+
         if self.current >= self.total:
-            print() 
-    
+            print()
+
     def _format_time(self, seconds):
         """Форматировать время в MM:SS"""
         minutes = int(seconds // 60)
@@ -108,18 +109,18 @@ class BeautifulProgressBar:
 def sleeping_with_progress(duration, desc="Sleeping"):
     """Красивое ожидание с прогресс-баром"""
     progress = BeautifulProgressBar(duration, desc, width=40)
-    
+
     for i in range(duration):
         time.sleep(1)
         progress.update()
 
 
 def sleeping(*timing):
-    if len(timing) == 2: 
+    if len(timing) == 2:
         x = random.randint(timing[0], timing[1])
-    else: 
+    else:
         x = timing[0]
-    
+
     sleeping_with_progress(x, f"Sleep {x}s")
 
 
@@ -127,8 +128,8 @@ def mexc_signature(query_string, secret_key):
     """Создать подпись для MEXC API согласно официальной документации"""
     try:
         sign = hmac.new(
-            secret_key.encode('utf-8'), 
-            query_string.encode('utf-8'), 
+            secret_key.encode('utf-8'),
+            query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
         return sign
@@ -141,13 +142,13 @@ def mexc_data(api_key, secret_key, request_path="/api/v3/account", body='', meth
     """Подготовить данные для запроса к MEXC API согласно официальной документации"""
     try:
         from urllib.parse import urlencode, quote
-        
+
         server_time_response = requests.get('https://api.mexc.com/api/v3/time', timeout=10)
         server_time = server_time_response.json()['serverTime']
         req_time = server_time
-        
+
         params = {}
-        
+
         if '?' in request_path:
             path_parts = request_path.split('?')
             request_path = path_parts[0]
@@ -156,16 +157,16 @@ def mexc_data(api_key, secret_key, request_path="/api/v3/account", body='', meth
                 if '=' in param:
                     key, value = param.split('=', 1)
                     params[key] = value
-        
+
         if method.upper() == 'POST' and body:
             if isinstance(body, str):
                 body_data = json.loads(body)
             else:
                 body_data = body
             params.update(body_data)
-        
+
         params['timestamp'] = req_time
-        
+
         if params:
             sign_params = urlencode(params, quote_via=quote)
             to_sign = "{}&timestamp={}".format(
@@ -175,20 +176,20 @@ def mexc_data(api_key, secret_key, request_path="/api/v3/account", body='', meth
         else:
             to_sign = "timestamp={}".format(req_time)
             sign_params = to_sign
-        
+
         signature = mexc_signature(to_sign, secret_key)
         if not signature:
             return None, None, None, None
-        
+
         params['signature'] = signature
-        
+
         headers = {
             "X-MEXC-APIKEY": api_key,
             "Content-Type": "application/json"
         }
-        
+
         return "https://api.mexc.com", request_path, headers, params
-            
+
     except Exception as ex:
         logger.error(f'MEXC data error: {ex}')
         return None, None, None, None
@@ -199,7 +200,7 @@ def get_token_price_in_usdt(token):
     try:
         if token == 'USDT':
             return 1.0
-        
+
         response = requests.get(f"https://api.mexc.com/api/v3/ticker/price?symbol={token}USDT", timeout=10)
         data = response.json()
         if 'price' in data:
@@ -215,23 +216,23 @@ def get_account_balances(mexc_api_key, mexc_api_secret):
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
                                                            request_path="/api/v3/account", method="GET")
-        
+
         if not headers:
             logger.error("Failed to create MEXC headers")
             return {}
-        
+
         proxy = get_random_proxy_dict()
-        
+
         response = requests.get(f"{base_url}{request_path}", params=params, timeout=10, headers=headers, proxies=proxy)
         data = response.json()
-        
+
         balances = {}
         if 'balances' in data:
             for item in data['balances']:
                 available = float(item['free'])
                 if available > 0:
                     balances[item['asset']] = available
-        
+
         return balances
     except Exception as ex:
         logger.error(f'Error getting balances: {ex}')
@@ -243,24 +244,19 @@ def pick_token_to_withdraw(balances):
     if not balances:
         logger.error("No tokens with positive balance found")
         return None
-    
+
     logger.info("Available tokens with balance:")
     for token, balance in balances.items():
         logger.info(f"{token}: {balance}")
-    
-    choices = []
-    for token, balance in balances.items():
-        choices.append(Choice(f"💰 {token:<10} | Balance: {balance:>15.6f}", token))
-    choices.append(Choice("🔙 Назад", "back"))
-    
-    token = select(
-        "Какой токен вы хотите вывести?",
-        choices=choices
-    ).ask()
-    
-    if token == "back":
+
+    token = ui.choose("Какой токен вывести?", [
+        (f"💰 {name:<10} | Баланс: {balance:>15.6f}", name)
+        for name, balance in balances.items()
+    ])
+
+    if token in (None, BACK_KEY):
         return None
-    
+
     return token
 
 
@@ -269,29 +265,29 @@ def pick_chain(token, mexc_api_key, mexc_api_secret):
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
                                                            request_path="/api/v3/capital/config/getall", method="GET")
-        
+
         if not headers:
             logger.error("Failed to create MEXC headers")
             return None
-            
+
         proxy = get_random_proxy_dict()
-        
+
         response = requests.get(base_url + request_path, headers=headers, params=params, proxies=proxy, timeout=10)
-        
+
         chains = []
-        chain_info_list = []  
-        
+        chain_info_list = []
+
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
                 for coin_data in data:
                     if coin_data['coin'] == token:
                         for network_info in coin_data['networkList']:
-                            if network_info['withdrawEnable']:  
+                            if network_info['withdrawEnable']:
                                 chain_name = network_info.get('netWork', network_info.get('network', 'Unknown'))
                                 withdraw_fee = network_info['withdrawFee']
                                 min_withdraw = network_info['withdrawMin']
-                                
+
                                 chains.append(chain_name)
                                 chain_info_list.append({
                                     'chain': chain_name,
@@ -303,34 +299,32 @@ def pick_chain(token, mexc_api_key, mexc_api_secret):
                 logger.warning(f"Unexpected response format for token {token}")
         else:
             logger.error(f"API request failed: {response.status_code}, {response.text}")
-        
+
         if not chains:
             logger.error(f"No withdrawal chains available for {token}")
             return None
-        
-        choices = []
+
+        options = []
         for chain_info in chain_info_list:
-            chain = chain_info['chain']
+            name = chain_info['chain']
             fee = chain_info['withdrawFee']
             min_amount = chain_info['minWithdrawAmount']
-            
+
             warning = ""
-            if "Optimism" in chain:
+            if "Optimism" in name:
                 warning = " ⚠️ (возможны проблемы)"
-            
-            choice_text = f"🔗 {chain:<15} | Fee: {fee} {token} | Min: {min_amount} {token}{warning}"
-            choices.append(Choice(choice_text, chain))
-        
-        choices.append(Choice("🔙 Назад", "back"))
-            
-        chain = select(
-            f"Какую сеть предпочитаете для {token}?",
-            choices=choices
-        ).ask()
-        
-        if chain == "back":
+
+            options.append((
+                f"🔗 {name:<15} | Fee: {fee} {token} | "
+                f"Min: {min_amount} {token}{warning}",
+                name,
+            ))
+
+        chain = ui.choose(f"Какую сеть использовать для {token}?", options)
+
+        if chain in (None, BACK_KEY):
             return None
-        
+
         return chain
     except Exception as ex:
         logger.error(f'Error getting chains for {token}: {ex}')
@@ -339,7 +333,7 @@ def pick_chain(token, mexc_api_key, mexc_api_secret):
 
 def calculate_withdraw_amount(token, available_balance):
     """Рассчитать сумму для вывода"""
-    if TYPE_WITHDRAW == 1:  
+    if TYPE_WITHDRAW == 1:
         price_in_usdt = get_token_price_in_usdt(token)
         if price_in_usdt is None:
             logger.warning(f"Cannot get price for {token}, using native amount")
@@ -349,38 +343,33 @@ def calculate_withdraw_amount(token, available_balance):
             amount_to = VALUES_TO_WITHDRAW[1] / price_in_usdt
             logger.info(f"Price {token}/USDT: {price_in_usdt}")
             logger.info(f"Withdraw range in {token}: {amount_from:.6f} - {amount_to:.6f}")
-    else:  
+    else:
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
-    
+
     if amount_from > available_balance:
         logger.error(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}")
-        
-        confirm = select(
-            f"Недостаточно баланса. Вывести весь доступный баланс ({available_balance} {token})?",
-            choices=[
-                Choice('❌ Нет, отменить', False),
-                Choice('✅ Да, вывести всё', True),
-                Choice('🔙 Назад', "back")
-            ]
-        ).ask()
-        
-        if confirm == "back":
+
+        confirm = ui.confirm_or_back(
+            f"Недостаточно баланса. Вывести весь доступный ({available_balance} {token})?",
+            yes="Да, вывести всё", no="Нет, отменить")
+
+        if confirm in (None, BACK_KEY):
             return "back"
         elif confirm:
             return available_balance
         else:
             return None
-    
+
     if amount_to > available_balance:
         logger.warning(f"Max withdraw amount adjusted from {amount_to} to {available_balance}")
         amount_to = available_balance
-    
+
     return round(random.uniform(amount_from, amount_to), 6)
 
 
 def calculate_individual_withdraw_amount(token, available_balance):
     """Рассчитать индивидуальную сумму для вывода для одного кошелька"""
-    if TYPE_WITHDRAW == 1:  
+    if TYPE_WITHDRAW == 1:
         price_in_usdt = get_token_price_in_usdt(token)
         if price_in_usdt is None:
             logger.warning(f"Cannot get price for {token}, using native amount")
@@ -388,16 +377,16 @@ def calculate_individual_withdraw_amount(token, available_balance):
         else:
             amount_from = VALUES_TO_WITHDRAW[0] / price_in_usdt
             amount_to = VALUES_TO_WITHDRAW[1] / price_in_usdt
-    else:  
+    else:
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
-    
+
     if amount_from > available_balance:
         logger.warning(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}. Using all available balance.")
         return available_balance
-    
+
     if amount_to > available_balance:
         amount_to = available_balance
-    
+
     return round(random.uniform(amount_from, amount_to), 6)
 
 
@@ -406,15 +395,15 @@ def get_withdraw_fee(token, chain, mexc_api_key, mexc_api_secret):
     try:
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
                                                            request_path="/api/v3/capital/config/getall", method="GET")
-        
+
         if not headers:
             logger.error("Failed to create MEXC headers")
             return 0
-            
+
         proxy = get_random_proxy_dict()
-        
+
         response = requests.get(base_url + request_path, headers=headers, params=params, proxies=proxy, timeout=10)
-        
+
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
@@ -424,7 +413,7 @@ def get_withdraw_fee(token, chain, mexc_api_key, mexc_api_secret):
                             network_name = network_info.get('netWork', network_info.get('network', ''))
                             if network_name == chain:
                                 return float(network_info['withdrawFee'])
-        
+
         logger.warning(f"Could not get withdraw fee for {token}-{chain}")
         return 0
     except Exception as ex:
@@ -432,53 +421,53 @@ def get_withdraw_fee(token, chain, mexc_api_key, mexc_api_secret):
         return 0
 
 
-def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float, 
-                         mexc_api_key, mexc_api_secret, 
+def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float,
+                         mexc_api_key, mexc_api_secret,
                          wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
-    
+
     try:
         fee = get_withdraw_fee(token, chain)
-        
+
         body_data = {
             "coin": token,
             "address": wallet,
-            "netWork": chain, 
+            "netWork": chain,
             "amount": str(amount)
         }
-        
+
         base_url, request_path, headers, params = mexc_data(mexc_api_key, mexc_api_secret,
-                                                           request_path="/api/v3/capital/withdraw", 
+                                                           request_path="/api/v3/capital/withdraw",
                                                            method="POST", body=json.dumps(body_data))
-        
+
         if not headers:
             logger.error(f"{wallet_prefix}Failed to create MEXC headers")
             return None
-        
+
         logger.debug(f"{wallet_prefix}Request URL: {base_url}{request_path}")
         logger.debug(f"{wallet_prefix}Request headers: {headers}")
         logger.debug(f"{wallet_prefix}Request params: {params}")
-        
+
         proxy = get_random_proxy_dict()
-        
-        response = requests.post(f"{base_url}{request_path}", 
+
+        response = requests.post(f"{base_url}{request_path}",
                                 params=params, timeout=10, headers=headers, proxies=proxy)
-        
+
         try:
             result = response.json()
         except:
             logger.error(f"{wallet_prefix}Failed to parse response as JSON: {response.text}")
             return None
-        
+
         if response.status_code == 200 and 'id' in result:
             logger.success(f"{wallet_prefix}MEXC withdraw success => {wallet} | {amount} {token} | ID: {result['id']}")
             return amount
         else:
             error = result.get('msg', f'HTTP {response.status_code}: {response.text}')
             error_code = result.get('code', 'Unknown')
-            
+
             if error_code == 10232:
                 logger.error(f"{wallet_prefix}MEXC withdraw failed => {wallet} | Error 10232: 'Coin is not exist' - возможно сеть {chain} недоступна для {token} или требуется дополнительная верификация")
             elif error_code == 700002:
@@ -487,21 +476,21 @@ def execute_mexc_withdraw(wallet: str, token: str, chain: str, amount: float,
                 logger.error(f"{wallet_prefix}MEXC withdraw failed => {wallet} | Error 152056: 'Contract address cannot be empty' - возможно нужен memo/tag")
             else:
                 logger.error(f"{wallet_prefix}MEXC withdraw failed => {wallet} | error: {error}")
-                
-            if retry < 3 and error_code != 10232:  
+
+            if retry < 3 and error_code != 10232:
                 time.sleep(10)
-                return execute_mexc_withdraw(wallet, token, chain, amount, 
-                                            mexc_api_key, mexc_api_secret, 
+                return execute_mexc_withdraw(wallet, token, chain, amount,
+                                            mexc_api_key, mexc_api_secret,
                                             wallet_number, total_wallets, retry + 1)
-            
+
     except Exception as error:
         logger.error(f"{wallet_prefix}MEXC withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_mexc_withdraw(wallet, token, chain, amount, 
-                                        mexc_api_key, mexc_api_secret, 
+            return execute_mexc_withdraw(wallet, token, chain, amount,
+                                        mexc_api_key, mexc_api_secret,
                                         wallet_number, total_wallets, retry + 1)
-    
+
     return None
 
 
@@ -525,9 +514,9 @@ def get_chain_rpc_list(chain):
         'ArbitrumOne': rpc.arbitrum,
         'Arbitrum One': rpc.arbitrum,
         'Arbitrum': rpc.arbitrum,
-        'ARB': rpc.arbitrum, 
+        'ARB': rpc.arbitrum,
         'Optimism': rpc.optimism,
-        'OP': rpc.optimism, 
+        'OP': rpc.optimism,
         'Polygon': rpc.Polygon,
         'BSC': rpc.Binance_Smart_Chain,
         'BNB Smart Chain (BEP20)': rpc.Binance_Smart_Chain,
@@ -546,24 +535,24 @@ def get_chain_rpc_list(chain):
         'Kite Testnet': rpc.kite_testnet,
         'MegaETH Testnet': rpc.mega_eth_testnet,
         'Pharos Testnet': rpc.pharos_testnet,
-        'TRC20': rpc.L1,  
-        'SOL': rpc.L1,    
+        'TRC20': rpc.L1,
+        'SOL': rpc.L1,
     }
-    
-    return chain_mapping.get(chain, rpc.L1)  
+
+    return chain_mapping.get(chain, rpc.L1)
 
 
 def get_working_web3_connection(chain):
     """Получить рабочее подключение Web3 для конкретной сети через прокси"""
     rpc_list = get_chain_rpc_list(chain)
     proxy = get_random_proxy_dict()
-    
+
     if proxy:
         for rpc_url in rpc_list:
             try:
                 session = requests.Session()
                 session.proxies.update(proxy)
-                
+
                 w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}, session=session))
                 if w3.is_connected():
                     logger.debug(f"Подключился к {chain} через {rpc_url} с прокси")
@@ -571,7 +560,7 @@ def get_working_web3_connection(chain):
             except Exception as ex:
                 logger.debug(f"Не удалось подключиться к {rpc_url} с прокси: {ex}")
                 continue
-    
+
     logger.info(f"Подключение к {chain} без прокси (fallback)")
     for rpc_url in rpc_list:
         try:
@@ -582,7 +571,7 @@ def get_working_web3_connection(chain):
         except Exception as ex:
             logger.debug(f"Не удалось подключиться к {rpc_url} без прокси: {ex}")
             continue
-    
+
     logger.error(f"Не удалось подключиться к RPC для {chain}")
     return None
 
@@ -602,7 +591,7 @@ def get_token_contract_address(token, chain):
             'Base': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
             'BASE': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
             'Avalanche': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
-            'TRC20': '0x0000000000000000000000000000000000000000'  
+            'TRC20': '0x0000000000000000000000000000000000000000'
         },
         'USDC': {
             'ERC20': '0xA0b86a33E6441b33F5A4dF7a54fA0Fbc9B1bF0e2',
@@ -626,8 +615,8 @@ def get_token_contract_address(token, chain):
             'Optimism': '0x0000000000000000000000000000000000000000',
             'Base': '0x0000000000000000000000000000000000000000',
             'BASE': '0x0000000000000000000000000000000000000000',
-            'Polygon': '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',  
-            'BSC': '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',     
+            'Polygon': '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
+            'BSC': '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',
             'BEP20(BSC)': '0x2170Ed0880ac9A755fd29B2688956BD959F933F8'
         },
         'BTC': {
@@ -646,10 +635,10 @@ def get_token_contract_address(token, chain):
             'AVAXC-Chain': '0x0000000000000000000000000000000000000000'
         }
     }
-    
+
     if token in token_addresses and chain in token_addresses[token]:
         return token_addresses[token][chain]
-    
+
     return None
 
 
@@ -683,17 +672,17 @@ def check_token_balance(w3, wallet_address, token_address):
                 "type": "function"
             }
         ]
-        
+
         contract = w3.eth.contract(address=token_address, abi=erc20_abi)
-        
+
         balance_wei = contract.functions.balanceOf(wallet_address).call()
-        
+
         decimals = contract.functions.decimals().call()
-        
+
         balance = balance_wei / (10 ** decimals)
-        
+
         return float(balance)
-        
+
     except Exception as ex:
         logger.error(f"Error checking token balance: {ex}")
         return 0
@@ -703,62 +692,62 @@ def check_wallet_balance(wallet_address, token, chain, expected_amount, wallet_n
     """Проверить баланс кошелька и ждать поступления средств"""
     if not WAIT_FOR_BALANCE:
         return True
-    
+
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f"{wallet_prefix}Ожидание поступления {expected_amount} {token} на кошелек {wallet_address}")
-    
+
     w3 = get_working_web3_connection(chain)
     if not w3:
         logger.warning(f"{wallet_prefix}Cannot connect to {chain} network, skipping balance check")
         return True
-    
+
     token_contract_address = get_token_contract_address(token, chain)
     logger.debug(f"{wallet_prefix}Token: {token}, Chain: {chain}, Contract: {token_contract_address}")
-    
+
     if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
         initial_balance = check_native_balance(w3, wallet_address)
         logger.info(f"{wallet_prefix}Checking native token balance for {token} on {chain}: {initial_balance}")
     else:
         initial_balance = check_token_balance(w3, wallet_address, token_contract_address)
         logger.info(f"{wallet_prefix}Checking ERC20 token balance for {token} on {chain}: {initial_balance}")
-    
+
     if initial_balance is None:
         logger.error(f"{wallet_prefix}Failed to get initial balance, skipping balance check")
         return True
-    
+
     if initial_balance >= expected_amount * 0.95:
         logger.success(f"{wallet_prefix}Баланс уже поступил на кошелек {wallet_address}: {initial_balance} {token} (ожидалось {expected_amount})")
         return True
-    
-    timeout_seconds = timeout_hours * 3600  
+
+    timeout_seconds = timeout_hours * 3600
     start_time = time.time()
-    check_interval = 30  
-    
+    check_interval = 30
+
     while time.time() - start_time < timeout_seconds:
         try:
             time.sleep(check_interval)
-            
+
             if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
                 current_balance = check_native_balance(w3, wallet_address)
             else:
                 current_balance = check_token_balance(w3, wallet_address, token_contract_address)
-            
+
             if current_balance is None:
                 logger.warning(f"{wallet_prefix}Failed to get current balance, retrying...")
                 continue
-            
+
             balance_increase = current_balance - initial_balance
-            
-            if balance_increase >= expected_amount * 0.95: 
+
+            if balance_increase >= expected_amount * 0.95:
                 logger.success(f"{wallet_prefix}Баланс поступил на кошелек {wallet_address}: +{balance_increase} {token}")
                 return True
             elif balance_increase > 0:
                 pass
-                
+
         except Exception as ex:
             logger.error(f"{wallet_prefix}Ошибка при проверке баланса {wallet_address}: {ex}")
             time.sleep(30)
-    
+
     show_balance_timeout_error(wallet_address, expected_amount, token, wallet_number, total_wallets)
     return False
 
@@ -786,7 +775,7 @@ def show_balance_timeout_error(wallet_address, amount, token, wallet_number: int
     ║                                                                                      ║
     ╚══════════════════════════════════════════════════════════════════════════════════════╝
     """
-    
+
     logger.error(error_message)
 
 
@@ -794,9 +783,9 @@ def create_progress_db():
     """Создать базу данных для отслеживания прогресса"""
     db_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'db')
     os.makedirs(db_path, exist_ok=True)
-    
+
     db_file = os.path.join(db_path, 'mexc_withdraw_progress.db')
-    
+
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -813,7 +802,7 @@ def create_progress_db():
             )
         ''')
         conn.commit()
-    
+
     return db_file
 
 
@@ -822,7 +811,7 @@ def save_progress(db_file, wallet_address, token, chain, amount, status, error_m
     with db_lock:
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
-            
+
             if status == 'pending':
                 cursor.execute('''
                     INSERT INTO withdraw_progress (wallet_address, token, chain, amount, status)
@@ -830,11 +819,11 @@ def save_progress(db_file, wallet_address, token, chain, amount, status, error_m
                 ''', (wallet_address, token, chain, amount, status))
             else:
                 cursor.execute('''
-                    UPDATE withdraw_progress 
+                    UPDATE withdraw_progress
                     SET status = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP
                     WHERE wallet_address = ? AND token = ? AND chain = ? AND status = 'pending'
                 ''', (status, error_message, wallet_address, token, chain))
-            
+
             conn.commit()
 
 
@@ -843,7 +832,7 @@ def get_pending_wallets(db_file):
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT wallet_address FROM withdraw_progress 
+            SELECT wallet_address FROM withdraw_progress
             WHERE status = 'pending'
         ''')
         return [row[0] for row in cursor.fetchall()]
@@ -861,19 +850,19 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
     """Сохранить результат в CSV файл"""
     result_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'result')
     os.makedirs(result_path, exist_ok=True)
-    
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_file = os.path.join(result_path, f'mexc_withdraw_results_{timestamp[:8]}.csv')
-    
+
     with csv_lock:
         file_exists = os.path.isfile(csv_file)
-        
+
         with open(csv_file, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            
+
             if not file_exists:
                 writer.writerow(['timestamp', 'wallet_address', 'token', 'chain', 'amount', 'status', 'error_message'])
-            
+
             writer.writerow([
                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 wallet_address,
@@ -888,10 +877,10 @@ def save_result_to_csv(wallet_address, token, chain, amount, status, error_messa
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
     wallet, token, chain, db_file, progress_bar, wallet_number, total_wallets, mexc_api_key, mexc_api_secret = wallet_data
-    
+
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
-        
+
         current_balances = get_account_balances(mexc_api_key, mexc_api_secret)
         if not current_balances or token not in current_balances:
             logger.error(f"{wallet_prefix}No balance found for {token}")
@@ -899,19 +888,19 @@ def process_single_wallet(wallet_data):
             save_result_to_csv(wallet, token, chain, 0, 'error', 'No balance available')
             progress_bar.update()
             return False
-        
+
         individual_amount = calculate_individual_withdraw_amount(token, current_balances[token])
-        
+
         save_progress(db_file, wallet, token, chain, individual_amount, 'processing')
-        
-        result = execute_mexc_withdraw(wallet, token, chain, individual_amount, 
-                                      mexc_api_key, mexc_api_secret, 
+
+        result = execute_mexc_withdraw(wallet, token, chain, individual_amount,
+                                      mexc_api_key, mexc_api_secret,
                                       wallet_number, total_wallets)
-        
+
         if result:
             status = 'success'
             error_message = None
-            
+
             if WAIT_FOR_BALANCE:
                 balance_received = check_wallet_balance(wallet, token, chain, individual_amount, wallet_number, total_wallets)
                 if not balance_received:
@@ -920,15 +909,15 @@ def process_single_wallet(wallet_data):
         else:
             status = 'failed'
             error_message = 'Withdrawal failed'
-        
+
         save_progress(db_file, wallet, token, chain, individual_amount, status, error_message)
-        
+
         save_result_to_csv(wallet, token, chain, individual_amount, status, error_message)
-        
+
         progress_bar.update()
-        
+
         return status == 'success'
-        
+
     except Exception as ex:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
         logger.error(f'{wallet_prefix}Error processing wallet {wallet}: {ex}')
@@ -941,34 +930,31 @@ def process_single_wallet(wallet_data):
 def check_existing_progress():
     """Проверить существующий прогресс и предложить варианты"""
     db_file = create_progress_db()
-    
+
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) FROM withdraw_progress')
         total_records = cursor.fetchone()[0]
-        
+
         if total_records > 0:
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "pending"')
             pending_count = cursor.fetchone()[0]
-            
+
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "success"')
             success_count = cursor.fetchone()[0]
-            
+
             logger.info(f"Найден существующий прогресс:")
             logger.info(f"Всего записей: {total_records}")
             logger.info(f"Ожидают обработки: {pending_count}")
             logger.info(f"Успешно завершено: {success_count}")
-            
+
             if pending_count > 0:
-                action = select(
-                    "Что делать с существующим прогрессом?",
-                    choices=[
-                        Choice('🔄 Продолжить с того места где остановились', 'continue'),
-                        Choice('🗑️ Очистить и начать заново', 'clear'),
-                        Choice('❌ Отменить', 'cancel')
-                    ]
-                ).ask()
-                
+                action = ui.menu("Что делать с существующим прогрессом?", [
+                    ("🔄 Продолжить с того места, где остановились", "continue"),
+                    ("🗑️ Очистить и начать заново", "clear"),
+                    ("❌ Отменить", "cancel"),
+                ])
+
                 if action == 'clear':
                     clear_progress_db(db_file)
                     return db_file, 'new'
@@ -979,7 +965,7 @@ def check_existing_progress():
             else:
                 clear_progress_db(db_file)
                 return db_file, 'new'
-    
+
     return db_file, 'new'
 
 
@@ -987,29 +973,29 @@ def mexc_withdraw():
     """Основная функция"""
     _setup_logging()
     logger.info("=== MEXC Withdrawal Module ===")
-    
+
     # Выбор аккаунта MEXC
     exchange_name, selected_account = select_mexc_account()
     if not selected_account:
         logger.error("❌ Не выбран аккаунт MEXC")
         return
-    
+
     # Обновляем переменные API ключей
     mexc_api_key = selected_account['api_key']
     mexc_api_secret = selected_account['api_secret']
-    
+
     logger.info(f"Используется аккаунт MEXC: {selected_account['name']}")
-    
+
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
         logger.info("Операция отменена")
         return
-    
+
     all_wallets = load_wallets()
     if not all_wallets:
         logger.error("No wallets found")
         return
-    
+
     if progress_action == 'continue':
         pending_wallets = get_pending_wallets(db_file)
         wallets = [w for w in all_wallets if w in pending_wallets]
@@ -1017,93 +1003,79 @@ def mexc_withdraw():
     else:
         wallets = all_wallets
         logger.info(f"Starting fresh with {len(wallets)} wallets")
-    
+
     if not wallets:
         logger.info("No wallets to process")
         return
-    
+
     while True:
         balances = get_account_balances(mexc_api_key, mexc_api_secret)
         if not balances:
             logger.error("No tokens with positive balance")
             return
-        
+
         token = pick_token_to_withdraw(balances)
         if not token:
             return
-        
+
         chain = pick_chain(token, mexc_api_key, mexc_api_secret)
         if not chain:
             continue
-        
+
         available_balance = balances[token]
         sample_withdraw_amount = calculate_withdraw_amount(token, available_balance)
         if sample_withdraw_amount is None:
             continue
         elif sample_withdraw_amount == "back":
             continue
-        
+
+        # Сумма в вопросе: диапазон в USDT показываем вместе с пересчётом
+        # в токен, чтобы пользователь видел, сколько уйдёт на самом деле.
+        amount_info = f"{VALUES_TO_WITHDRAW[0]}-{VALUES_TO_WITHDRAW[1]} {token}"
         if TYPE_WITHDRAW == 1:
             price_in_usdt = get_token_price_in_usdt(token)
             if price_in_usdt:
-                usdt_from = VALUES_TO_WITHDRAW[0]
-                usdt_to = VALUES_TO_WITHDRAW[1]
-                confirm = select(
-                    f"Вывести {usdt_from}-{usdt_to} USDT (≈{usdt_from/price_in_usdt:.6f}-{usdt_to/price_in_usdt:.6f} {token}) через сеть {chain} на {len(wallets)} кошельков?",
-                    choices=[
-                        Choice('❌ Нет, отменить операцию', False),
-                        Choice('✅ Да, начать вывод средств', True),
-                        Choice('🔙 Назад', "back")
-                    ]
-                ).ask()
-            else:
-                confirm = select(
-                    f"Вывести {VALUES_TO_WITHDRAW[0]}-{VALUES_TO_WITHDRAW[1]} {token} через сеть {chain} на {len(wallets)} кошельков?",
-                    choices=[
-                        Choice('❌ Нет, отменить операцию', False),
-                        Choice('✅ Да, начать вывод средств', True),
-                        Choice('🔙 Назад', "back")
-                    ]
-                ).ask()
-        else:
-            confirm = select(
-                f"Вывести {VALUES_TO_WITHDRAW[0]}-{VALUES_TO_WITHDRAW[1]} {token} через сеть {chain} на {len(wallets)} кошельков?",
-                choices=[
-                    Choice('❌ Нет, отменить операцию', False),
-                    Choice('✅ Да, начать вывод средств', True),
-                    Choice('🔙 Назад', "back")
-                ]
-            ).ask()
-        
-        if confirm == "back":
+                usdt_from, usdt_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
+                amount_info = (
+                    f"{usdt_from}-{usdt_to} USDT "
+                    f"(≈{usdt_from / price_in_usdt:.6f}-"
+                    f"{usdt_to / price_in_usdt:.6f} {token})"
+                )
+
+        confirm = ui.confirm_or_back(
+            f"Вывести {amount_info} через сеть {chain} "
+            f"на {len(wallets)} кошельков?",
+            yes="Да, начать вывод средств", no="Нет, отменить операцию")
+
+        if confirm in (None, BACK_KEY):
             continue
         elif not confirm:
             logger.warning("Withdrawal cancelled")
             return
-        
+
         if progress_action == 'new':
             for wallet in wallets:
                 save_progress(db_file, wallet, token, chain, 0, 'pending')
-        
+
         progress_bar = BeautifulProgressBar(len(wallets), "Processing wallets", width=60)
-        
+
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
             wallet_data_list.append((wallet, token, chain, db_file, progress_bar, i, len(wallets), mexc_api_key, mexc_api_secret))
-        
+
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")
         successful = 0
         failed = 0
-        
+
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             futures = []
             for i, wallet_data in enumerate(wallet_data_list):
                 if i > 0:
                     time.sleep(random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1]))
-                
+
                 future = executor.submit(process_single_wallet, wallet_data)
                 futures.append(future)
-            
+
             for future in futures:
                 try:
                     result = future.result()
@@ -1114,21 +1086,21 @@ def mexc_withdraw():
                 except Exception as ex:
                     logger.error(f"Thread execution error: {ex}")
                     failed += 1
-        
+
         logger.info("=== Summary ===")
         logger.info(f"Successful withdrawals: {successful}")
         logger.info(f"Failed withdrawals: {failed}")
         logger.info(f"Total processed: {successful + failed}")
-        
+
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "pending"')
             remaining_pending = cursor.fetchone()[0]
-            
+
             if remaining_pending == 0:
                 logger.info("All wallets processed successfully. Cleaning up database...")
                 clear_progress_db(db_file)
-        
+
         break
 
 

@@ -11,7 +11,6 @@ import threading
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 sys.__stdout__ = sys.stdout
-from questionary import Choice, select
 from modules.simple_logger import logger
 from web3 import Web3
 
@@ -22,6 +21,8 @@ from config.modules.general_config import SLEEP_BETWEEN_ACTIONS, NUM_THREADS
 from config import networks as rpc
 
 # Импорт селектора аккаунтов
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY
 from modules.cex.exchange_selector import select_binance_account
 
 # Настройка логирования
@@ -36,9 +37,9 @@ def _setup_logging():
     if _logger_initialized:
         return
     _logger_initialized = True
-    
+
     os.makedirs(log_path, exist_ok=True)
-    
+
     # Добавляем файловый хендлер для ошибок
     logger.add(
         os.path.join(log_path, 'binance_withdraw_errors.log'),
@@ -63,44 +64,44 @@ csv_lock = threading.Lock()
 
 class BeautifulProgressBar:
     """Красивый прогресс-бар"""
-    
+
     def __init__(self, total, desc="Progress", width=50):
         self.total = total
         self.current = 0
         self.desc = desc
         self.width = width
         self.start_time = time.time()
-    
+
     def update(self, step=1):
         """Обновить прогресс"""
         self.current += step
         self._display()
-    
+
     def _display(self):
         """Отобразить прогресс-бар"""
         if self.total == 0:
             return
-            
+
         percentage = (self.current / self.total) * 100
         filled_width = int(self.width * self.current // self.total)
         bar = '█' * filled_width + '░' * (self.width - filled_width)
-        
+
         elapsed_time = time.time() - self.start_time
-        
+
         if self.current > 0:
             eta = (elapsed_time / self.current) * (self.total - self.current)
             eta_str = self._format_time(eta)
         else:
             eta_str = "??:??"
-        
+
         elapsed_str = self._format_time(elapsed_time)
-        
+
         # Очищаем строку и выводим прогресс
         print(f'\r\033[K🚀 {self.desc}: |{bar}| {self.current}/{self.total} [{percentage:6.2f}%] ⏱️ {elapsed_str} ⏳ ETA: {eta_str}', end='', flush=True)
-        
+
         if self.current >= self.total:
             print()  # Переход на новую строку при завершении
-    
+
     def _format_time(self, seconds):
         """Форматировать время в MM:SS"""
         minutes = int(seconds // 60)
@@ -111,18 +112,18 @@ class BeautifulProgressBar:
 def sleeping_with_progress(duration, desc="Sleeping"):
     """Красивое ожидание с прогресс-баром"""
     progress = BeautifulProgressBar(duration, desc, width=40)
-    
+
     for i in range(duration):
         time.sleep(1)
         progress.update()
 
 
 def sleeping(*timing):
-    if len(timing) == 2: 
+    if len(timing) == 2:
         x = random.randint(timing[0], timing[1])
-    else: 
+    else:
         x = timing[0]
-    
+
     sleeping_with_progress(x, f"Sleep {x}s")
 
 
@@ -140,35 +141,35 @@ def binance_request(endpoint, binance_api_key, secret_key, method="GET", params=
     try:
         base_url = "https://api.binance.com"
         timestamp = int(time.time() * 1000)
-        
+
         if params is None:
             params = {}
-        
+
         params['timestamp'] = timestamp
-        
+
         # Создаем строку запроса
         query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
-        
+
         # Создаем подпись
         signature = create_signature(query_string, secret_key)
         params['signature'] = signature
-        
+
         headers = {
             'X-MBX-APIKEY': binance_api_key,
             'Content-Type': 'application/json'
         }
-        
+
         url = f"{base_url}{endpoint}"
-        
+
         if method == "GET":
             response = requests.get(url, params=params, headers=headers, timeout=10)
         elif method == "POST":
             response = requests.post(url, params=params, headers=headers, timeout=10)
         else:
             raise ValueError(f"Unsupported method: {method}")
-        
+
         return response.json()
-        
+
     except Exception as ex:
         logger.error(f'Binance API request error: {ex}')
         return None
@@ -179,7 +180,7 @@ def get_token_price_in_usdt(token):
     try:
         if token == 'USDT':
             return 1.0
-        
+
         response = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={token}USDT", timeout=10)
         data = response.json()
         if 'price' in data:
@@ -194,14 +195,14 @@ def get_account_balances(binance_api_key, secret_key):
     """Получить все балансы аккаунта"""
     try:
         data = binance_request("/api/v3/account", binance_api_key, secret_key)
-        
+
         balances = {}
         if data and 'balances' in data:
             for item in data['balances']:
                 free_balance = float(item['free'])
                 if free_balance > 0:
                     balances[item['asset']] = free_balance
-        
+
         return balances
     except Exception as ex:
         logger.error(f'Error getting balances: {ex}')
@@ -213,24 +214,19 @@ def pick_token_to_withdraw(balances):
     if not balances:
         logger.error("No tokens with positive balance found")
         return None
-    
+
     logger.info("Available tokens with balance:")
     for token, balance in balances.items():
         logger.info(f"{token}: {balance}")
-    
-    choices = []
-    for token, balance in balances.items():
-        choices.append(Choice(f"💰 {token:<10} | Balance: {balance:>15.6f}", token))
-    choices.append(Choice("🔙 Назад", "back"))
-    
-    token = select(
-        "Какой токен вы хотите вывести?",
-        choices=choices
-    ).ask()
-    
-    if token == "back":
+
+    token = ui.choose("Какой токен вывести?", [
+        (f"💰 {name:<10} | Баланс: {balance:>15.6f}", name)
+        for name, balance in balances.items()
+    ])
+
+    if token in (None, BACK_KEY):
         return None
-    
+
     return token
 
 
@@ -240,7 +236,7 @@ def pick_chain(token, binance_api_key, secret_key):
         # Получаем информацию о сетях для токена
         params = {'coin': token}
         data = binance_request("/sapi/v1/capital/config/getall", binance_api_key, secret_key, params=params)
-        
+
         chains = []
         if data:
             for coin_info in data:
@@ -248,24 +244,19 @@ def pick_chain(token, binance_api_key, secret_key):
                     for network in coin_info['networkList']:
                         if network['withdrawEnable']:
                             chains.append(network['network'])
-        
+
         if not chains:
             logger.error(f"No withdrawal chains available for {token}")
             return None
-        
-        choices = []
-        for chain in chains:
-            choices.append(Choice(f"🔗 {chain:<15} | Сеть для вывода {token}", chain))
-        choices.append(Choice("🔙 Назад", "back"))
-            
-        chain = select(
-            f"Какую сеть предпочитаете для {token}?",
-            choices=choices
-        ).ask()
-        
-        if chain == "back":
+
+        chain = ui.choose(f"Какую сеть использовать для {token}?", [
+            (f"🔗 {name:<15} | Сеть для вывода {token}", name)
+            for name in chains
+        ])
+
+        if chain in (None, BACK_KEY):
             return None
-        
+
         return chain
     except Exception as ex:
         logger.error(f'Error getting chains for {token}: {ex}')
@@ -287,31 +278,26 @@ def calculate_withdraw_amount(token, available_balance):
             logger.info(f"Withdraw range in {token}: {amount_from:.6f} - {amount_to:.6f}")
     else:  # Выводить в нативном токене
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
-    
+
     # Проверяем достаточность баланса
     if amount_from > available_balance:
         logger.error(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}")
-        
-        confirm = select(
-            f"Недостаточно баланса. Вывести весь доступный баланс ({available_balance} {token})?",
-            choices=[
-                Choice('❌ Нет, отменить', False),
-                Choice('✅ Да, вывести всё', True),
-                Choice('🔙 Назад', "back")
-            ]
-        ).ask()
-        
-        if confirm == "back":
+
+        confirm = ui.confirm_or_back(
+            f"Недостаточно баланса. Вывести весь доступный ({available_balance} {token})?",
+            yes="Да, вывести всё", no="Нет, отменить")
+
+        if confirm in (None, BACK_KEY):
             return "back"
         elif confirm:
             return available_balance
         else:
             return None
-    
+
     if amount_to > available_balance:
         logger.warning(f"Max withdraw amount adjusted from {amount_to} to {available_balance}")
         amount_to = available_balance
-    
+
     return round(random.uniform(amount_from, amount_to), 6)
 
 
@@ -328,15 +314,15 @@ def calculate_individual_withdraw_amount(token, available_balance):
             amount_to = VALUES_TO_WITHDRAW[1] / price_in_usdt
     else:  # Выводить в нативном токене
         amount_from, amount_to = VALUES_TO_WITHDRAW[0], VALUES_TO_WITHDRAW[1]
-    
+
     # Проверяем достаточность баланса
     if amount_from > available_balance:
         logger.warning(f"Insufficient balance. Need at least {amount_from} {token}, but have {available_balance}. Using all available balance.")
         return available_balance
-    
+
     if amount_to > available_balance:
         amount_to = available_balance
-    
+
     return round(random.uniform(amount_from, amount_to), 6)
 
 
@@ -345,7 +331,7 @@ def get_withdraw_fee(token, network, binance_api_key, secret_key):
     try:
         params = {'coin': token}
         data = binance_request("/sapi/v1/capital/config/getall", binance_api_key, secret_key, params=params)
-        
+
         if data:
             for coin_info in data:
                 if coin_info['coin'] == token:
@@ -358,12 +344,12 @@ def get_withdraw_fee(token, network, binance_api_key, secret_key):
         return 0
 
 
-def execute_binance_withdraw(wallet: str, token: str, network: str, amount: float, 
+def execute_binance_withdraw(wallet: str, token: str, network: str, amount: float,
                            binance_api_key, secret_key, wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f'{wallet_prefix}[{wallet}] Starting withdrawal of {amount} {token}')
-    
+
     try:
         # Выполняем вывод
         params = {
@@ -372,9 +358,9 @@ def execute_binance_withdraw(wallet: str, token: str, network: str, amount: floa
             'amount': amount,
             'network': network
         }
-        
+
         result = binance_request("/sapi/v1/capital/withdraw/apply", binance_api_key, secret_key, method="POST", params=params)
-        
+
         if result and 'id' in result:
             logger.success(f"{wallet_prefix}Binance withdraw success => {wallet} | {amount} {token} | ID: {result['id']}")
             return amount
@@ -383,16 +369,16 @@ def execute_binance_withdraw(wallet: str, token: str, network: str, amount: floa
             logger.error(f"{wallet_prefix}Binance withdraw failed => {wallet} | error: {error}")
             if retry < 3:
                 time.sleep(10)
-                return execute_binance_withdraw(wallet, token, network, amount, 
+                return execute_binance_withdraw(wallet, token, network, amount,
                                                binance_api_key, secret_key, wallet_number, total_wallets, retry + 1)
-            
+
     except Exception as error:
         logger.error(f"{wallet_prefix}Binance withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_binance_withdraw(wallet, token, network, amount, 
+            return execute_binance_withdraw(wallet, token, network, amount,
                                            binance_api_key, secret_key, wallet_number, total_wallets, retry + 1)
-    
+
     return None
 
 
@@ -436,14 +422,14 @@ def get_chain_rpc_list(chain):
         'SEPOLIA': rpc.sepolia,
         'Sepolia': rpc.sepolia,
     }
-    
+
     return chain_mapping.get(chain, rpc.L1)  # По умолчанию используем Ethereum
 
 
 def get_working_web3_connection(chain):
     """Получить рабочее подключение Web3 для конкретной сети"""
     rpc_list = get_chain_rpc_list(chain)
-    
+
     for rpc_url in rpc_list:
         try:
             w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
@@ -453,7 +439,7 @@ def get_working_web3_connection(chain):
         except Exception as ex:
             logger.debug(f"Failed to connect to {rpc_url}: {ex}")
             continue
-    
+
     logger.error(f"Could not connect to any RPC for {chain}")
     return None
 
@@ -493,10 +479,10 @@ def get_token_contract_address(token, chain):
             'ETH': '0x0000000000000000000000000000000000000000'
         }
     }
-    
+
     if token in token_addresses and chain in token_addresses[token]:
         return token_addresses[token][chain]
-    
+
     return None
 
 
@@ -531,20 +517,20 @@ def check_token_balance(w3, wallet_address, token_address):
                 "type": "function"
             }
         ]
-        
+
         contract = w3.eth.contract(address=token_address, abi=erc20_abi)
-        
+
         # Получаем баланс в wei
         balance_wei = contract.functions.balanceOf(wallet_address).call()
-        
+
         # Получаем количество десятичных знаков
         decimals = contract.functions.decimals().call()
-        
+
         # Конвертируем в человекочитаемый формат
         balance = balance_wei / (10 ** decimals)
-        
+
         return float(balance)
-        
+
     except Exception as ex:
         logger.error(f"Error checking token balance: {ex}")
         return 0
@@ -554,19 +540,19 @@ def check_wallet_balance(wallet_address, token, network, expected_amount, wallet
     """Проверить баланс кошелька и ждать поступления средств"""
     if not WAIT_FOR_BALANCE:
         return True
-    
+
     wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
     logger.info(f"{wallet_prefix}Ожидание поступления {expected_amount} {token} на кошелек {wallet_address}")
-    
+
     # Получаем подключение к Web3
     w3 = get_working_web3_connection(network)
     if not w3:
         logger.warning(f"{wallet_prefix}Cannot connect to {network} network, skipping balance check")
         return True
-    
+
     # Получаем начальный баланс
     token_contract_address = get_token_contract_address(token, network)
-    
+
     if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
         # Нативный токен
         initial_balance = check_native_balance(w3, wallet_address)
@@ -575,34 +561,34 @@ def check_wallet_balance(wallet_address, token, network, expected_amount, wallet
         # ERC20 токен
         initial_balance = check_token_balance(w3, wallet_address, token_contract_address)
         logger.info(f"{wallet_prefix}Initial {token} balance: {initial_balance}")
-    
+
     timeout_seconds = timeout_hours * 3600  # 1 час в секундах
     start_time = time.time()
     check_interval = 30  # Проверяем каждые 30 секунд
-    
+
     while time.time() - start_time < timeout_seconds:
         try:
             time.sleep(check_interval)
-            
+
             # Проверяем текущий баланс
             if token_contract_address == '0x0000000000000000000000000000000000000000' or token_contract_address is None:
                 current_balance = check_native_balance(w3, wallet_address)
             else:
                 current_balance = check_token_balance(w3, wallet_address, token_contract_address)
-            
+
             # Проверяем, увеличился ли баланс
             balance_increase = current_balance - initial_balance
-            
+
             logger.debug(f"{wallet_prefix}Current balance: {current_balance}, increase: {balance_increase}")
-            
+
             # Если баланс увеличился на ожидаемую сумму (с небольшой погрешностью)
             if balance_increase >= expected_amount * 0.95:
                 logger.success(f"{wallet_prefix}✅ Balance received! {balance_increase} {token} on {wallet_address}")
                 return True
-                
+
         except Exception as ex:
             logger.error(f"{wallet_prefix}Error checking balance: {ex}")
-    
+
     # Если время истекло - показываем красный баннер
     show_balance_timeout_error(wallet_address, expected_amount, token, wallet_number, total_wallets)
     return False
@@ -631,7 +617,7 @@ def show_balance_timeout_error(wallet_address, amount, token, wallet_number: int
     ║                                                                                      ║
     ╚══════════════════════════════════════════════════════════════════════════════════════╝
     """
-    
+
     logger.error(error_message)
 
 
@@ -639,9 +625,9 @@ def create_progress_db():
     """Создать базу данных для отслеживания прогресса"""
     db_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'db')
     os.makedirs(db_path, exist_ok=True)
-    
+
     db_file = os.path.join(db_path, 'binance_withdraw_progress.db')
-    
+
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -658,7 +644,7 @@ def create_progress_db():
             )
         ''')
         conn.commit()
-    
+
     return db_file
 
 
@@ -667,30 +653,30 @@ def save_progress(db_file, wallet_address, token, network, amount, status, error
     with db_lock:
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
-            
+
             # Проверяем, существует ли уже запись
             cursor.execute('''
-                SELECT id FROM withdraw_progress 
+                SELECT id FROM withdraw_progress
                 WHERE wallet_address = ? AND token = ? AND network = ?
             ''', (wallet_address, token, network))
-            
+
             existing = cursor.fetchone()
-            
+
             if existing:
                 # Обновляем существующую запись
                 cursor.execute('''
-                    UPDATE withdraw_progress 
+                    UPDATE withdraw_progress
                     SET amount = ?, status = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (amount, status, error_message, existing[0]))
             else:
                 # Создаем новую запись
                 cursor.execute('''
-                    INSERT INTO withdraw_progress 
+                    INSERT INTO withdraw_progress
                     (wallet_address, token, network, amount, status, error_message)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (wallet_address, token, network, amount, status, error_message))
-            
+
             conn.commit()
 
 
@@ -699,7 +685,7 @@ def get_pending_wallets(db_file):
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT wallet_address FROM withdraw_progress 
+            SELECT wallet_address FROM withdraw_progress
             WHERE status = 'pending'
         ''')
         return [row[0] for row in cursor.fetchall()]
@@ -717,20 +703,20 @@ def save_result_to_csv(wallet_address, token, network, amount, status, error_mes
     """Сохранить результат в CSV файл"""
     result_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'result')
     os.makedirs(result_path, exist_ok=True)
-    
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_file = os.path.join(result_path, f'binance_withdraw_results_{timestamp[:8]}.csv')
-    
+
     with csv_lock:
         file_exists = os.path.isfile(csv_file)
-        
+
         with open(csv_file, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            
+
             # Записываем заголовок, если файл новый
             if not file_exists:
                 writer.writerow(['Timestamp', 'Wallet', 'Token', 'Network', 'Amount', 'Status', 'Error'])
-            
+
             # Записываем данные
             writer.writerow([
                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -746,11 +732,11 @@ def save_result_to_csv(wallet_address, token, network, amount, status, error_mes
 def process_single_wallet(wallet_data):
     """Обработать один кошелек"""
     wallet, token, network, db_file, progress_bar, wallet_number, total_wallets, binance_api_key, secret_key = wallet_data
-    
+
     try:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] "
         logger.info(f'{wallet_prefix}[Thread] Processing wallet: {wallet}')
-        
+
         # Получаем текущий баланс для расчета суммы
         current_balances = get_account_balances(binance_api_key, secret_key)
         if not current_balances or token not in current_balances:
@@ -760,20 +746,20 @@ def process_single_wallet(wallet_data):
             save_result_to_csv(wallet, token, network, 0, 'error', error_message)
             progress_bar.update()
             return False
-        
+
         # Рассчитываем индивидуальную сумму для этого кошелька
         individual_amount = calculate_individual_withdraw_amount(token, current_balances[token])
-        
+
         # Обновляем запись в БД с реальной суммой
         save_progress(db_file, wallet, token, network, individual_amount, 'processing')
-        
-        result = execute_binance_withdraw(wallet, token, network, individual_amount, 
+
+        result = execute_binance_withdraw(wallet, token, network, individual_amount,
                                          binance_api_key, secret_key, wallet_number, total_wallets)
-        
+
         if result:
             status = 'success'
             error_message = None
-            
+
             # Проверяем баланс кошелька после вывода (если включено)
             if WAIT_FOR_BALANCE:
                 balance_received = check_wallet_balance(wallet, token, network, individual_amount, wallet_number, total_wallets)
@@ -783,18 +769,18 @@ def process_single_wallet(wallet_data):
         else:
             status = 'error'
             error_message = 'Withdraw failed'
-        
+
         # Сохраняем прогресс
         save_progress(db_file, wallet, token, network, individual_amount, status, error_message)
-        
+
         # Сохраняем результат в CSV
         save_result_to_csv(wallet, token, network, individual_amount, status, error_message)
-        
+
         # Обновляем прогресс-бар после завершения обработки кошелька
         progress_bar.update()
-        
+
         return status == 'success'
-        
+
     except Exception as ex:
         wallet_prefix = f"[{wallet_number}/{total_wallets}] " if wallet_number > 0 else ""
         logger.error(f'{wallet_prefix}Error processing wallet {wallet}: {ex}')
@@ -807,40 +793,37 @@ def process_single_wallet(wallet_data):
 def check_existing_progress():
     """Проверить существующий прогресс и предложить варианты"""
     db_file = create_progress_db()
-    
+
     with sqlite3.connect(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) FROM withdraw_progress')
         total_records = cursor.fetchone()[0]
-        
+
         if total_records > 0:
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "pending"')
             pending_records = cursor.fetchone()[0]
-            
+
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "success"')
             success_records = cursor.fetchone()[0]
-            
+
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "error"')
             error_records = cursor.fetchone()[0]
-            
+
             logger.info(f"Found existing progress: {total_records} total, {pending_records} pending, {success_records} success, {error_records} errors")
-            
+
             if pending_records > 0:
-                action = select(
-                    "Найден незавершенный процесс вывода. Что делать?",
-                    choices=[
-                        Choice('🔄 Продолжить с того места, где остановились', 'continue'),
-                        Choice('🔥 Начать заново (очистить прогресс)', 'new'),
-                        Choice('❌ Отменить', 'cancel')
-                    ]
-                ).ask()
-                
+                action = ui.menu("Найден незавершённый вывод. Что делать?", [
+                    ("🔄 Продолжить с того места, где остановились", "continue"),
+                    ("🔥 Начать заново (очистить прогресс)", "new"),
+                    ("❌ Отменить", "cancel"),
+                ])
+
                 if action == 'new':
                     clear_progress_db(db_file)
                     return db_file, 'new'
-                
+
                 return db_file, action
-    
+
     return db_file, 'new'
 
 
@@ -848,36 +831,36 @@ def binance_withdraw():
     """Основная функция"""
     _setup_logging()
     logger.info("=== Binance Withdrawal Module ===")
-    
+
     # Выбираем аккаунт Binance
     exchange_name, account = select_binance_account()
     if not account:
         logger.error("❌ Не выбран аккаунт Binance")
         return
-    
+
     # Используем выбранный аккаунт
     binance_api_key = account['api_key']
     secret_key = account['api_secret']
-    
+
     logger.info(f"🏢 Используется аккаунт: {account['name']}")
-    
+
     # Проверяем настройки API
     if not binance_api_key or not secret_key:
         logger.error("Binance API credentials not configured. Please check config/cex_settings.py")
         return
-    
+
     # Проверяем существующий прогресс
     db_file, progress_action = check_existing_progress()
     if progress_action == 'cancel':
         logger.info("Операция отменена")
         return
-    
+
     # Загружаем кошельки
     all_wallets = load_wallets()
     if not all_wallets:
         logger.error("No wallets found")
         return
-    
+
     # Если продолжаем, фильтруем уже обработанные кошельки
     if progress_action == 'continue':
         pending_wallets = get_pending_wallets(db_file)
@@ -886,30 +869,30 @@ def binance_withdraw():
     else:
         wallets = all_wallets
         logger.info(f"Starting fresh with {len(wallets)} wallets")
-    
+
     if not wallets:
         logger.info("No wallets to process")
         return
-    
+
     while True:
         # Получаем балансы
         balances = get_account_balances(binance_api_key, secret_key)
         if not balances:
             logger.error("Cannot get account balances or no positive balances found")
             return
-        
+
         # Выбираем токен
         token = pick_token_to_withdraw(balances)
         if not token:
             logger.info("Операция отменена пользователем")
             return
-        
+
         # Выбираем сеть
         network = pick_chain(token, binance_api_key, secret_key)
         if not network:
             logger.info("Операция отменена пользователем")
             return
-        
+
         # Рассчитываем примерную сумму для отображения (будет пересчитана для каждого кошелька)
         available_balance = balances[token]
         sample_withdraw_amount = calculate_withdraw_amount(token, available_balance)
@@ -919,57 +902,53 @@ def binance_withdraw():
         elif sample_withdraw_amount == "back":
             logger.info("Операция отменена пользователем")
             return
-        
+
         # Подтверждение (показываем примерный диапазон)
         if TYPE_WITHDRAW == 1:
             amount_info = f"${VALUES_TO_WITHDRAW[0]}-{VALUES_TO_WITHDRAW[1]} USDT эквивалент"
         else:
             amount_info = f"{VALUES_TO_WITHDRAW[0]}-{VALUES_TO_WITHDRAW[1]} {token}"
-        
-        confirm = select(
-            f"Вывести {amount_info} на {len(wallets)} кошельков через сеть {network}?",
-            choices=[
-                Choice('✅ Да, начать вывод', True),
-                Choice('❌ Нет, отменить', False),
-                Choice('🔙 Назад', "back")
-            ]
-        ).ask()
-        
-        if confirm == "back":
+
+        confirm = ui.confirm_or_back(
+            f"Вывести {amount_info} на {len(wallets)} кошельков "
+            f"через сеть {network}?",
+            yes="Да, начать вывод", no="Нет, отменить")
+
+        if confirm in (None, BACK_KEY):
             logger.info("Операция отменена пользователем")
             return
         elif not confirm:
             logger.info("Операция отменена")
             return
-        
+
         # Создаем записи в БД для новых кошельков (с временной суммой 0)
         if progress_action == 'new':
             for wallet in wallets:
                 save_progress(db_file, wallet, token, network, 0, 'pending')
-        
+
         # Создаем прогресс-бар для отслеживания обработки кошельков
         progress_bar = BeautifulProgressBar(len(wallets), "Processing wallets", width=60)
-        
+
         # Подготавливаем данные для потоков (добавляем прогресс-бар и номера кошельков)
         wallet_data_list = []
         for i, wallet in enumerate(wallets, 1):
             wallet_data_list.append((wallet, token, network, db_file, progress_bar, i, len(wallets), binance_api_key, secret_key))
-        
+
         # Выполняем выводы с использованием ThreadPoolExecutor
         logger.info(f"Starting withdrawals with {NUM_THREADS} threads...")
         successful = 0
         failed = 0
-        
+
         with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
             # Создаем задержки между запусками потоков
             futures = []
             for i, wallet_data in enumerate(wallet_data_list):
                 if i > 0:
                     time.sleep(random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1]))
-                
+
                 future = executor.submit(process_single_wallet, wallet_data)
                 futures.append(future)
-            
+
             # Ждем завершения всех потоков
             for future in futures:
                 try:
@@ -981,23 +960,23 @@ def binance_withdraw():
                 except Exception as ex:
                     logger.error(f"Thread execution error: {ex}")
                     failed += 1
-        
+
         logger.info("=== Summary ===")
         logger.info(f"Successful withdrawals: {successful}")
         logger.info(f"Failed withdrawals: {failed}")
         logger.info(f"Total processed: {successful + failed}")
-        
+
         # Проверяем, все ли кошельки обработаны успешно
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM withdraw_progress WHERE status = "pending"')
             remaining = cursor.fetchone()[0]
-            
+
             if remaining == 0:
                 logger.success("All wallets processed!")
             else:
                 logger.warning(f"{remaining} wallets still pending")
-        
+
         break
 
 

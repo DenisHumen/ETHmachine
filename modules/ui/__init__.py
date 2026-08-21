@@ -31,7 +31,8 @@ from modules.ui.menu_model import (
 )
 from modules.ui.menu_model import show as show_items
 from modules.ui.prompts import (
-    ask_int, ask_text, choose, confirm, menu, pause, print_lines,
+    ask_int, ask_text, choose, confirm, confirm_or_back, menu, pause,
+    print_lines,
 )
 from modules.ui.text import (
     fit, pad, shorten_address, strip_ansi, truncate, visual_width, wrap,
@@ -46,6 +47,7 @@ class _UI:
     menu = staticmethod(menu)
     choose = staticmethod(choose)
     confirm = staticmethod(confirm)
+    confirm_or_back = staticmethod(confirm_or_back)
     ask_int = staticmethod(ask_int)
     ask_text = staticmethod(ask_text)
     pause = staticmethod(pause)
@@ -80,7 +82,7 @@ ui = _UI()
 __all__ = [
     "ui", "theme", "text", "components", "prompts", "menu_model",
     "MenuItem", "SubMenu", "BACK_KEY",
-    "menu", "choose", "confirm", "ask_int", "ask_text", "pause",
+    "menu", "choose", "confirm", "confirm_or_back", "ask_int", "ask_text", "pause",
     "print_lines", "show_items", "render_items", "label_column_width",
     "header", "panel", "info_panel", "stats_panel", "key_values",
     "bullet_list", "rule", "badge", "gradient", "panel_width",

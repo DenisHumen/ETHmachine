@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from questionary import Choice, select
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -41,6 +40,8 @@ from config.modules.general_config import (  # noqa: E402
     RETRY_COUNT,
     SLEEP_BETWEEN_ACTIONS,
 )
+from modules.ui import ui  # noqa: E402
+from modules.ui.menu_model import BACK_KEY  # noqa: E402
 from modules.eth.database import (  # noqa: E402
     create_balance_tasks,
     get_pending_tasks,
@@ -581,19 +582,12 @@ def run_oklink_balance_check(wallets: list | None, network_name: str, oklink_cha
     if len(records) > 10:
         console.print(f"   [dim]…и ещё {len(records) - 10}[/dim]")
 
-    action = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Действие с базой данных                   ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice("   ▶️  Продолжить незавершённые задачи", "continue"),
-            Choice("   🔄 Начать заново (сброс БД)", "reset"),
-            Choice("   🔙 Назад", "back"),
-        ],
-        qmark="🛠️ ",
-        pointer="👉",
-    ).ask()
-    if action in (None, "back"):
+    action = ui.menu("Действие с базой данных", [
+        ("▶️ Продолжить незавершённые задачи", "continue"),
+        ("🔄 Начать заново (сброс БД)", "reset"),
+        (f"{ui.glyphs.arrow} Назад", BACK_KEY),
+    ])
+    if action in (None, BACK_KEY):
         return
 
     init_database()

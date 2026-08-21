@@ -4,8 +4,10 @@ import sys
 import requests
 from datetime import datetime
 from typing import Tuple
-from questionary import select, Choice
 import textwrap
+
+from modules.simple_logger import logger
+from modules.ui import ui
 
 # Корень репозитория — все git-команды выполняются относительно него.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -220,18 +222,13 @@ def check_version(repo_name: str):
                     print_row("", "", part, version_col, date_col, changes_col, frame_width)
             first = False
         print_border(frame_width)
-    answer = select(
-        "🛠️ Do you want to update?",
-        choices=[
-            Choice("⚠️ No, continue without updating", "no"),
-            Choice("🆙 Yes, update to the latest version", "yes"),
-        ],
-        qmark="🛠️",
-        pointer="👉"
-    ).ask()
+    answer = ui.menu("Обновиться до последней версии?", [
+        ("⚠️ Нет — продолжить без обновления", "no"),
+        ("🆙 Да — обновиться", "yes"),
+    ])
 
     if answer != "yes":
-        print("⚠️ Continuing without updating.")
+        logger.warning("Продолжаем без обновления")
         return
 
     run_update()
@@ -254,15 +251,10 @@ def run_update() -> None:
         print("\n⚠️ Обнаружены локальные изменения (обычно это ваши настройки).")
         print("📋 Они будут временно отложены и возвращены после обновления.\n")
 
-        answer = select(
-            "Продолжить обновление?",
-            choices=[
-                Choice("🆙 Да — отложить изменения, обновиться и вернуть их", "yes"),
-                Choice("❌ Нет — отменить обновление", "no"),
-            ],
-            qmark="💾",
-            pointer="👉",
-        ).ask()
+        answer = ui.menu("Продолжить обновление?", [
+            ("🆙 Да — отложить изменения, обновиться и вернуть их", "yes"),
+            ("❌ Нет — отменить обновление", "no"),
+        ])
 
         if answer != "yes":
             print("⚠️ Обновление отменено. Ваши изменения на месте.")

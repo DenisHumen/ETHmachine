@@ -15,7 +15,6 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from colorama import Fore
 from eth_account import Account
-from questionary import Choice, select
 from web3 import Web3
 from web3.exceptions import TransactionNotFound
 
@@ -36,6 +35,7 @@ from config.modules.cfg_transfer import (
 from config.networks import get_explorer_url, get_network_rpc_urls, get_network_symbol
 from modules.proxy_manager import ProxyManager, parse_proxy
 from modules.simple_logger import logger
+from modules.ui import ui
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATABASE
@@ -877,25 +877,20 @@ def run_transfer(transfer_data: List[Dict], network: str):
             pending_count = sum(1 for t in existing if t["status"] in ("pending", "failed", "tx_sent"))
             completed_count = sum(1 for t in existing if t["status"] == "completed")
 
-            print()
-            print(Fore.YELLOW + "═" * 60)
-            print(Fore.YELLOW + f"  Найдены незавершённые задачи для {network}")
-            print(Fore.YELLOW + f"  ✅ Выполнено: {completed_count} | ⏳ Осталось: {pending_count}")
-            print(Fore.YELLOW + "═" * 60)
-            print()
+            ui.print_lines(ui.panel(
+                f"Незавершённые задачи · {network}",
+                [f"✅ Выполнено: {completed_count}",
+                 f"⏳ Осталось:  {pending_count}"],
+                color=ui.theme.FG_WARN,
+            ))
 
-            choice = select(
-                "Что делать с существующими задачами?",
-                choices=[
-                    Choice("▶️  Продолжить выполнение", "continue"),
-                    Choice("🗑️  Очистить и начать заново", "clear"),
-                    Choice("❌ Отмена", "cancel"),
-                ],
-                qmark="🛠️",
-                pointer="👉",
-            ).ask()
+            choice = ui.menu("Что делать с существующими задачами?", [
+                ("▶️ Продолжить выполнение", "continue"),
+                ("🗑️ Очистить и начать заново", "clear"),
+                ("❌ Отмена", "cancel"),
+            ])
 
-            if choice == "cancel":
+            if choice in (None, "cancel"):
                 return
             elif choice == "clear":
                 _clear_tasks(network)

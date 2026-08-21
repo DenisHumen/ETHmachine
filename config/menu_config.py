@@ -33,7 +33,7 @@ __all__ = [
     "MEXC_SUBMENU", "TOOLS_SUBMENU", "GENERATE_WALLETS_SUBMENU",
     "ETH_WALLETS_SUBMENU", "SOL_WALLETS_SUBMENU", "CONVERT_TOOL_SUBMENU",
     "DISCORD_OS_SUBMENU", "RUST_IMPL_SUBMENU", "WALLET_COUNT_OPTIONS",
-    "get_enabled_main_menu_items", "build_choices", "build_submenu_choices",
+    "get_enabled_main_menu_items",
     "all_submenus",
 ]
 
@@ -460,15 +460,3 @@ def get_enabled_main_menu_items() -> List[MenuItem]:
         if key in MENU_ITEMS and MENU_ITEMS[key].enabled
     ]
 
-
-def build_choices(items: List[MenuItem]) -> list:
-    """``[Choice, ...]`` для questionary — с общей шириной колонки названий."""
-    from questionary import Choice
-
-    from modules.ui.prompts import _formatted
-
-    return [Choice(_formatted(label), key) for label, key in render_items(items)]
-
-
-def build_submenu_choices(submenu: SubMenu) -> list:
-    return build_choices(submenu.items)
