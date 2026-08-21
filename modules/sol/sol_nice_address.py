@@ -16,6 +16,8 @@ from config.modules.cfg_nice_address import (
     NICE_ADDRESS_WORDS_SOL, REPEATED_CHAR_COUNT, NICE_ADDRESS_WORDS_enable,
     REPEATED_CHAR_COUNT_enable, display_the_address_search_process
 )
+from modules.simple_logger import logger
+from modules.sol.sol_wallet_generator import RESULT_CSV, new_wallets_file
 
 def mnemonic_to_private_key(mnemonic):
     """
@@ -59,15 +61,23 @@ def sol_generate_nice_wallets(num_wallets):
     spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
     bar_length = 30  # Length of the progress bar
 
+    # Красивый адрес ищется часами, а result/result.csv чекеры балансов и
+    # сборщики открывают с mode='w'. Поэтому ключи пишем ещё и в собственный
+    # файл запуска, который никто больше не трогает.
+    wallets_path = new_wallets_file('sol_nice_wallets')
+
     # Clear the file and write the header
-    with open('result/result.csv', mode='w', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
     completed_wallets = 0
     attempt = 0
-    with open('result/result.csv', mode='a', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
+    with open(RESULT_CSV, mode='a', newline='', encoding="utf-8") as shared_file, \
+         open(wallets_path, mode='a', newline='', encoding="utf-8") as wallets_file:
+        sinks = [(csv.writer(shared_file), shared_file),
+                 (csv.writer(wallets_file), wallets_file)]
         while completed_wallets < num_wallets:
             attempt += 1
             try:
@@ -76,7 +86,12 @@ def sol_generate_nice_wallets(num_wallets):
                 priv_key, pub_key = mnemonic_to_private_key(mnemonic)
 
                 if is_nice_address(pub_key, attempt=attempt):
-                    writer.writerow([mnemonic, pub_key, priv_key])
+                    for writer, sink_file in sinks:
+                        writer.writerow([mnemonic, pub_key, priv_key])
+                        # Находки редки, а поиск идёт часами: сбрасываем строку
+                        # на диск сразу, чтобы жёсткое завершение процесса
+                        # не съело уже найденный ключ.
+                        sink_file.flush()
                     completed_wallets += 1
 
                     # Update progress bar
@@ -91,3 +106,5 @@ def sol_generate_nice_wallets(num_wallets):
             except Exception as e:
                 print(f"\n❌ Error generating wallet: {str(e)}", file=sys.stderr)
     print()  # Move to the next line after the progress bar is complete
+    logger.success(f"Ключи сохранены в {wallets_path} (копия в {RESULT_CSV})")
+    return wallets_path

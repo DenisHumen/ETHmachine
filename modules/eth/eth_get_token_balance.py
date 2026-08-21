@@ -27,8 +27,10 @@ from config.networks import NETWORKS, get_network_display_name
 from config import token_address_erc20
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
-    update_task_status, reset_database_for_new_run
+    update_task_status, reset_database_for_new_run, get_all_results
 )
+from modules.proxy_manager import get_proxy_dict, mask_proxy, parse_proxy
+from modules.simple_logger import logger
 
 console = Console()
 
@@ -55,14 +57,13 @@ def load_proxies() -> list:
 
 
 def make_proxy_dict(proxy_str: str) -> dict:
-    if not proxy_str:
-        return None
-    try:
-        auth, addr = proxy_str.split('@')
-        proxy_url = f"http://{auth}@{addr}"
-        return {'http': proxy_url, 'https': proxy_url}
-    except:
-        return None
+    """Разбор прокси общим парсером из modules.proxy_manager.
+
+    Локальная копия умела только `user:pass@host:port`: на обычном `host:port`
+    распаковка падала в голый except и возвращала None — запрос молча уходил
+    напрямую с реального IP пользователя.
+    """
+    return get_proxy_dict(proxy_str)
 
 
 def get_tokens_for_network(network_name: str) -> dict:
@@ -284,6 +285,20 @@ def process_wallets_tokens(wallets: list, token_address: str, rpc_urls: list,
     proxies = load_proxies()
     max_workers = min(NUM_THREADS, total, 20)
 
+    # Нераспознанный прокси = запрос с реального IP. Молчать об этом нельзя:
+    # пользователь узнает о проблеме только когда RPC его забанит.
+    bad_proxies = [p for p in dict.fromkeys(proxies) if p and parse_proxy(p) is None]
+    if bad_proxies:
+        logger.warning(
+            f"Не удалось разобрать {len(bad_proxies)} прокси "
+            f"({', '.join(mask_proxy(p) for p in bad_proxies[:3])}) — эти запросы пойдут напрямую"
+        )
+        logs.append((
+            time.strftime("%H:%M:%S"),
+            f"⚠️ Не разобрано прокси: {len(bad_proxies)} — часть запросов пойдёт напрямую",
+            "WARNING"
+        ))
+
     decimals, resolved = resolve_token_decimals(token_address, rpc_urls, proxies)
 
     if resolved:
@@ -331,6 +346,37 @@ def process_wallets_tokens(wallets: list, token_address: str, rpc_urls: list,
                 live.update(create_panel(network_name, token_symbol, total, success, failed, logs))
     
     return results
+
+
+def merge_with_db_results(results: dict, task_type: str, network_name: str) -> dict:
+    """Дополняет результаты текущего прогона завершёнными задачами из БД.
+
+    При «Продолжить незавершённые задачи» обрабатываются только pending-кошельки,
+    поэтому без слияния отчёт объявлял все прошлые успехи «ERROR: Not processed»
+    с нулевым балансом, хотя реальные данные лежат в db/eth_balance_tasks.db.
+    """
+    merged = {}
+    try:
+        rows = get_all_results(task_type, network_name)
+    except Exception as e:
+        logger.warning(f"Не удалось прочитать прошлые результаты из БД: {e}")
+        rows = []
+
+    for row in rows:
+        if row.get('status') != 'completed':
+            continue
+        wallet = row.get('wallet_address')
+        if not wallet:
+            continue
+        try:
+            balance = float(row.get('balance') or 0)
+        except (TypeError, ValueError):
+            continue
+        merged[wallet] = {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
+
+    # Свежий результат всегда приоритетнее сохранённого
+    merged.update(results)
+    return merged
 
 
 def save_results(results: dict, wallets: list, network_name: str, token_symbol: str):
@@ -477,11 +523,14 @@ def check_token_balance_menu():
     wallets_to_check = [t['wallet_address'] for t in pending]
     console.print(f"[cyan]📋 Задач: {len(wallets_to_check)}[/cyan]")
     
-    results = process_wallets_tokens(wallets_to_check, token_address, rpc_urls, 
+    results = process_wallets_tokens(wallets_to_check, token_address, rpc_urls,
                                      selected_network, selected_token)
-    
-    save_results(results, wallets, selected_network, selected_token)
-    print_summary(results, selected_token)
+
+    # Отчёт строим по БД + текущему прогону, иначе resume затрёт прошлые успехи
+    report = merge_with_db_results(results, task_type, selected_network)
+
+    save_results(report, wallets, selected_network, selected_token)
+    print_summary(report, selected_token)
     
     console.print("\n[bold green]✅ Проверка токенов завершена![/bold green]\n")
     

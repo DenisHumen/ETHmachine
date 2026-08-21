@@ -1,90 +1,45 @@
-import unicodedata
-from dataclasses import dataclass, field
-from typing import Callable, List, Optional
+"""Состав меню ETHmachine.
 
+Это конфиг, а не код отрисовки: здесь только описание пунктов. Внешний вид
+(цвета, выравнивание, рамки) живёт в ``modules/ui`` — правьте его там,
+если хотите поменять оформление сразу везде.
 
-# Стиль красного бейджа — совпадает с уровнем ERROR в modules/simple_logger.py
-_BADGE_RED = "\033[41m\033[97;1m {text} \033[0m"
-# Стиль жёлтого бейджа — для предупреждений / placeholder-модулей.
-_BADGE_YELLOW = "\033[43m\033[30;1m {text} \033[0m"
+Что можно менять здесь безопасно:
+  • ``enabled=False`` — скрыть пункт из меню;
+  • порядок элементов в списках ``items`` — порядок в меню;
+  • ``MAIN_MENU_ORDER`` — порядок разделов главного меню;
+  • ``label`` / ``description`` / ``icon`` — подписи.
 
-_BADGE_STYLES = {"red": _BADGE_RED, "yellow": _BADGE_YELLOW}
+Что менять нельзя: значения ``key`` — по ним ``main.py`` понимает, какой
+модуль запускать.
+"""
 
-# Целевая визуальная ширина колонки "иконка + label" (в ячейках терминала)
-_LABEL_COLUMN_WIDTH = 35
+from __future__ import annotations
 
+from typing import List
 
-def _visual_width(s: str) -> int:
-    """Приблизительная ширина строки в ячейках терминала.
+# Модель и отрисовка пунктов — общие для всего проекта.
+from modules.ui.menu_model import (  # noqa: F401  (реэкспорт публичного API)
+    BACK_KEY, MenuItem, SubMenu, label_column_width, render_items,
+)
 
-    Учитывает, что emoji и East-Asian-Wide символы занимают 2 клетки,
-    а variation selectors (️ и т.п.) — 0. ljust() оперирует
-    кол-вом codepoint'ов, поэтому без этой функции menu items с emoji
-    разной структуры (с VS-16 и без) выглядят сдвинутыми.
-    """
-    width = 0
-    for ch in s:
-        if ch in ('️', '︎') or unicodedata.combining(ch):
-            continue
-        cp = ord(ch)
-        if (
-            unicodedata.east_asian_width(ch) in ('W', 'F')
-            or 0x2300 <= cp <= 0x27BF
-            or 0x2B00 <= cp <= 0x2BFF
-            or 0x1F000 <= cp <= 0x1FFFF
-        ):
-            width += 2
-        else:
-            width += 1
-    return width
+__all__ = [
+    "MenuItem", "SubMenu", "BACK_KEY",
+    "MAIN_MENU_CONFIG", "MAIN_MENU_ORDER", "MENU_ITEMS",
+    "BALANCES_SUBMENU", "ETH_BALANCES_SUBMENU", "SOL_BALANCES_SUBMENU",
+    "TRANSACTIONS_SUBMENU", "COLLECTORS_SUBMENU",
+    "TWITTER_SUBMENU", "PROJECTS_SUBMENU",
+    "CEX_SUBMENU", "OKX_SUBMENU", "BINANCE_SUBMENU", "BITGET_SUBMENU",
+    "MEXC_SUBMENU", "TOOLS_SUBMENU", "GENERATE_WALLETS_SUBMENU",
+    "ETH_WALLETS_SUBMENU", "SOL_WALLETS_SUBMENU", "CONVERT_TOOL_SUBMENU",
+    "DISCORD_OS_SUBMENU", "RUST_IMPL_SUBMENU", "WALLET_COUNT_OPTIONS",
+    "get_enabled_main_menu_items", "build_choices", "build_submenu_choices",
+    "all_submenus",
+]
 
-
-def _pad_label(icon: str, label: str) -> str:
-    raw = f"{icon} {label}"
-    pad = max(1, _LABEL_COLUMN_WIDTH - _visual_width(raw))
-    return raw + ' ' * pad
-
-
-@dataclass
-class MenuItem:
-    key: str                              # Уникальный ключ действия
-    label: str                            # Отображаемое название
-    description: str                      # Описание (после 🌟)
-    icon: str = "▶️"                      # Иконка
-    enabled: bool = True                  # Включен/выключен
-    handler: Optional[Callable] = None   # Функция-обработчик (опционально)
-    requires_os: Optional[str] = None    # Требуемая ОС (windows/linux/macos)
-    is_wip: bool = False                 # В разработке (показывает предупреждение)
-    badge: Optional[str] = None          # Бейдж в цветной рамке (как в логере) — например "ПАУЗА"
-    badge_style: str = "red"             # "red" | "yellow" (см. _BADGE_STYLES)
-
-    def get_choice_text(self) -> str:
-        padded_label = _pad_label(self.icon, self.label)
-        if self.badge:
-            tpl = _BADGE_STYLES.get(self.badge_style, _BADGE_RED)
-            badge = tpl.format(text=self.badge)
-            if self.description:
-                return f"{padded_label}🌟 {badge} {self.description}"
-            return f"{padded_label}🌟 {badge}"
-        return f"{padded_label}🌟 {self.description}"
-
-
-@dataclass
-class SubMenu:
-    key: str
-    label: str
-    description: str
-    icon: str = "📁"
-    enabled: bool = True
-    items: List[MenuItem] = field(default_factory=list)
-    qmark: str = '🛠️'
-    pointer: str = '👉'
-
-    def get_choice_text(self) -> str:
-        return f"{_pad_label(self.icon, self.label)}🌟 {self.description}"
-
-    def get_enabled_items(self) -> List[MenuItem]:
-        return [item for item in self.items if item.enabled]
+def _back() -> MenuItem:
+    """Отдельный объект на каждое меню — чтобы правки одного не влияли на другие."""
+    return MenuItem(key=BACK_KEY, label="Назад", description="", icon="←")
 
 
 # =============================================================================
@@ -92,457 +47,428 @@ class SubMenu:
 # =============================================================================
 
 MAIN_MENU_CONFIG = {
-    'title': "Что вы хотите сделать?",
-    'qmark': '🛠️',
-    'pointer': '👉',
+    "title": "Что делаем?",
+    "qmark": "",
+    "pointer": "",
 }
 
-# Порядок отображения пунктов главного меню (можно менять местами)
+# Порядок разделов главного меню — меняйте местами как удобно.
 MAIN_MENU_ORDER = [
-    'check_balances',
-    'transactions',
-    'twitter',
-    'projects_menu',
-    'CEX_menu',
-    'miscellaneous',
-    'backup_menu',
-    'info',
-    'exit',
+    "check_balances",
+    "transactions",
+    "twitter",
+    "projects_menu",
+    "CEX_menu",
+    "miscellaneous",
+    "backup_menu",
+    "info",
+    "exit",
 ]
 
-# =============================================================================
-# ОПРЕДЕЛЕНИЕ ВСЕХ ПУНКТОВ МЕНЮ
-# =============================================================================
-
 MENU_ITEMS = {
-    # -------------------------------------------------------------------------
-    # ГЛАВНОЕ МЕНЮ
-    # -------------------------------------------------------------------------
-    'check_balances': MenuItem(
-        key='check_balances',
-        label='BALANCES',
-        description='Проверить балансы нативка/токены',
-        icon='💲',
-        enabled=True,
+    "check_balances": MenuItem(
+        key="check_balances", label="Balances", icon="💰",
+        description="Нативные токены, ERC-20, DeFi-позиции",
     ),
-    'transactions': MenuItem(
-        key='transactions',
-        label='TRANSACTIONS',
-        description='Транзакции между кошельками',
-        icon='🚀',
-        enabled=True,
+    "transactions": MenuItem(
+        key="transactions", label="Transactions", icon="🚀",
+        description="Переводы между кошельками, сборщики, мосты",
     ),
-    'twitter': MenuItem(
-        key='twitter',
-        label='Twitter',
-        description='Сбор данных по твиттерам',
-        icon='🐦',
-        enabled=True,
+    "twitter": MenuItem(
+        key="twitter", label="Twitter", icon="🐦",
+        description="Проверка аккаунтов и выполнение заданий",
     ),
-    'projects_menu': MenuItem(
-        key='projects_menu',
-        label='PROJECTS',
-        description='Автоматизация проектов',
-        icon='🎮',
-        enabled=True,
+    "projects_menu": MenuItem(
+        key="projects_menu", label="Projects", icon="🎮",
+        description="Автоматизация активностей в проектах",
     ),
-    'CEX_menu': MenuItem(
-        key='CEX_menu',
-        label='CEX',
-        description='Функционал CEX',
-        icon='🏦',
-        enabled=True,
+    "CEX_menu": MenuItem(
+        key="CEX_menu", label="CEX", icon="🏦",
+        description="Вывод средств, балансы, субаккаунты",
     ),
-    'miscellaneous': MenuItem(
-        key='miscellaneous',
-        label='Tools',
-        description='Разные удобные инструменты',
-        icon='🧰',
-        enabled=True,
+    "miscellaneous": MenuItem(
+        key="miscellaneous", label="Tools", icon="🧰",
+        description="Генераторы, конвертеры, чекеры",
     ),
-    'backup_menu': MenuItem(
-        key='backup_menu',
-        label='Backup',
-        description='Локальные и SFTP бэкапы',
-        icon='💾',
-        enabled=True,
+    "backup_menu": MenuItem(
+        key="backup_menu", label="Backup", icon="💾",
+        description="Локальные и SFTP бэкапы, live-синхронизация",
     ),
-    'info': MenuItem(
-        key='info',
-        label='INFO',
-        description='Информация о всех пунктах',
-        icon='📖',
-        enabled=True,
+    "info": MenuItem(
+        key="info", label="Info", icon="📖",
+        description="Справка по всем пунктам меню",
     ),
-    'exit': MenuItem(
-        key='exit',
-        label='Exit',
-        description='Выход из программы',
-        icon='❌',
-        enabled=True,
+    "exit": MenuItem(
+        key="exit", label="Exit", icon="❌",
+        description="Выход из программы",
     ),
-    
-    # -------------------------------------------------------------------------
-    # Отключенные пункты (раскомментируйте чтобы включить)
-    # -------------------------------------------------------------------------
-    'selenium_profile': MenuItem(
-        key='selenium_profile',
-        label='Selenium Profile',
-        description='Профиль Selenium',
-        icon='🔍',
-        enabled=False,  # Выключен
+
+    # ── Отключено: включите enabled=True, когда функционал будет готов ──
+    "selenium_profile": MenuItem(
+        key="selenium_profile", label="Selenium Profile", icon="🔍",
+        description="Управление профилями браузера",
+        enabled=False, is_wip=True,
     ),
-    'faucets': MenuItem(
-        key='faucets',
-        label='Faucets',
-        description='Краны',
-        icon='🚰',
-        enabled=False,  # Выключен
+    "faucets": MenuItem(
+        key="faucets", label="Faucets", icon="🚰",
+        description="Тестовые краны",
+        enabled=False, is_wip=True,
     ),
 }
 
 # =============================================================================
-# ПОДМЕНЮ: BALANCES
+# BALANCES
 # =============================================================================
 
 BALANCES_SUBMENU = SubMenu(
-    key='check_balances',
-    label='Выберите блокчейн',
-    description='',
-    icon='💲',
+    key="check_balances", label="Balances", icon="💰",
+    description="Где смотрим балансы",
     items=[
-        MenuItem(key='ETH', label='ETH', description='Ethereum и EVM сети', icon='💲', enabled=True),
-        MenuItem(key='SOL', label='SOL', description='Solana', icon='💲', enabled=True),
-        MenuItem(key='Eclipse', label='Eclipse', description='Eclipse Network', icon='💲', enabled=True),
-        MenuItem(key='debank_checker', label='DeBank Checker', description='Проверка всех балансов через DeBank', icon='🏦', enabled=True),
-        MenuItem(key='debank_protocols', label='DeBank Protocols', description='Проверка DeFi-позиций (стейкинг, лендинг, locked)', icon='🔗', enabled=True),
-        MenuItem(key='zksync_lite', label='zkSync Lite', description='Балансы zkSync Lite (lite.zksync.io)', icon='🟪', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="ETH", label="EVM-сети", icon="Ξ",
+                 description="Ethereum и совместимые сети"),
+        MenuItem(key="SOL", label="Solana", icon="◎",
+                 description="Нативный SOL и SPL-токены"),
+        MenuItem(key="Eclipse", label="Eclipse", icon="🌘",
+                 description="Балансы в сети Eclipse"),
+        MenuItem(key="debank_checker", label="DeBank Checker", icon="🏦",
+                 description="Все токены во всех сетях через DeBank"),
+        MenuItem(key="debank_protocols", label="DeBank Protocols", icon="🔗",
+                 description="DeFi-позиции: стейкинг, лендинг, LP"),
+        MenuItem(key="zksync_lite", label="zkSync Lite", icon="🟪",
+                 description="Балансы на lite.zksync.io"),
+        _back(),
+    ],
 )
 
 ETH_BALANCES_SUBMENU = SubMenu(
-    key='eth_balances',
-    label='Выберите действие для ETH',
-    description='',
+    key="eth_balances", label="EVM-сети", icon="Ξ",
+    description="Что проверяем",
     items=[
-        MenuItem(key='check_wallet_balances_eth', label='Check Wallets Balances', description='Проверка балансов кошельков', icon='💲', enabled=True),
-        MenuItem(key='check_token_balances', label='Check Token Balances', description='Проверка балансов токенов', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="check_wallet_balances_eth", label="Балансы кошельков",
+                 icon="💰", description="Нативный токен выбранной сети"),
+        MenuItem(key="check_token_balances", label="Балансы токенов",
+                 icon="💎", description="ERC-20 из config/token_address_erc20.py"),
+        _back(),
+    ],
 )
 
 SOL_BALANCES_SUBMENU = SubMenu(
-    key='sol_balances',
-    label='Выберите действие для SOL',
-    description='',
+    key="sol_balances", label="Solana", icon="◎",
+    description="Что проверяем",
     items=[
-        MenuItem(key='check_wallet_balances_sol', label='Check Wallets Balances', description='Проверка балансов кошельков', icon='💲', enabled=True),
-        MenuItem(key='check_token_balances_sol', label='Check Token Balances', description='Проверка балансов токенов (WIP)', icon='💲', enabled=True, is_wip=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="check_wallet_balances_sol", label="Балансы кошельков",
+                 icon="💰", description="Нативный SOL"),
+        MenuItem(key="check_token_balances_sol", label="Балансы токенов",
+                 icon="💎", description="SPL-токены", is_wip=True),
+        _back(),
+    ],
 )
 
 # =============================================================================
-# ПОДМЕНЮ: TRANSACTIONS
+# TRANSACTIONS
 # =============================================================================
 
 TRANSACTIONS_SUBMENU = SubMenu(
-    key='transactions',
-    label='Выберите действие',
-    description='',
-    icon='🚀',
+    key="transactions", label="Transactions", icon="🚀",
+    description="Что отправляем",
     items=[
-        MenuItem(key='collectors', label='Collectors', description='Сборщик балансов на main кошелек', icon='🧹', enabled=True),
-        MenuItem(key='transfer_wallets_to_wallets_call', label='Transfer Wallets to Wallets', description='Отправить нативные токены между кошельками', icon='🔄', enabled=True),
-        MenuItem(key='transfer_erc20_tokens_call', label='Transfer ERC20 Tokens', description='Отправить ERC20 токены между кошельками', icon='💎', enabled=True),
-        MenuItem(key='transfer_kava_to_cex_call', label='Transfer KAVA → CEX', description='Native KAVA на CEX (kava1 bech32 → 0x)', icon='🚀', enabled=True),
-        MenuItem(key='relay_bridge', label='Relay Bridge', description='Мост между сетями через Relay Link', icon='🌉', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="collectors", label="Collectors", icon="🧹",
+                 description="Собрать балансы на главный кошелёк"),
+        MenuItem(key="transfer_wallets_to_wallets_call",
+                 label="Перевод нативных токенов", icon="🔄",
+                 description="Между кошельками из data/data.csv"),
+        MenuItem(key="transfer_erc20_tokens_call",
+                 label="Перевод ERC-20", icon="💎",
+                 description="Токены между кошельками"),
+        MenuItem(key="transfer_kava_to_cex_call",
+                 label="KAVA → биржа", icon="🌊",
+                 description="Нативный KAVA на CEX (kava1 bech32 → 0x)"),
+        MenuItem(key="relay_bridge", label="Relay Bridge", icon="🌉",
+                 description="Мост между сетями через Relay Link"),
+        _back(),
+    ],
 )
 
 COLLECTORS_SUBMENU = SubMenu(
-    key='collectors',
-    label='Выберите действие',
-    description='',
+    key="collectors", label="Collectors", icon="🧹",
+    description="Откуда собираем",
     items=[
-        MenuItem(key='eth_collectors', label='ETH Collectors', description='Сборщик ETH', icon='💲', enabled=True),
-        MenuItem(key='sol_collectors', label='SOL Collectors', description='Сборщик SOL (WIP)', icon='💲', enabled=True, is_wip=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="eth_collectors", label="EVM-сети", icon="Ξ",
+                 description="Собрать нативные токены и ERC-20"),
+        MenuItem(key="sol_collectors", label="Solana", icon="◎",
+                 description="Собрать SOL", is_wip=True),
+        _back(),
+    ],
 )
 
 # =============================================================================
-# ПОДМЕНЮ: TWITTER
+# TWITTER
 # =============================================================================
 
 TWITTER_SUBMENU = SubMenu(
-    key='twitter',
-    label='Выберите действие с Twitter',
-    description='',
-    icon='🐦',
+    key="twitter", label="Twitter", icon="🐦",
+    description="Что делаем с аккаунтами",
     items=[
-        MenuItem(key='twitter_check', label='Twitter Check', description='Проверка аккаунтов Twitter', icon='🐦', enabled=True),
-        MenuItem(key='twitter_info', label='Twitter Info', description='Получение информации Twitter', icon='🐦', enabled=True),
-        MenuItem(key='twitter_task', label='Twitter Task', description='Выполнение заданий Twitter', icon='🐦', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        # Раньше здесь было два пункта — «Check» и «Info», — но оба вызывали
+        # одну и ту же функцию. Оставлен один.
+        MenuItem(key="twitter_check", label="Проверка аккаунтов", icon="🔍",
+                 description="Валидность токенов, статус, подписчики, био"),
+        MenuItem(key="twitter_task", label="Выполнение заданий", icon="✅",
+                 description="Лайки, репосты, комментарии с прогрессом в БД"),
+        _back(),
+    ],
 )
 
 # =============================================================================
-# ПОДМЕНЮ: PROJECTS
+# PROJECTS
 # =============================================================================
 
 PROJECTS_SUBMENU = SubMenu(
-    key='projects_menu',
-    label='Выберите проект',
-    description='',
-    icon='🎮',
-    qmark='🎮',
+    key="projects_menu", label="Projects", icon="🎮",
+    description="Выберите проект",
     items=[
-        MenuItem(key='xstocks', label='xStocks DeFi', description='Register, GM, Referrals, Points', icon='🟢', enabled=True, badge='ПАУЗА'),
-        MenuItem(key='neura_stat', label='Neura', description='Статистика по ETHmachine', icon='🟢', enabled=True, requires_os='windows'),
-        MenuItem(key='dune', label='Dune', description='Аналитика и проверка кошельков через Dune Analytics', icon='🟢', enabled=True),
-        MenuItem(key='fhenix', label='Fhenix', description='Кран ghostchain (Sepolia) и др.', icon='🟢', enabled=True),
-        MenuItem(key='litvm_testnet', label='LiteForge testnet', description='Кран zkLTC и др. активности на LiteForge', icon='🟢', enabled=True),
-        MenuItem(key='sahara', label='Sahara AI', description='Knowledge Drop claim + (опц.) вывод на CEX', icon='🟢', enabled=True),
-        MenuItem(key='safepal_x1', label='SafePal X1', description='Проверка eligibility на claim SafePal X1 hardware wallet', icon='🟪', enabled=True),
-        MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="xstocks", label="xStocks DeFi", icon="📈",
+                 description="Регистрация, GM, рефералы, поинты",
+                 badge="ПАУЗА", badge_style="warn"),
+        MenuItem(key="neura_stat", label="Neura", icon="🧠",
+                 description="Статистика по аккаунтам",
+                 requires_os="windows"),
+        MenuItem(key="dune", label="Dune Analytics", icon="📊",
+                 description="Проверка кошельков по дашбордам Dune"),
+        MenuItem(key="fhenix", label="Fhenix", icon="🔐",
+                 description="Краны ghostchain и Alchemy (Sepolia)"),
+        MenuItem(key="litvm_testnet", label="LiteForge Testnet", icon="⚒️",
+                 description="Кран zkLTC, мост, свапы, NFT, домены"),
+        MenuItem(key="sahara", label="Sahara AI", icon="🏜️",
+                 description="Клейм Knowledge Drop и вывод на биржу"),
+        MenuItem(key="safepal_x1", label="SafePal X1", icon="🔑",
+                 description="Проверка права на клейм аппаратного кошелька"),
+        _back(),
+    ],
 )
 
 # =============================================================================
-# ПОДМЕНЮ: CEX
+# CEX
 # =============================================================================
 
 CEX_SUBMENU = SubMenu(
-    key='CEX_menu',
-    label='Выберите биржу',
-    description='',
-    icon='🏦',
+    key="CEX_menu", label="CEX", icon="🏦",
+    description="Выберите биржу",
     items=[
-        MenuItem(key='OKX', label='OKX', description='Работа с OKX', icon='💲', enabled=True),
-        MenuItem(key='Binance', label='Binance', description='Работа с Binance', icon='💲', enabled=True),
-        MenuItem(key='Bitget', label='Bitget', description='Работа с Bitget', icon='💲', enabled=True),
-        MenuItem(key='MEXC', label='MEXC', description='Работа с MEXC', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="OKX", label="OKX", icon="⬛",
+                 description="Вывод, балансы, субаккаунты, спот"),
+        MenuItem(key="Binance", label="Binance", icon="🟨",
+                 description="Вывод, балансы, субаккаунты"),
+        MenuItem(key="Bitget", label="Bitget", icon="🟦",
+                 description="Вывод, субаккаунты"),
+        MenuItem(key="MEXC", label="MEXC", icon="🟩",
+                 description="Вывод средств"),
+        _back(),
+    ],
 )
 
 OKX_SUBMENU = SubMenu(
-    key='OKX',
-    label='Выберите действие',
-    description='',
+    key="OKX", label="OKX", icon="⬛",
+    description="Что делаем",
     items=[
-        MenuItem(key='withdraw_from_okx', label='Withdraw from OKX', description='Вывод с OKX', icon='💲', enabled=True),
-        MenuItem(key='get_balances_okx', label='Get Balances from OKX', description='Получить балансы с OKX', icon='💲', enabled=True),
-        MenuItem(key='subaccount_collector_okx', label='Subaccount collector OKX', description='Сборщик субаккаунтов OKX', icon='💲', enabled=True),
-        MenuItem(key='spot_trade_okx', label='Auto spot trade OKX', description='Спотовая торговля на бирже', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="withdraw_from_okx", label="Вывод средств", icon="📤",
+                 description="На адреса из data/data.csv"),
+        MenuItem(key="get_balances_okx", label="Балансы", icon="💰",
+                 description="Основной аккаунт"),
+        MenuItem(key="subaccount_collector_okx", label="Сбор с субаккаунтов",
+                 icon="🧹", description="Перевод на основной аккаунт"),
+        MenuItem(key="spot_trade_okx", label="Спотовая торговля", icon="📈",
+                 description="Автоматические сделки по конфигу"),
+        _back(),
+    ],
 )
 
 BINANCE_SUBMENU = SubMenu(
-    key='Binance',
-    label='Выберите действие',
-    description='',
+    key="Binance", label="Binance", icon="🟨",
+    description="Что делаем",
     items=[
-        MenuItem(key='withdraw_from_binance', label='Withdraw from Binance', description='Вывод с Binance', icon='💲', enabled=True),
-        MenuItem(key='get_balances_binance', label='Get Balances from Binance', description='Получить балансы с Binance', icon='💲', enabled=True),
-        MenuItem(key='subaccount_collector_binance', label='Subaccount collector Binance', description='Сборщик субаккаунтов', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="withdraw_from_binance", label="Вывод средств", icon="📤",
+                 description="На адреса из data/data.csv"),
+        MenuItem(key="get_balances_binance", label="Балансы", icon="💰",
+                 description="Основной аккаунт и субаккаунты"),
+        MenuItem(key="subaccount_collector_binance", label="Сбор с субаккаунтов",
+                 icon="🧹", description="Перевод на основной аккаунт"),
+        _back(),
+    ],
 )
 
 BITGET_SUBMENU = SubMenu(
-    key='Bitget',
-    label='Выберите действие',
-    description='',
+    key="Bitget", label="Bitget", icon="🟦",
+    description="Что делаем",
     items=[
-        MenuItem(key='withdraw_from_bitget', label='Withdraw from Bitget', description='Вывод с Bitget', icon='💲', enabled=True),
-        MenuItem(key='get_balances_bitget', label='Get Balances from Bitget', description='Получить балансы с Bitget (WIP)', icon='💲', enabled=True, is_wip=True),
-        MenuItem(key='subaccount_collector_bitget', label='Subaccount collector Bitget', description='Сборщик субаккаунтов Bitget', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="withdraw_from_bitget", label="Вывод средств", icon="📤",
+                 description="На адреса из data/data.csv"),
+        MenuItem(key="get_balances_bitget", label="Балансы", icon="💰",
+                 description="Основной аккаунт", is_wip=True),
+        MenuItem(key="subaccount_collector_bitget", label="Сбор с субаккаунтов",
+                 icon="🧹", description="Перевод на основной аккаунт"),
+        _back(),
+    ],
 )
 
 MEXC_SUBMENU = SubMenu(
-    key='MEXC',
-    label='Выберите действие',
-    description='',
+    key="MEXC", label="MEXC", icon="🟩",
+    description="Что делаем",
     items=[
-        MenuItem(key='withdraw_from_mexc', label='Withdraw from MEXC', description='Вывод с MEXC', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="withdraw_from_mexc", label="Вывод средств", icon="📤",
+                 description="На адреса из data/data.csv"),
+        _back(),
+    ],
 )
 
 # =============================================================================
-# ПОДМЕНЮ: TOOLS (MISCELLANEOUS)
+# TOOLS
 # =============================================================================
 
 TOOLS_SUBMENU = SubMenu(
-    key='miscellaneous',
-    label='Выберите действие',
-    description='',
-    icon='🧰',
+    key="miscellaneous", label="Tools", icon="🧰",
+    description="Выберите инструмент",
     items=[
-        MenuItem(key='generate_wallets', label='Generate Wallets', description='Генерация кошельков', icon='🪙', enabled=True),
-        MenuItem(key='ETH_convert_tool', label='ETH/SOL convert tool', description='Конвертация мнемоники/priv_key в wallet_address/priv_key', icon='🛠️', enabled=True),
-        MenuItem(key='password_generator', label='Password Generator', description='Генерация паролей по заданым параметра в "config/config.py"', icon='🔑', enabled=True),
-        MenuItem(key='nickname_generator', label='Nickname Generator', description='Генерация человечески выглядящих никнеймов', icon='🎭', enabled=True),
-        MenuItem(key='fullname_generator', label='Fullname Generator', description='Генерация имён и фамилий (RU/UA/ENG)', icon='👤', enabled=True),
-        MenuItem(key='check_proxy', label='Check Proxy', description='Проверить прокси', icon='🛠️', enabled=True),
-        MenuItem(key='check_age_discord', label='Check age discord', description='Проверить возраст аккаунта Discord', icon='🗂️', enabled=True),
-        MenuItem(key='email_checker', label='Email IMAP Checker', description='Проверить почтовые аккаунты через IMAP', icon='📧', enabled=True),
-        MenuItem(key='pinterest_downloader', label='Pinterest Downloader', description='Скачать рандомные картинки из Pinterest', icon='📌', enabled=True),
-        MenuItem(key='swap_all_polygon_zkevm_to_base', label='Swap All Polygon zkEVM → Base USDC', description='Свап всех токенов с Polygon zkEVM в USDC на Base через Layerswap', icon='💱', enabled=True),
-        MenuItem(key='swap_all_zksync_era_to_base', label='Swap All zkSync Era → Base USDC', description='Свап USDC/USDT с zkSync Era в USDC на Base через Rhino.fi', icon='💱', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="generate_wallets", label="Генерация кошельков", icon="🪙",
+                 description="EVM и Solana, включая красивые адреса"),
+        MenuItem(key="ETH_convert_tool", label="Конвертер ключей", icon="🔀",
+                 description="Мнемоника ↔ приватный ключ ↔ адрес"),
+        MenuItem(key="password_generator", label="Генератор паролей", icon="🔑",
+                 description="Параметры в config/modules/cfg_password.py"),
+        MenuItem(key="nickname_generator", label="Генератор никнеймов", icon="🎭",
+                 description="Правдоподобные ники под регистрации"),
+        MenuItem(key="fullname_generator", label="Генератор имён", icon="👤",
+                 description="Имена и фамилии: RU / UA / ENG"),
+        MenuItem(key="check_proxy", label="Проверка прокси", icon="🛰️",
+                 description="Доступность, скорость, геолокация"),
+        MenuItem(key="check_age_discord", label="Возраст Discord", icon="🗂️",
+                 description="Дата регистрации аккаунтов по токенам"),
+        MenuItem(key="email_checker", label="Проверка почт", icon="📧",
+                 description="Валидация ящиков по IMAP"),
+        MenuItem(key="pinterest_downloader", label="Загрузка с Pinterest",
+                 icon="📌", description="Случайные картинки под аватарки"),
+        MenuItem(key="swap_all_polygon_zkevm_to_base",
+                 label="Polygon zkEVM → Base", icon="💱",
+                 description="Все токены в USDC через Layerswap"),
+        MenuItem(key="swap_all_zksync_era_to_base",
+                 label="zkSync Era → Base", icon="💱",
+                 description="USDC/USDT в USDC через Rhino.fi"),
+        _back(),
+    ],
 )
 
-# =============================================================================
-# ПОДМЕНЮ: GENERATE WALLETS
-# =============================================================================
-
 GENERATE_WALLETS_SUBMENU = SubMenu(
-    key='generate_wallets',
-    label='Выберите тип генерации кошельков',
-    description='',
-    icon='🪙',
+    key="generate_wallets", label="Генерация кошельков", icon="🪙",
+    description="Какие кошельки генерируем",
     items=[
-        MenuItem(key='eth_wallets', label='ETH Кошельки', description='Генерация ETH кошельков', icon='⚡', enabled=True),
-        MenuItem(key='sol_wallets', label='SOL Кошельки', description='Генерация SOL кошельков', icon='☀️', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="eth_wallets", label="EVM-кошельки", icon="Ξ",
+                 description="Приватный ключ, адрес, мнемоника"),
+        MenuItem(key="sol_wallets", label="Solana-кошельки", icon="◎",
+                 description="Приватный ключ и адрес"),
+        _back(),
+    ],
 )
 
 ETH_WALLETS_SUBMENU = SubMenu(
-    key='eth_wallets',
-    label='Выберите тип генерации ETH кошельков',
-    description='',
-    icon='⚡',
+    key="eth_wallets", label="EVM-кошельки", icon="Ξ",
+    description="Тип генерации",
     items=[
-        MenuItem(key='generate', label='Генерация кошельков', description='Сгенерировать кошельки', icon='🪙', enabled=True),
-        MenuItem(key='nice_generate', label='Генерация красивых кошельков', description='Сгенерировать красивые кошельки', icon='✨', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="generate", label="Обычная генерация", icon="🪙",
+                 description="Быстро, адреса случайные"),
+        MenuItem(key="nice_generate", label="Красивые адреса", icon="✨",
+                 description="Подбор по маске из config/modules/cfg_nice_address.py"),
+        _back(),
+    ],
 )
 
 SOL_WALLETS_SUBMENU = SubMenu(
-    key='sol_wallets',
-    label='Выберите тип генерации SOL кошельков',
-    description='',
-    icon='☀️',
+    key="sol_wallets", label="Solana-кошельки", icon="◎",
+    description="Тип генерации",
     items=[
-        MenuItem(key='generate', label='Генерация кошельков', description='Сгенерировать кошельки', icon='🪙', enabled=True),
-        MenuItem(key='nice_generate', label='Генерация красивых кошельков', description='Сгенерировать красивые кошельки', icon='✨', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="generate", label="Обычная генерация", icon="🪙",
+                 description="Быстро, адреса случайные"),
+        MenuItem(key="nice_generate", label="Красивые адреса", icon="✨",
+                 description="Подбор по маске из config/modules/cfg_nice_address.py"),
+        _back(),
+    ],
 )
-
-# =============================================================================
-# ПОДМЕНЮ: CONVERT TOOL
-# =============================================================================
 
 CONVERT_TOOL_SUBMENU = SubMenu(
-    key='ETH_convert_tool',
-    label='Выберите операцию конвертации',
-    description='',
-    icon='🛠️',
+    key="ETH_convert_tool", label="Конвертер ключей", icon="🔀",
+    description="Что во что переводим",
     items=[
-        MenuItem(key='eth_mnemonic_to_privkey', label='ETH >> Mnemonic to Private Key', description='Конвертировать мнемонику в приватный ключ', icon='⚡', enabled=True),
-        MenuItem(key='eth_privkey_to_wallet', label='ETH >> Private Key to Wallet', description='Конвертировать приватный ключ в адрес кошелька', icon='⚡', enabled=True),
-        MenuItem(key='sol_mnemonic_to_privkey', label='SOL >> Mnemonic to Private Key', description='Конвертировать мнемонику в приватный ключ', icon='☀️', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="eth_mnemonic_to_privkey", label="EVM: мнемоника → ключ",
+                 icon="Ξ", description="BIP-39 / BIP-44"),
+        MenuItem(key="eth_privkey_to_wallet", label="EVM: ключ → адрес",
+                 icon="Ξ", description="Массовое преобразование"),
+        MenuItem(key="sol_mnemonic_to_privkey", label="Solana: мнемоника → ключ",
+                 icon="◎", description="Массовое преобразование"),
+        _back(),
+    ],
 )
-
-# =============================================================================
-# КОЛИЧЕСТВО КОШЕЛЬКОВ (общий выбор для генераторов)
-# =============================================================================
-
-WALLET_COUNT_OPTIONS = [
-    {'value': 1, 'label': '1'},
-    {'value': 10, 'label': '10'},
-    {'value': 100, 'label': '100'},
-    {'value': 1000, 'label': '1000'},
-    {'value': 5000, 'label': '5000'},
-    {'value': 10000, 'label': '10000'},
-    {'value': 'manual', 'label': 'Ввести вручную'},
-    {'value': 'back', 'label': 'Back'},
-]
-
-# =============================================================================
-# DISCORD OS SUBMENU
-# =============================================================================
 
 DISCORD_OS_SUBMENU = SubMenu(
-    key='check_age_discord',
-    label='Выберите способ проверки возраста аккаунта Discord',
-    description='',
+    key="check_age_discord", label="Возраст Discord", icon="🗂️",
+    description="Ваша операционная система",
     items=[
-        MenuItem(key='windows', label='Windows', description='Windows', icon='💲', enabled=True),
-        MenuItem(key='macos', label='MacOS', description='MacOS', icon='💲', enabled=True),
-        MenuItem(key='linux', label='Linux', description='Linux', icon='💲', enabled=True),
-        MenuItem(key='back', label='Back', description='Назад', icon='🔙', enabled=True),
-    ]
+        MenuItem(key="windows", label="Windows", icon="🪟", description=""),
+        MenuItem(key="macos", label="macOS", icon="🍎", description=""),
+        MenuItem(key="linux", label="Linux", icon="🐧", description=""),
+        _back(),
+    ],
 )
-
-# =============================================================================
-# RUST IMPLEMENTATION SUBMENU
-# =============================================================================
 
 RUST_IMPL_SUBMENU = SubMenu(
-    key='rust_impl',
-    label='Реализация',
-    description='',
-    icon='⚙️',
+    key="rust_impl", label="Реализация генератора", icon="⚙️",
+    description="Чем подбирать адреса",
     items=[
-        MenuItem(key='python', label='Python (медленно, стабильно)', description='Без зависимостей', icon='🐍', enabled=True),
-        MenuItem(key='rust', label='Rust (быстро, требует Cargo)', description='10-100x быстрее', icon='🦀', enabled=True),
-        MenuItem(key='back', label='Назад', description='', icon='←', enabled=True),
-    ]
+        MenuItem(key="python", label="Python", icon="🐍",
+                 description="Медленнее, работает без дополнительных программ"),
+        MenuItem(key="rust", label="Rust", icon="🦀",
+                 description="В 10–100 раз быстрее, требуется Cargo"),
+        _back(),
+    ],
 )
 
+# Количество кошельков — общий выбор для генераторов.
+WALLET_COUNT_OPTIONS = [
+    {"value": 1, "label": "1"},
+    {"value": 10, "label": "10"},
+    {"value": 100, "label": "100"},
+    {"value": 1000, "label": "1 000"},
+    {"value": 5000, "label": "5 000"},
+    {"value": 10000, "label": "10 000"},
+    {"value": "manual", "label": "Ввести вручную"},
+    {"value": BACK_KEY, "label": "Назад"},
+]
+
 
 # =============================================================================
-# УТИЛИТЫ ДЛЯ РАБОТЫ С МЕНЮ
+# УТИЛИТЫ
 # =============================================================================
 
-def get_enabled_main_menu_items() -> list:
-    result = []
-    for key in MAIN_MENU_ORDER:
-        if key in MENU_ITEMS and MENU_ITEMS[key].enabled:
-            result.append(MENU_ITEMS[key])
-    return result
+def all_submenus() -> List[SubMenu]:
+    """Все объявленные здесь подменю — используется тестами и справкой."""
+    return [value for value in globals().values() if isinstance(value, SubMenu)]
 
 
-def _wrap_title(text: str):
-    """Превращает строку с ANSI escape-кодами в FormattedText, который
-    questionary/prompt_toolkit отрисует с правильными цветами.
-
-    Просто `ANSI(text)` не работает: в текущей версии questionary `Choice`
-    приводит неизвестный тип через `str()` и в меню печатается literal
-    `ANSI('...')`. Поэтому сразу разворачиваем в список `(style, text)`
-    кортежей через `to_formatted_text` — он наследник `list`, который
-    `Choice` принимает как готовый FormattedText.
-    """
-    if '\033' not in text:
-        return text
-    try:
-        from prompt_toolkit.formatted_text import ANSI, to_formatted_text
-    except ImportError:
-        return text
-    return to_formatted_text(ANSI(text))
+def get_enabled_main_menu_items() -> List[MenuItem]:
+    """Пункты главного меню в порядке ``MAIN_MENU_ORDER``."""
+    return [
+        MENU_ITEMS[key]
+        for key in MAIN_MENU_ORDER
+        if key in MENU_ITEMS and MENU_ITEMS[key].enabled
+    ]
 
 
-def build_choices(items: list) -> list:
+def build_choices(items: List[MenuItem]) -> list:
+    """``[Choice, ...]`` для questionary — с общей шириной колонки названий."""
     from questionary import Choice
-    return [Choice(_wrap_title(item.get_choice_text()), item.key) for item in items if item.enabled]
+
+    from modules.ui.prompts import _formatted
+
+    return [Choice(_formatted(label), key) for label, key in render_items(items)]
 
 
 def build_submenu_choices(submenu: SubMenu) -> list:
-    from questionary import Choice
-    return [Choice(_wrap_title(item.get_choice_text()), item.key) for item in submenu.get_enabled_items()]
+    return build_choices(submenu.items)

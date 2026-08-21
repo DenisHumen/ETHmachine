@@ -4,7 +4,7 @@
  * Usage:  node signer.js <COMMAND> '<JSON_INPUT>'
  *
  * Commands:
- *   account-info           {privateKey, [proxyUrl]}
+ *   account-info           {privateKey}
  *       -> {address, accountId, isActive, pubKeyHash, signerPubKeyHash, balances}
  *
  *   change-pubkey          {privateKey, feeToken="ETH"}
@@ -28,6 +28,9 @@
  * Output is a single JSON line on stdout. On any error: {"error": "..."}.
  *
  * NOTE: zksync.js v0.13 uses ethers v5 wallet API.
+ * NOTE: proxies are NOT supported here — every request leaves from the host's
+ *       real IP. The `proxy` column of data.csv only covers the Layerswap HTTP
+ *       client on the Python side.
  */
 
 "use strict";

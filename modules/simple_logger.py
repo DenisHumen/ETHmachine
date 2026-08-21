@@ -1,6 +1,7 @@
 import sys
 import threading
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Dict, Optional, Set
 
 from loguru import logger
@@ -415,13 +416,36 @@ def log_simple(message: str, status: str = "info", account_name: Optional[str] =
     _emit(message, status, account_name=account_name)
 
 
-def setup_file_logging(log_file: str):
-    logger.add(
-        log_file,
-        format=LOG_FORMAT_FILE,
-        level="DEBUG",
-        rotation="10 MB"
-    )
+# Уже подключённые файловые sink-и: абсолютный путь -> id sink-а loguru.
+_file_sinks: Dict[str, int] = {}
+_file_sinks_lock = threading.Lock()
+
+
+def setup_file_logging(log_file: str) -> int:
+    """Подключает файловый sink loguru для указанного пути и возвращает его id.
+
+    Функция вызывается из меню-обёрток модулей, а главное меню крутится в
+    бесконечном цикле — один и тот же модуль можно запустить много раз за
+    сессию. Без дедупликации каждый запуск добавлял ещё один sink на тот же
+    файл: строки лога дублировались N раз, а N файловых дескрипторов висели
+    открытыми до конца процесса. Поэтому запоминаем sink по абсолютному пути и
+    на повторный вызов отдаём уже существующий id.
+    """
+    key = str(Path(log_file).resolve())
+
+    with _file_sinks_lock:
+        existing = _file_sinks.get(key)
+        if existing is not None:
+            return existing
+
+        sink_id = logger.add(
+            log_file,
+            format=LOG_FORMAT_FILE,
+            level="DEBUG",
+            rotation="10 MB"
+        )
+        _file_sinks[key] = sink_id
+        return sink_id
 
 
 __all__ = [

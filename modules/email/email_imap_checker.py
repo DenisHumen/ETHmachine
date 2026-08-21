@@ -13,8 +13,6 @@ from datetime import datetime
 import os
 import ssl
 import socket
-import urllib.request
-import urllib.parse
 
 from colorama import Fore, init
 from modules.simple_logger import logger, setup_file_logging
@@ -37,7 +35,10 @@ class EmailChecker:
         self.total_checked = 0
         self.total_working = 0
         self.total_failed = 0
-        
+        # Предупреждение о неподдерживаемом прокси печатаем один раз на запуск,
+        # иначе на сотне ящиков лог утонет в повторах.
+        self._proxy_warning_shown = False
+
     def parse_proxy(self, proxy_string):
         """Парсинг прокси строки формата login:password@ip:port"""
         if not proxy_string or proxy_string.strip() == '':
@@ -69,25 +70,31 @@ class EmailChecker:
             return None
     
     def setup_proxy_socket(self, proxy_config):
-        """Настройка HTTP прокси для IMAP подключения"""
+        """Прокси для IMAP не поддерживается — честно предупреждаем об этом.
+
+        Зачем метод оставлен «пустым»: раньше он навешивал HTTP-прокси через
+        urllib.request.install_opener, но imaplib.IMAP4_SSL открывает сырой
+        сокет и urllib-опенер не читает — прокси фактически игнорировался, а
+        логин в почту уходил с РЕАЛЬНОГО IP. Вдобавок install_opener менял
+        глобальное состояние urllib из рабочих потоков (см. ThreadPoolExecutor),
+        что небезопасно. Поддержать IMAP-через-прокси без новой зависимости
+        (PySocks) нельзя, поэтому вместо тихой имитации предупреждаем
+        пользователя и ничего в глобальном состоянии не трогаем.
+        """
         if not proxy_config:
             return None
-            
-        try:
-            # Создаем HTTP прокси handler
-            proxy_handler = urllib.request.ProxyHandler({
-                'http': f"http://{proxy_config['username']}:{proxy_config['password']}@{proxy_config['host']}:{proxy_config['port']}" if 'username' in proxy_config else f"http://{proxy_config['host']}:{proxy_config['port']}",
-                'https': f"http://{proxy_config['username']}:{proxy_config['password']}@{proxy_config['host']}:{proxy_config['port']}" if 'username' in proxy_config else f"http://{proxy_config['host']}:{proxy_config['port']}"
-            })
-            
-            opener = urllib.request.build_opener(proxy_handler)
-            urllib.request.install_opener(opener)
-            
-            logger.info(f"HTTP прокси настроен: {proxy_config['host']}:{proxy_config['port']}")
-            return True
-        except Exception as e:
-            logger.error(f"Ошибка настройки HTTP прокси: {e}")
-            return None
+
+        # Метод зовётся из рабочих потоков — флаг под тем же локом, что и счётчики.
+        with self.lock:
+            if self._proxy_warning_shown:
+                return False
+            self._proxy_warning_shown = True
+
+        logger.warning(
+            "IMAP-прокси не поддерживается: проверка почт идёт с РЕАЛЬНОГО IP "
+            "(прокси из data.csv игнорируются)"
+        )
+        return False
     
     def get_imap_server(self, email):
         """Определение IMAP сервера по домену email"""
@@ -138,11 +145,13 @@ class EmailChecker:
             
             logger.info(f"Проверяем {email} на сервере {server}")
             
-            # Настройка прокси
+            # Прокси для IMAP не поддерживается: setup_proxy_socket только
+            # честно предупредит, что подключение пойдёт с реального IP.
+            # Раньше здесь логировалось «Используем прокси», хотя прокси
+            # фактически игнорировался.
             proxy_config = self.parse_proxy(proxy) if proxy else None
             if proxy_config:
                 self.setup_proxy_socket(proxy_config)
-                logger.info(f"Используем прокси: {proxy_config['host']}:{proxy_config['port']}")
             
             # Подключение к серверу
             mail = imaplib.IMAP4_SSL(server, 993, timeout=30)
@@ -290,6 +299,10 @@ class EmailChecker:
         print(Fore.YELLOW + f"📊 Загружено:")
         print(Fore.YELLOW + f"   - Email аккаунтов: {len(emails)}")
         print(Fore.YELLOW + f"   - Прокси: {len(proxies)}")
+        # Прокси загружаются, но imaplib их не умеет — предупреждаем сразу,
+        # до логинов, чтобы пользователь не считал свой IP скрытым.
+        if proxies:
+            print(Fore.RED + "     ⚠️ IMAP не поддерживает прокси — проверка пойдёт с РЕАЛЬНОГО IP")
         print(Fore.YELLOW + f"   - Потоков: {NUM_THREADS}")
         print(Fore.YELLOW + f"   - Задержка: {SLEEP_BETWEEN_ACTIONS[0]}-{SLEEP_BETWEEN_ACTIONS[1]} сек")
         print(Fore.CYAN + f"{'='*60}\n")

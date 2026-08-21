@@ -53,8 +53,26 @@ DEFAULT_DATA_FILE = DATA_DIR / 'data.csv'
 # Глобальное хранилище загруженных данных
 _loaded_rows: List[Dict[str, str]] = []
 _loaded_file: Optional[str] = None
+# Отпечаток файла (mtime + размер) на момент загрузки — по нему ловим правки
+# data.csv, сделанные пока процесс висит в главном меню.
+_loaded_stamp: Optional[tuple] = None
+# Единый перемешанный порядок строк на весь срок жизни кэша: все хелперы
+# обязаны отдавать колонки одной и той же строки под одним индексом.
+_shuffled_rows: Optional[List[Dict[str, str]]] = None
 _selected_data_file: Optional[Path] = None
 _migrated_once: bool = False
+
+
+def _file_stamp(filepath: Path) -> Optional[tuple]:
+    """Отпечаток файла для инвалидации кэша: (mtime в нс, размер).
+
+    Возвращает None, если файла нет — тогда кэш считается протухшим.
+    """
+    try:
+        st = filepath.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
 def _migrate_csv_file(filepath: Path) -> bool:
@@ -180,46 +198,69 @@ def select_data_file() -> Path:
 
     # Несколько файлов — спрашиваем
     try:
-        from questionary import Choice, select
-        choices = [Choice(f'   📄 {f.name}', str(f)) for f in files]
-        selected = select(
-            "\n╔════════════════════════════════════════════════╗\n"
-            "║      Выбор файла данных / Select data file     ║\n"
-            "╚════════════════════════════════════════════════╝",
-            choices=choices,
-            qmark='📂',
-            pointer='👉'
-        ).ask()
+        from modules.ui import ui
 
+        options = [
+            (f"📄 {f.name}", str(f))
+            for f in files
+        ]
+        selected = ui.menu("С каким файлом данных работаем?", options)
         if selected:
             logger.success(f"Выбран файл данных: {Path(selected).name}")
             _selected_data_file = Path(selected)
             return _selected_data_file
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"Не удалось показать выбор файла данных: {exc}")
 
     # Fallback — data.csv
     _selected_data_file = _ensure_data_file()
     return _selected_data_file
 
 
+def get_selected_data_file() -> Optional[str]:
+    """Имя выбранного файла данных относительно корня проекта.
+
+    Возвращает ``None``, пока файл не выбран — например, если модуль
+    вызван вне обычного запуска ``main.py``.
+    """
+    if _selected_data_file is None:
+        return None
+    try:
+        return str(_selected_data_file.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    except ValueError:
+        return str(_selected_data_file)
+
+
 def load_data(filepath: Path = None, force_reload: bool = False,
               shuffle: Optional[bool] = None) -> List[Dict[str, str]]:
     """Загружает данные из CSV файла. Кэширует результат.
 
+    Кэш инвалидируется по mtime/размеру файла: процесс живёт в бесконечном
+    цикле главного меню, и пользователь вправе дописать строки в data.csv между
+    запусками модулей — без проверки отпечатка он бы работал со старым снимком.
+
     Если SHUFLE_ACCOUNTS=True в general_config (или явно передано shuffle=True),
-    возвращает свежеперемешанную КОПИЮ списка при каждом вызове — кешированные
-    "первичные" строки в исходном порядке всегда сохраняются нетронутыми.
+    строки отдаются в перемешанном порядке. Перемешивание выполняется ОДИН раз
+    на кэш и целыми строками: хелперы get_private_keys()/get_proxies()/… читают
+    один и тот же порядок, иначе кошелёк N уходил бы через прокси кошелька M.
     """
-    global _loaded_rows, _loaded_file
+    global _loaded_rows, _loaded_file, _loaded_stamp, _shuffled_rows
 
     if filepath is None:
         filepath = _selected_data_file or DEFAULT_DATA_FILE
 
     filepath_str = str(filepath)
 
+    cache_hit = (
+        bool(_loaded_rows)
+        and _loaded_file == filepath_str
+        and _loaded_stamp is not None
+        and _file_stamp(filepath) == _loaded_stamp
+        and not force_reload
+    )
+
     rows: List[Dict[str, str]]
-    if _loaded_rows and _loaded_file == filepath_str and not force_reload:
+    if cache_hit:
         rows = _loaded_rows
     else:
         _ensure_data_file(filepath)
@@ -237,13 +278,19 @@ def load_data(filepath: Path = None, force_reload: bool = False,
 
         _loaded_rows = rows
         _loaded_file = filepath_str
+        # Отпечаток снимаем после чтения — _ensure_data_file мог создать файл.
+        _loaded_stamp = _file_stamp(filepath)
+        _shuffled_rows = None
         logger.info(f"Загружено {len(rows)} записей из {filepath.name}")
 
     do_shuffle = _SHUFLE_ACCOUNTS if shuffle is None else bool(shuffle)
     if do_shuffle and len(rows) > 1:
-        shuffled = list(rows)
-        random.shuffle(shuffled)
-        return shuffled
+        if _shuffled_rows is None or len(_shuffled_rows) != len(rows):
+            shuffled = list(rows)
+            random.shuffle(shuffled)
+            _shuffled_rows = shuffled
+        # Копия, чтобы вызывающий код не переставил строки в самом кэше.
+        return list(_shuffled_rows)
     return rows
 
 

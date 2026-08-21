@@ -21,6 +21,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 
 from modules.simple_logger import logger
+from modules.eth.eth_wallet_generator import RESULT_CSV, new_wallets_file
 
 BIP39_PBKDF2_ROUNDS = 2048
 BIP39_SALT_MODIFIER = "mnemonic"
@@ -114,14 +115,22 @@ def eth_generate_nice_wallets(num_wallets):
     spinner_cycle = cycle(["|", "/", "-", "\\"])  
     bar_length = 30  
 
-    with open('result/result.csv', mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key"]) 
+    # Красивый адрес ищется часами, а result/result.csv чекеры балансов и
+    # сборщики открывают с mode='w'. Поэтому ключи пишем ещё и в собственный
+    # файл запуска, который никто больше не трогает.
+    wallets_path = new_wallets_file('eth_nice_wallets')
+
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key"])
 
     completed_wallets = 0
     attempt = 0
-    with open('result/result.csv', mode='a', newline='') as file:
-        writer = csv.writer(file)
+    with open(RESULT_CSV, mode='a', newline='', encoding='utf-8') as shared_file, \
+         open(wallets_path, mode='a', newline='', encoding='utf-8') as wallets_file:
+        sinks = [(csv.writer(shared_file), shared_file),
+                 (csv.writer(wallets_file), wallets_file)]
         while completed_wallets < num_wallets:
             attempt += 1
             try:
@@ -132,7 +141,12 @@ def eth_generate_nice_wallets(num_wallets):
                 priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
 
                 if is_nice_address(address, attempt=attempt):
-                    writer.writerow([mnemonic, address, priv_hex]) 
+                    for writer, sink_file in sinks:
+                        writer.writerow([mnemonic, address, priv_hex])
+                        # Находки редки, а поиск идёт часами: сбрасываем строку
+                        # на диск сразу, чтобы жёсткое завершение процесса
+                        # не съело уже найденный ключ.
+                        sink_file.flush()
                     completed_wallets += 1
                     logger.success(f"Найден красивый адрес: {address} (попытка {attempt})")
 
@@ -147,8 +161,10 @@ def eth_generate_nice_wallets(num_wallets):
 
             except Exception as e:
                 logger.error(f"❌ Error generating wallet: {str(e)}")
-    print() 
+    print()
     logger.success(f"Генерация завершена: {completed_wallets} красивых кошельков за {attempt} попыток")
+    logger.success(f"Ключи сохранены в {wallets_path} (копия в {RESULT_CSV})")
+    return wallets_path
 
 def find_nice_addresses(search_word=None):
     words_to_search = [search_word] if search_word else NICE_ADDRESS_WORDS_ETH

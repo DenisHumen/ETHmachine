@@ -30,7 +30,7 @@ from config.modules.cfg_twitter import (
 from config.modules.general_config import NUM_THREADS
 
 # Импортируем Twitter класс из существующего модуля
-from .tiwtter_task import Twitter
+from .twitter_task import Twitter
 from .twitter_task_db import TwitterTaskDatabase
 import random
 import uuid
@@ -254,7 +254,9 @@ class TwitterTaskRunner:
                     return False, "Не удалось извлечь ID твита"
                 
                 comment_text = value if value else "Great post! 👍"
-                result = await twitter_client.comment(tweet_id, comment_text)
+                # Именованные аргументы: сигнатура comment() принимает text первым,
+                # позиционный вызов молча менял местами текст и ID твита
+                result = await twitter_client.comment(text=comment_text, tweet_id=tweet_id)
                 return result, "Комментарий опубликован" if result else "Ошибка публикации комментария"
             
             else:

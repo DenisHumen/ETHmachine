@@ -374,6 +374,33 @@ class SwapAllExecutor:
         decimals = int(task["decimals"])
         scale = Decimal(10) ** decimals
 
+        # Идемпотентность (AGENTS §14.3). Задача переживает Ctrl-C и таймаут
+        # ожидания: `list_pending_for_wallet` вернёт её и в статусе tx_sent,
+        # и в awaiting_arrival, и в failed. Если депозит уже улетел в мост —
+        # деньги в пути, а on-chain баланс уже нулевой. Без этой проверки ветка
+        # «zero on-chain balance» ниже затирала бы задачу терминальным skipped
+        # (перевод становился невидимым), а пополненный кошелёк получал бы
+        # второй depositWithId. Поэтому: есть tx — только дожидаемся прибытия.
+        prior_tx = (task.get("src_tx_hash") or "").strip()
+        prior_quote = (task.get("swap_id") or "").strip()
+        if prior_tx:
+            db.increment_attempts(task["id"])
+            if not prior_quote:
+                db.update_task(
+                    task["id"], status=db.STATUS_FAILED,
+                    error_message=("депозит отправлен, но quoteId не сохранён — "
+                                   "проверьте перевод вручную")[:400])
+                self._wlog(wallet, ctx,
+                           f"⚠️  {token}: есть депозит {prior_tx[:14]}… без quoteId — "
+                           f"повторно не отправляем, проверьте вручную", "error")
+                return
+            self._wlog(wallet, ctx,
+                       f"↩️  {token}: депозит {prior_tx[:14]}… уже отправлен, "
+                       f"возобновляем ожидание прибытия", "info")
+            self._await_arrival(task, prior_quote, wallet, token,
+                                 w3_dst, proxies, ctx)
+            return
+
         if token not in SUPPORTED_PAIRS or not contract:
             db.update_task(task["id"], status=db.STATUS_SKIPPED,
                             error_message="rhino.fi route not supported")
@@ -547,6 +574,18 @@ class SwapAllExecutor:
             self._wlog(wallet, ctx, f"receipt wait err: {e}", "warning")
 
         # 7. Polling Rhino.fi history
+        self._await_arrival(task, quote_id, wallet, token, w3_dst, proxies, ctx)
+
+    def _await_arrival(self, task: Dict[str, Any], quote_id: str, wallet: str,
+                        token: str, w3_dst: Web3,
+                        proxies: Optional[Dict[str, str]],
+                        ctx: Dict[str, Any]) -> None:
+        """Ожидание прибытия USDC на Base по уже созданному quoteId.
+
+        Отдельный метод, чтобы повторный запуск мог дождаться ранее
+        отправленного депозита, а не создавать новый (см. проверку
+        идемпотентности в `_run_task`).
+        """
         db.update_task(task["id"], status=db.STATUS_AWAITING)
         deadline = time.monotonic() + ARRIVAL_TIMEOUT_SEC
         last_status: Optional[str] = None

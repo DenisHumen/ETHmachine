@@ -12,6 +12,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from config.modules.general_config import NUM_THREADS, SLEEP_BETWEEN_ACTIONS, RETRY_COUNT
 from modules.simple_logger import logger
+from modules.proxy_manager import get_proxy_dict as shared_get_proxy_dict
 
 def decode_token_user_id(token):
     """
@@ -51,30 +52,14 @@ def read_proxies(file_path=None):
     return get_proxies()
 
 def get_proxy_dict(proxy_string):
-    """Преобразует строку прокси в формат для requests"""
-    try:
-        # Формат: login:pass@ip:port
-        if '@' in proxy_string:
-            auth_part, address_part = proxy_string.split('@')
-            login, password = auth_part.split(':')
-            ip, port = address_part.split(':')
-            
-            proxy_url = f"http://{login}:{password}@{ip}:{port}"
-            return {
-                'http': proxy_url,
-                'https': proxy_url
-            }
-        else:
-            # Если нет авторизации: ip:port
-            ip, port = proxy_string.split(':')
-            proxy_url = f"http://{ip}:{port}"
-            return {
-                'http': proxy_url,
-                'https': proxy_url
-            }
-    except Exception as e:
-        logger.error(f"Ошибка при обработке прокси {proxy_string}: {e}")
-        return None
+    """Преобразует строку прокси в формат для requests.
+
+    Разбор делегирован общему modules.proxy_manager (AGENTS.md §12.1):
+    локальный парсер падал с ValueError на пароле с ':' (split без maxsplit),
+    терял схему socks5:// и светил пароль в логе целиком. Общий парсер знает
+    все форматы, сам пишет причину отказа в лог и маскирует credentials.
+    """
+    return shared_get_proxy_dict(proxy_string)
 
 def select_proxy(proxies, tokens, index):
     """Выбирает прокси для токена"""

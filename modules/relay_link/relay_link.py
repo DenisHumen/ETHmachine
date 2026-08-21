@@ -19,9 +19,22 @@ sys.path.append(project_root)
 from modules.simple_logger import logger
 # Импорты из проекта
 from config.modules.cfg_relay import SUM_TO_RELAY, GAS
-from config.modules.general_config import MAIN_PROXY, SLEEP_BETWEEN_ACTIONS
+from config.modules.general_config import (
+    MAIN_PROXY,
+    WHAITE_TRANSACTION_PENDING,
+    WHAITE_TRANSACTION_PENDING_COUNT,
+)
 from config.networks import NETWORKS, SOL_NETWORKS, get_explorer_url
-from modules.relay_link.settings.settings_relay_link import *
+# Явный список вместо `import *`: так видно, что именно модуль берёт из настроек,
+# и линтер ловит опечатки в именах вместо тихого NameError на проде.
+from modules.relay_link.settings.settings_relay_link import (
+    BALANCE_CHECK_INTERVAL,
+    CHAIN_ID_TO_NAME,
+    MINIMUM_BRIDGE_AMOUNTS,
+    NETWORK_MAPPING,
+    NETWORK_SETTINGS,
+    TOKEN_ADDRESSES,
+)
 
 # Импорты для деривации ключей из мнемоники
 from modules.eth.eth_wallet_generator import mnemonic_to_private_key as eth_mnemonic_to_private_key, PublicKey, ETH_DERIVATION_PATH
@@ -184,7 +197,7 @@ class RelayBridge:
     
     def _select_network_and_token(self, prompt_text: str, exclude_chain_id: int = None) -> Tuple[Optional[int], Optional[str]]:
         """
-        Интерактивный выбор сети и токена
+        Интерактивный выбор сети. Токен всегда нативный — см. комментарий ниже.
 
         Args:
             prompt_text: Текст приглашения для выбора
@@ -217,63 +230,16 @@ class RelayBridge:
         
         network_name, chain_id = selected
         
-        # Получаем доступные токены для выбранной сети
-        available_tokens = TOKEN_ADDRESSES.get(chain_id, {})
-        if not available_tokens:
-            logger.error(f"❌ Нет доступных токенов для сети {NETWORK_SETTINGS[chain_id]['name']}")
-            return None, None
-        
-        # Формируем список токенов с нативным первым
+        # Токен не спрашиваем: весь путь ниже (котировка, расчёт суммы, проверка
+        # поступления) работает только с нативной монетой сети. Раньше меню
+        # предлагало USDC/USDT, выбор логировался в итоговой конфигурации,
+        # а мост всё равно отправлял ETH — то есть меню врало пользователю.
+        # Вернём выбор, когда появится реальная поддержка ERC-20.
         native_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
-        token_choices = []
-        
-        # Нативный токен всегда первый
-        if native_symbol in available_tokens:
-            token_choices.append(Choice(f"💎 {native_symbol} (нативный)", native_symbol))
-        
-        # Остальные токены
-        for token_symbol in available_tokens.keys():
-            if token_symbol != native_symbol:
-                token_choices.append(Choice(f"🪙 {token_symbol}", token_symbol))
-        
-        token_choices.append(Choice('🔙 Назад', None))
-        
-        # Выбор токена
-        selected_token = select(
-            f"Выберите токен в сети {NETWORK_SETTINGS[chain_id]['name']}:",
-            choices=token_choices,
-            qmark='💰',
-            pointer='👉'
-        ).ask()
-        
-        if selected_token is None:
-            return None, None
-        
-        return chain_id, selected_token
-    
-    def _check_wallet_token_balance(self, wallet_address: str, chain_id: int, token_symbol: str) -> float:
-        """
-        Проверка баланса токена на кошельке
-        
-        Args:
-            wallet_address: Адрес кошелька
-            chain_id: ID сети
-            token_symbol: Символ токена
-            
-        Returns:
-            Баланс токена
-        """
-        native_symbol = NETWORK_SETTINGS[chain_id]['native_symbol']
-        
-        # Для нативного токена используем _get_native_balance
-        if token_symbol == native_symbol:
-            return self._get_native_balance(chain_id, wallet_address, show_log=False)
-        
-        # Для ERC20 токенов (если потребуется в будущем)
-        # TODO: добавить поддержку ERC20 токенов
-        logger.warning(f"⚠️ Проверка баланса ERC20 токенов пока не реализована")
-        return 0.0
-    
+        logger.info(f"💎 Токен: {native_symbol} (нативный) — бридж ERC-20 токенов пока не поддерживается")
+
+        return chain_id, native_symbol
+
     def _calculate_bridge_amount(self, wallet_address: str, from_chain_id: int) -> float:
         """
         Вычисление суммы для бриджа на основе SUM_TO_RELAY
@@ -346,8 +312,12 @@ class RelayBridge:
             amount = random.uniform(min_amount, max_amount)
             return amount
     
-    def _create_work_plan(self, from_chain_id: int, from_token: str, to_chain_id: int, to_token: str):
-        """Создание полного плана работ в базе данных"""
+    def _create_work_plan(self, from_chain_id: int, to_chain_id: int):
+        """Создание полного плана работ в базе данных.
+
+        Токены не принимаем: бридж всегда идёт нативной монетой сети,
+        а прежние параметры from_token/to_token тут никогда не использовались.
+        """
         from_network = CHAIN_ID_TO_NAME[from_chain_id]
         to_network = CHAIN_ID_TO_NAME[to_chain_id]
         
@@ -536,41 +506,52 @@ class RelayBridge:
         return None
     
     def _get_native_balance(self, chain_id: int, wallet_address: str, show_log: bool = False) -> float:
-        """Получение баланса нативного токена со всех RPC для получения актуального значения"""
-        rpc_list = self.rpc_pools.get(chain_id, [])
-        
-        # Проверяем ВСЕ RPC для получения самого актуального баланса
-        balances = []
-        
-        for rpc_url in rpc_list:
+        """Получение баланса нативного токена — ответ первой живой ноды.
+
+        Раньше опрашивались ВСЕ RPC и возвращался max(). Это не «самое актуальное»
+        значение, а ровно наоборот: отставшая нода после исходящей транзакции
+        показывает БОЛЬШИЙ баланс, поэтому max() системно выбирал устаревшие данные
+        и завышал сумму бриджа. Плюс на каждый вызов поднималось len(rpc_urls)
+        новых HTTP-подключений — при опросе моста это тысячи коннектов на кошелёк.
+        """
+        network_name = NETWORK_SETTINGS.get(chain_id, {}).get('name', str(chain_id))
+        # Символ берём из настроек сети: раньше в лог всегда писалось "ETH", даже для Polygon
+        symbol = NETWORK_SETTINGS.get(chain_id, {}).get('native_symbol', '')
+
+        def _read(web3: Web3) -> float:
+            return float(web3.from_wei(web3.eth.get_balance(wallet_address), 'ether'))
+
+        # Сначала пробуем кешированное подключение (его же переиспользует остальной модуль)
+        cached = self.web3_connections.get(chain_id)
+        if cached is not None:
             try:
-                # Создаем новое подключение для каждого запроса
+                balance = _read(cached)
+                if show_log:
+                    logger.info(f"📊 Текущий баланс {network_name}: {balance:.8f} {symbol}")
+                return balance
+            except Exception:
+                # Подключение протухло — выкидываем из кеша и идём по списку RPC
+                self.web3_connections.pop(chain_id, None)
+
+        for rpc_url in self.rpc_pools.get(chain_id, []):
+            try:
                 web3 = Web3(Web3.HTTPProvider(rpc_url))
                 if not web3.is_connected():
                     continue
-                
-                balance_wei = web3.eth.get_balance(wallet_address)
-                balance = float(web3.from_wei(balance_wei, 'ether'))
-                
-                balances.append(balance)
-                
-            except Exception as e:
+
+                balance = _read(web3)
+                self.web3_connections[chain_id] = web3
+                if show_log:
+                    logger.info(f"📊 Текущий баланс {network_name}: {balance:.8f} {symbol}")
+                return balance
+            except Exception:
                 continue
-        
-        if balances:
-            # Возвращаем максимальный баланс (наиболее актуальный)
-            max_balance = max(balances)
-            # Выводим сообщение только при show_log=True (первоначальная проверка)
-            if show_log:
-                network_name = NETWORK_SETTINGS[chain_id]['name']
-                logger.info(f"📊 Текущий баланс {network_name}: {max_balance:.8f} ETH")
-            return max_balance
-        
+
         # Если все RPC не работают, возвращаем 0
         if show_log:
-            logger.error(f"❌ Все RPC для {NETWORK_SETTINGS[chain_id]['name']} недоступны")
+            logger.error(f"❌ Все RPC для {network_name} недоступны")
         return 0.0
-    
+
     def _get_solana_balance(self, sol_address: str, show_log: bool = False) -> float:
         """Получение баланса SOL через Solana JSON-RPC"""
         for rpc_url in self.solana_rpc_urls:
@@ -812,6 +793,9 @@ class RelayBridge:
                 logger.error("❌ Не удалось отправить Solana транзакцию")
                 return False
 
+            # Подпись в БД сразу после отправки — как и в EVM-ветке, до всех ожиданий
+            self._save_transaction_result(eth_address, tx_signature, 0, 'tx_sent')
+
             explorer_link = f"https://solscan.io/tx/{tx_signature}"
             logger.info(f"📤 Solana транзакция: {explorer_link}")
 
@@ -820,6 +804,7 @@ class RelayBridge:
             confirmed = self._confirm_solana_transaction(tx_signature)
             if confirmed:
                 logger.success(f"✅ Solana транзакция подтверждена")
+                self._save_transaction_result(eth_address, tx_signature, 0, 'awaiting_arrival')
             else:
                 logger.warning(f"⚠️ Не удалось подтвердить Solana транзакцию, проверяем баланс...")
 
@@ -971,7 +956,20 @@ class RelayBridge:
             logger.error(f"❌ {error_msg}")
             return None, error_msg
     
-    def _check_balance_changes(self, wallet_address: str, from_chain_id: int, to_chain_id: int, sent_amount: float, initial_from_balance: float, initial_to_balance: float, max_wait_minutes: int = 15) -> bool:
+    @staticmethod
+    def _arrival_poll_plan() -> Tuple[int, int]:
+        """Интервал и число проверок поступления средств.
+
+        AGENTS.md §9.4: интервал — ручка модуля (BALANCE_CHECK_INTERVAL),
+        бюджет ожидания — WHAITE_TRANSACTION_PENDING * WHAITE_TRANSACTION_PENDING_COUNT.
+        Раньше интервал брался из SLEEP_BETWEEN_ACTIONS (2-4 сек) — это давало
+        ~225 проверок на кошелёк вместо десятка и заваливало RPC запросами.
+        """
+        interval = max(1, int(BALANCE_CHECK_INTERVAL))
+        budget = max(interval, int(WHAITE_TRANSACTION_PENDING) * int(WHAITE_TRANSACTION_PENDING_COUNT))
+        return interval, max(1, budget // interval)
+
+    def _check_balance_changes(self, wallet_address: str, from_chain_id: int, to_chain_id: int, sent_amount: float, initial_from_balance: float, initial_to_balance: float) -> bool:
         """
         Проверка изменения балансов для подтверждения успешности транзакции
         Основной критерий успеха - поступление средств в целевую сеть
@@ -983,13 +981,13 @@ class RelayBridge:
             sent_amount: Отправленная сумма
             initial_from_balance: Начальный баланс в исходной сети
             initial_to_balance: Начальный баланс в целевой сети
-            max_wait_minutes: Максимальное время ожидания в минутах
 
         Returns:
             True если средства поступили в целевую сеть
         """
-        max_attempts = (max_wait_minutes * 60) // SLEEP_BETWEEN_ACTIONS[1]
-        logger.info(f"⏱️ Максимальное время ожидания: {max_wait_minutes} минут ({max_attempts} проверок)")
+        poll_interval, max_attempts = self._arrival_poll_plan()
+        total_minutes = poll_interval * max_attempts / 60
+        logger.info(f"⏱️ Максимальное время ожидания: {total_minutes:.0f} мин ({max_attempts} проверок раз в {poll_interval} сек)")
 
         # Определяем, проверяем ли Solana баланс
         is_solana_dest = (to_chain_id == SOLANA_CHAIN_ID)
@@ -1021,17 +1019,16 @@ class RelayBridge:
                     return True
 
                 if attempt < max_attempts - 1:
-                    logger.info(f"⏳ Средства еще не поступили, ожидание {SLEEP_BETWEEN_ACTIONS[1]} сек...")
-                    sleep_time = random.uniform(SLEEP_BETWEEN_ACTIONS[0], SLEEP_BETWEEN_ACTIONS[1])
-                    time.sleep(sleep_time)
+                    logger.info(f"⏳ Средства еще не поступили, ожидание {poll_interval} сек...")
+                    time.sleep(poll_interval)
 
             except Exception as e:
                 logger.error(f"❌ Ошибка при проверке баланса (попытка {attempt + 1}): {e}")
                 if attempt < max_attempts - 1:
-                    logger.info(f"🔄 Повторная попытка через {SLEEP_BETWEEN_ACTIONS[1]} сек...")
-                time.sleep(SLEEP_BETWEEN_ACTIONS[1])
+                    logger.info(f"🔄 Повторная попытка через {poll_interval} сек...")
+                    time.sleep(poll_interval)
 
-        logger.error(f"❌ Средства не поступили в {NETWORK_SETTINGS[to_chain_id]['name']} в течение {max_wait_minutes} минут")
+        logger.error(f"❌ Средства не поступили в {NETWORK_SETTINGS[to_chain_id]['name']} в течение {total_minutes:.0f} мин")
         return False
 
     def _execute_bridge(self, quote_data: Dict, wallet_address: str, private_key: str, from_chain_id: int, to_chain_id: int, sent_amount: float) -> bool:
@@ -1174,7 +1171,12 @@ class RelayBridge:
             # Подпись и отправка
             signed_tx = web3.eth.account.sign_transaction(final_transaction, private_key)
             tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            
+
+            # Хеш в БД СРАЗУ после отправки (AGENTS.md §14.3): дальше идёт долгое
+            # ожидание поступления средств, и Ctrl+C / краш / обрыв RPC посреди него
+            # не должен приводить к повторному бриджу тех же денег на следующем запуске.
+            self._save_transaction_result(wallet_address, tx_hash.hex(), 0, 'tx_sent')
+
             # Получаем ссылку на explorer
             explorer_link = self._get_transaction_explorer_link(chain_id, tx_hash.hex())
             logger.info(f"📤 Транзакция отправлена: {explorer_link}")
@@ -1188,8 +1190,12 @@ class RelayBridge:
                 tx_receipt = web3.eth.get_transaction_receipt(tx_hash)
                 if tx_receipt.status == 1:
                     logger.success(f"✅ Транзакция подтверждена в {NETWORK_SETTINGS[chain_id]['name']}")
+                    self._save_transaction_result(wallet_address, tx_hash.hex(), 0, 'awaiting_arrival')
                 else:
                     logger.error(f"❌ Транзакция отклонена в {NETWORK_SETTINGS[chain_id]['name']}")
+                    # Сеть откатила транзакцию — средства остались на кошельке,
+                    # поэтому этот статус единственный, после которого повтор безопасен.
+                    self._save_transaction_result(wallet_address, tx_hash.hex(), 0, 'reverted')
                     return False
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось получить статус транзакции: {e}")
@@ -1221,16 +1227,35 @@ class RelayBridge:
             return False
     
     def _save_transaction_result(self, wallet_address: str, tx_hash: str, bridge_fee: float, status: str, error_msg: str = None):
-        """Сохранение результата транзакции в БД"""
+        """Сохранение результата (и промежуточного состояния) транзакции в БД.
+
+        Два неочевидных момента:
+        1. tx_hash пишем через COALESCE — ветка с ошибкой передаёт None, но затирать
+           уже сохранённый хеш нельзя: именно по нему резюме понимает, что деньги ушли.
+        2. Обновляем последнюю НЕзавершённую запись кошелька, а не строго 'pending'.
+           После промежуточного 'tx_sent' условие status='pending' не совпадало ни с
+           одной строкой, и финальный статус молча терялся (UPDATE на 0 строк).
+        completed_at используем как «время последнего обновления» — имя колонки
+        менять нельзя, это живое состояние пользователей.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
-            UPDATE relay_progress 
-            SET tx_hash = ?, bridge_fee = ?, status = ?, completed_at = CURRENT_TIMESTAMP, error_message = ?
-            WHERE wallet_address = ? AND status = 'pending'
+            UPDATE relay_progress
+            SET tx_hash = COALESCE(?, tx_hash),
+                bridge_fee = ?,
+                status = ?,
+                completed_at = CURRENT_TIMESTAMP,
+                error_message = ?
+            WHERE id = (
+                SELECT id FROM relay_progress
+                WHERE wallet_address = ?
+                  AND status NOT IN ('completed', 'completed_no_confirmation')
+                ORDER BY id DESC LIMIT 1
+            )
         ''', (tx_hash, bridge_fee, status, error_msg, wallet_address))
-        
+
         conn.commit()
         conn.close()
     
@@ -1350,14 +1375,26 @@ class RelayBridge:
             if wallet_record['status'] in ('completed', 'completed_no_confirmation'):
                 return True
 
-            logger.info(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
-
             from_network = wallet_record['from_network']
             to_network = wallet_record['to_network']
             amount = wallet_record['amount']
 
             from_chain_id = NETWORK_MAPPING[from_network]
             to_chain_id = NETWORK_MAPPING[to_network]
+
+            # Транзакция по кошельку уже отправлена — второй бридж означал бы
+            # повторную трату реальных денег (деньги могут быть просто в пути).
+            # 'reverted' — единственное исключение: сеть откатила tx, средства на месте.
+            existing_tx_hash = wallet_record.get('tx_hash')
+            if existing_tx_hash and wallet_record['status'] != 'reverted':
+                logger.warning(
+                    f"⚠️ {wallet_address}: транзакция уже отправлена "
+                    f"(статус '{wallet_record['status']}') — повторный бридж пропущен"
+                )
+                logger.warning(f"   Проверьте вручную: {self._get_transaction_explorer_link(from_chain_id, existing_tx_hash)}")
+                return False
+
+            logger.info(f"🔄 Кошелек {wallet_index + 1}: {wallet_address}")
 
             # Определяем SOL адреса для маршрутов с Solana
             sol_recipient = None
@@ -1508,7 +1545,10 @@ class RelayBridge:
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) FROM relay_progress')
         total_count = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM relay_progress WHERE status = "pending"')
+        # Незавершённым считаем всё, что не терминально: после промежуточных
+        # 'tx_sent'/'awaiting_arrival'/'failed' счёт по status='pending' показывал 0
+        # и меню врало, что вся работа выполнена.
+        cursor.execute('SELECT COUNT(*) FROM relay_progress WHERE status NOT IN ("completed", "completed_no_confirmation")')
         pending_count = cursor.fetchone()[0]
         cursor.execute('SELECT COUNT(*) FROM relay_progress WHERE status IN ("completed", "completed_no_confirmation")')
         completed_count = cursor.fetchone()[0]
@@ -1566,14 +1606,14 @@ class RelayBridge:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, wallet_address, from_network, to_network, amount, status, error_count, error_message
-            FROM relay_progress 
+            SELECT id, wallet_address, from_network, to_network, amount, status, error_count, error_message, tx_hash
+            FROM relay_progress
             WHERE wallet_address = ?
         ''', (wallet_address,))
-        
+
         result = cursor.fetchone()
         conn.close()
-        
+
         if result:
             return {
                 'id': result[0],
@@ -1583,7 +1623,9 @@ class RelayBridge:
                 'amount': result[4],
                 'status': result[5],
                 'error_count': result[6],
-                'error_message': result[7]
+                'error_message': result[7],
+                # tx_hash нужен резюме: по нему видно, что деньги уже отправлены
+                'tx_hash': result[8]
             }
         return None
     
@@ -1810,7 +1852,7 @@ class RelayBridge:
                     return
 
                 # Создание плана работ с новыми параметрами
-                if not self._create_work_plan(from_chain_id, from_token, to_chain_id, to_token):
+                if not self._create_work_plan(from_chain_id, to_chain_id):
                     return
             else:
                 # Resume mode - проверяем нужны ли мнемоники

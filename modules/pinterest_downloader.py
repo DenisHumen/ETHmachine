@@ -21,11 +21,21 @@ from rich.console import Console
 
 from modules.simple_logger import log_simple, log_task
 from modules.proxy_manager import ProxyManager, parse_proxy
-from config.modules.cfg_pinterest import (
-    PINTEREST_EMAIL, PINTEREST_PASSWORD,
-    PINTEREST_MAX_IMAGES, PINTEREST_DOWNLOAD_DELAY, PINTEREST_IMAGE_QUALITY,
-    PINTEREST_SEARCH_QUERIES,
-)
+# config/modules/cfg_pinterest.py содержит учётные данные, поэтому лежит
+# в .gitignore и создаётся при первом запуске main.py. В свежем клоне его
+# ещё нет — берём значения по умолчанию, чтобы модуль импортировался.
+try:
+    from config.modules.cfg_pinterest import (
+        PINTEREST_DOWNLOAD_DELAY, PINTEREST_EMAIL, PINTEREST_IMAGE_QUALITY,
+        PINTEREST_MAX_IMAGES, PINTEREST_PASSWORD, PINTEREST_SEARCH_QUERIES,
+    )
+except ImportError:
+    PINTEREST_EMAIL = ''
+    PINTEREST_PASSWORD = ''
+    PINTEREST_MAX_IMAGES = 500
+    PINTEREST_DOWNLOAD_DELAY = [0.2, 0.6]
+    PINTEREST_IMAGE_QUALITY = 'originals'
+    PINTEREST_SEARCH_QUERIES: list = []
 
 console = Console()
 

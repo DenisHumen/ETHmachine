@@ -19,6 +19,7 @@
 import sys
 import os
 import csv
+import math
 import time
 import random
 import sqlite3
@@ -31,7 +32,7 @@ from pathlib import Path
 from itertools import cycle
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from modules.simple_logger import logger, log_wallet_task
+from modules.simple_logger import logger, log_wallet_task, set_auto_progress
 
 # Настройка путей для импорта
 project_root = Path(__file__).parent.parent.parent
@@ -735,59 +736,97 @@ def get_token_symbol(w3, token_address):
         logger.warning(f"Не удалось получить символ токена: {e}")
         return "TOKEN"
 
+# Значения transfer_amount без суффикса, о которых уже предупредили.
+# Предупреждаем один раз на уникальное значение, иначе в многопоточном режиме
+# лог засоряется одинаковой строкой от каждого воркера.
+_BARE_AMOUNT_WARNED: set = set()
+_BARE_AMOUNT_LOCK = Lock()
+
+
+def _warn_bare_amount(raw):
+    """Однократно предупреждает, что значение без суффикса — это КОЛИЧЕСТВО.
+
+    До исправления такая запись трактовалась как процент от баланса, поэтому
+    пользователь, у которого в data.csv лежит '90', должен заметить смену
+    смысла до того, как уйдёт транзакция."""
+    with _BARE_AMOUNT_LOCK:
+        if raw in _BARE_AMOUNT_WARNED:
+            return
+        _BARE_AMOUNT_WARNED.add(raw)
+    logger.warning(
+        f"⚠️  transfer_amount='{raw}' без суффикса → трактуем как КОЛИЧЕСТВО ТОКЕНОВ "
+        f"(так описано в config/modules/cfg_transfer_erc20.py). "
+        f"Если нужен процент от баланса — допишите '%': '{raw}%'"
+    )
+
+
+def _parse_amount_bounds(spec):
+    """Разбирает 'X' или 'X-Y' в (lo, hi). Бросает ValueError на любом мусоре.
+
+    Явная ошибка принципиальна: молчаливый fallback здесь означал бы отправку
+    не той суммы, а это чужие деньги."""
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("нет числа перед суффиксом")
+
+    parts = [p.strip() for p in spec.split('-')]
+    if len(parts) == 1:
+        lo_str = hi_str = parts[0]
+    elif len(parts) == 2:
+        lo_str, hi_str = parts
+    else:
+        raise ValueError("ожидается число или диапазон вида 'мин-макс'")
+
+    try:
+        lo, hi = float(lo_str), float(hi_str)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "границы не являются числами (десятичный разделитель — точка, не запятая)"
+        ) from None
+
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError("границы должны быть конечными числами")
+    if lo < 0 or hi < 0:
+        raise ValueError("отрицательное значение недопустимо")
+    # Перевёрнутый диапазон ('20-10') не запрещаем: random.uniform работает в любом
+    # порядке, и раньше такая запись тоже отрабатывала — не ломаем чужие конфиги.
+    return lo, hi
+
+
 def parse_amount_range(amount_str):
     """
-    Парсит строку с диапазоном для amount токенов.
-    Поддерживает:
-    - "10-20%" - процент от баланса токена
-    - "10-20token" - фиксированное количество токенов
-    - "10%" - фиксированный процент
-    - "10token" - фиксированное количество
+    Парсит значение transfer_amount из data/data.csv.
+
+    Грамматика — ровно та, что описана в шапке config/modules/cfg_transfer_erc20.py:
+        "10-20%"   → 10–20 % от баланса токена
+        "90%"      → 90 % от баланса токена
+        "1-3token" → 1–3 токена (абсолютное количество)
+        "5token"   → 5 токенов
+        "10-20"    → 10–20 токенов: без суффикса это КОЛИЧЕСТВО, а не процент
+
+    Возвращает (lo, hi, 'PERCENT' | 'FIXED').
+
+    Бросает ValueError на всём, что не разобралось. Раньше любая ошибка разбора
+    молча превращалась в (100, 100, 'PERCENT') — то есть опечатка в одной ячейке
+    CSV означала «отправить весь баланс». Вызывающий обязан пропустить кошелёк.
     """
-    try:
-        amount_str = amount_str.strip()
-        
-        # Проверяем, есть ли в строке "%"
-        if amount_str.endswith('%'):
-            # Процентное значение
-            percent_str = amount_str[:-1].strip()
-            if '-' in percent_str:
-                parts = percent_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'PERCENT'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'PERCENT'
-            else:
-                val = float(percent_str)
-                return val, val, 'PERCENT'
-        elif amount_str.lower().endswith('token'):
-            # Фиксированное количество токенов
-            token_str = amount_str[:-5].strip()  # Убираем 'token'
-            if '-' in token_str:
-                parts = token_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'FIXED'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'FIXED'
-            else:
-                val = float(token_str)
-                return val, val, 'FIXED'
-        else:
-            # Если нет суффикса, считаем процентами по умолчанию
-            if '-' in amount_str:
-                parts = amount_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'PERCENT'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'PERCENT'
-            else:
-                val = float(amount_str)
-                return val, val, 'PERCENT'
-    except Exception:
-        return 100, 100, 'PERCENT'  # По умолчанию 100%
+    if amount_str is None:
+        raise ValueError("значение не задано")
+    raw = str(amount_str).strip()
+    if not raw:
+        raise ValueError("значение пустое")
+
+    if raw.endswith('%'):
+        lo, hi = _parse_amount_bounds(raw[:-1])
+        return lo, hi, 'PERCENT'
+
+    if raw.lower().endswith('token'):
+        lo, hi = _parse_amount_bounds(raw[:-5])
+        return lo, hi, 'FIXED'
+
+    lo, hi = _parse_amount_bounds(raw)
+    _warn_bare_amount(raw)
+    return lo, hi, 'FIXED'
 
 def apply_trim_to_amount(amount):
     """Применяет обрезку к количеству токенов"""
@@ -876,10 +915,21 @@ def validate_token_transfer_data(transfer_data):
             wallet_type_name = "приватный ключ" if TYPE_VALUE_TO_WALLET_TOKEN == 0 else "адрес кошелька"
             errors.append(f"Строка {idx}, поле 'to_wallet' (ожидается {wallet_type_name}): {error_msg}")
         
-        # Проверяем наличие поля amount
-        if not row.get('amount', '').strip():
+        # Проверяем не только наличие, но и разбор amount: опечатка в transfer_amount
+        # раньше молча означала «отправить 100% баланса», поэтому ловим её до старта,
+        # а не в момент, когда кошелёк уже подключился к RPC.
+        raw_amount = row.get('amount', '').strip()
+        if not raw_amount:
             errors.append(f"Строка {idx}, поле 'amount': отсутствует количество для перевода")
-    
+        else:
+            try:
+                parse_amount_range(raw_amount)
+            except ValueError as e:
+                errors.append(
+                    f"Строка {idx}, поле 'amount': некорректное значение '{raw_amount}' — {e}. "
+                    f"Допустимые формы: '10-20%', '90%', '1-3token', '5token', '10-20'"
+                )
+
     return errors
 
 def get_to_wallet_address(to_wallet_value):
@@ -1079,25 +1129,39 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
             update_token_stats(success=False, error_msg=error_msg)
             return
 
-        # Рассчитываем количество токенов для отправки
-        amount_from, amount_to, amount_type = parse_amount_range(amount)
+        # Рассчитываем количество токенов для отправки.
+        # Неразобранный transfer_amount — это опечатка в data/data.csv, а не повод
+        # отправить весь баланс: кошелёк пропускаем с явной ошибкой.
+        try:
+            amount_from, amount_to, amount_type = parse_amount_range(amount)
+        except ValueError as e:
+            error_msg = f"некорректный transfer_amount='{amount}': {e}"
+            _log(error_msg, status="error")
+            _update_token_task(
+                task_id, status="failed",
+                error_message=f"[{from_acc.address[:10]}…] {error_msg}",
+            )
+            update_token_stats(success=False, error_msg=error_msg)
+            return
 
+        # Итоговую сумму логируем всегда (в т.ч. в многопоточном режиме) —
+        # пользователь должен видеть, как именно понят transfer_amount, до отправки.
         if amount_type == 'PERCENT':
             percent = random.uniform(amount_from, amount_to)
             send_amount_raw = int(token_balance * percent / 100)
-            if not MULTI_THREADING_TOKEN:
-                logger.info(f"  Процент:      {percent:.2f}% от баланса токена")
+            _log(f"сумма: {percent:.2f}% от баланса {token_symbol_actual} (transfer_amount='{amount}')")
         else:
             amount_tokens = random.uniform(amount_from, amount_to)
             amount_tokens = apply_trim_to_amount(amount_tokens)
             send_amount_raw = int(amount_tokens * (10 ** token_decimals))
-            if not MULTI_THREADING_TOKEN:
-                logger.info(f"  Количество:   {amount_tokens:.6f} {token_symbol_actual}")
+            _log(f"сумма: {amount_tokens:.6f} {token_symbol_actual} (transfer_amount='{amount}')")
 
         if send_amount_raw > token_balance:
             send_amount_raw = token_balance
-            if not MULTI_THREADING_TOKEN:
-                logger.warning(f"⚠️ Запрошенное количество больше баланса, будет отправлен весь баланс")
+            _log(
+                "запрошенное количество больше баланса — будет отправлен весь баланс",
+                status="warning",
+            )
 
         if send_amount_raw <= 0:
             error_msg = (
@@ -1313,22 +1377,35 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
                 status="error",
             )
 
-        # Записываем результат
-        append_token_result_csv({
-            "datetime": dt_str,
-            "from_wallet": from_priv,
-            "from_address": from_acc.address,
-            "to_wallet": to_wallet_value,
-            "to_address": to_address,
-            "token_symbol": token_symbol_actual,
-            "token_address": token_address,
-            "amount_sent": send_amount_formatted,
-            "tx_hash": tx_hash_hex,
-            "explorer_link": f"{explorer_url}{tx_hash_hex}",
-        })
+        # Успех — ТОЛЬКО подтверждённая транзакция со status == 1.
+        # Реверт и «висит в pending» не двигают токены, поэтому не должны попадать
+        # ни в result-CSV, ни в счётчик успешных: иначе CSV расходится с ончейном
+        # и с БД (там уже пишется реальный tx_status_final).
+        succeeded = (tx_status_final == "completed")
 
-        # Обновляем статистику
-        update_token_stats(success=True, amount=send_amount_formatted, tx_hash=tx_hash_hex)
+        if succeeded:
+            append_token_result_csv({
+                "datetime": dt_str,
+                "from_wallet": from_priv,
+                "from_address": from_acc.address,
+                "to_wallet": to_wallet_value,
+                "to_address": to_address,
+                "token_symbol": token_symbol_actual,
+                "token_address": token_address,
+                "amount_sent": send_amount_formatted,
+                "tx_hash": tx_hash_hex,
+                "explorer_link": f"{explorer_url}{tx_hash_hex}",
+            })
+            update_token_stats(success=True, amount=send_amount_formatted, tx_hash=tx_hash_hex)
+        else:
+            if tx_status_final == "failed":
+                fail_reason = f"tx отклонена сетью (reverted): {tx_hash_hex}"
+            else:
+                fail_reason = (
+                    f"tx не подтверждена за {WHAITE_TRANSACTION_PENDING_COUNT} попыток: {tx_hash_hex}"
+                )
+            update_token_stats(success=False, error_msg=fail_reason)
+
         _update_token_task(
             task_id,
             status=tx_status_final or "pending",
@@ -1347,7 +1424,9 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
         except Exception as e:
             logger.warning(f"Не удалось прочитать итоговый баланс получателя: {e}")
 
-        if not MULTI_THREADING_TOKEN:
+        # Итоговый «зелёный» блок только для реально прошедшей транзакции —
+        # для реверта/pending он вводил бы в заблуждение.
+        if not MULTI_THREADING_TOKEN and succeeded:
             logger.success("=" * 60)
             logger.success(f"{explorer_url}{tx_hash_hex}")
             logger.success(f"from_wallet ({from_acc.address}) - {send_amount_formatted:.6f} {token_symbol_actual}")
@@ -1689,6 +1768,9 @@ def choose_token_for_network(network):
 
 def run_transfer_erc20_tokens():
     """Главная функция запуска модуля переводов ERC-20 токенов"""
+    # В логах уже есть счётчик [i/N] (log_wallet_task), поэтому авто-tqdm выключаем —
+    # иначе пользователь видит двойную индикацию прогресса.
+    set_auto_progress(False)
     try:
         from questionary import Choice, select
         from colorama import Fore

@@ -1,75 +1,22 @@
-"""Lester Minter — UI меню пресета."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+"""Меню modules.litvm_testnet.lester_minter — фабрика ERC-20 на LiteForge."""
+from __future__ import annotations
 
-from colorama import Fore, Style
-from questionary import Choice, select
-
-from config.modules.general_config import NUM_THREADS
 from config.modules.cfg_litvm_testnet import (
     LITVM_MINTER_DEPLOY_FEE_WEI,
     LITVM_MINTER_FACTORY,
     LITVM_MINTER_SUPPLY_RANGE,
     LITVM_MINTER_TX_PER_WALLET,
 )
+from config.modules.general_config import NUM_THREADS
+from modules.core.runner import resolve_threads, run_parallel
 from modules.data_manager import load_data
-from modules.simple_logger import log_simple, set_auto_progress
 from modules.litvm_testnet.lester_minter import database as db
 from modules.litvm_testnet.lester_minter import excel_export
-from modules.litvm_testnet.lester_minter.worker import plan_wallet, process_wallet
-
-
-def _build_menu() -> str | None:
-    return select(
-        "🪙 LiteForge Lester Minter (ERC-20 фабрика):",
-        choices=[
-            Choice("📋 План: сгенерировать токены для всех кошельков (без отправки)", "plan"),
-            Choice("▶️  Запуск: задеплоить (или продолжить) токены", "run"),
-            Choice("📊 Статистика БД", "stats"),
-            Choice("📑 Экспорт Excel-отчёта", "export"),
-            Choice("🗑️  Очистить таблицы Lester Minter", "reset"),
-            Choice("ℹ️  Параметры", "info"),
-            Choice("🔙 Назад", "back"),
-        ],
-        qmark="🪙",
-        pointer="👉",
-    ).ask()
-
-
-def _show_info() -> None:
-    cnt_lo, cnt_hi = LITVM_MINTER_TX_PER_WALLET
-    sup_lo, sup_hi = LITVM_MINTER_SUPPLY_RANGE
-    print(f"\n{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Lester Minter — параметры{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}{'-' * 40}{Style.RESET_ALL}")
-    print(f"  Фабрика                  {LITVM_MINTER_FACTORY}")
-    print(f"  Комиссия (на 1 deploy)   {LITVM_MINTER_DEPLOY_FEE_WEI/1e18:.4f} zkLTC")
-    print(f"  Токенов на кошелёк       {cnt_lo}..{cnt_hi} (random)")
-    print(f"  Total supply диапазон    {sup_lo:,}..{sup_hi:,}")
-    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}\n")
-
-
-def _show_stats() -> None:
-    s = db.get_statistics()
-    print(f"\n{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Lester Minter — статистика{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}{'-' * 40}{Style.RESET_ALL}")
-    if s.get("wallet_total", 0) == 0:
-        print(f"  {Fore.YELLOW}БД пуста{Style.RESET_ALL}")
-    else:
-        print(f"  {Fore.WHITE}Кошельки:{Style.RESET_ALL}")
-        for k, v in s.items():
-            if not k.startswith("wallet_"):
-                continue
-            print(f"    {k.replace('wallet_',''):<20} {v}")
-        print(f"  {Fore.WHITE}Деплои:{Style.RESET_ALL}")
-        print(f"    {'total':<20} {s.get('deploy_total', 0)}")
-        for k, v in s.items():
-            if not k.startswith("deploy_"):
-                continue
-            if k == "deploy_total":
-                continue
-            print(f"    {k.replace('deploy_',''):<20} {v}")
-    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}\n")
+from modules.litvm_testnet.lester_minter.worker import (
+    plan_wallet, process_wallet,
+)
+from modules.simple_logger import log_simple, set_auto_progress
+from modules.ui.module_menu import MenuAction, ModuleMenu
 
 
 def _records_with_keys() -> list[dict]:
@@ -77,36 +24,23 @@ def _records_with_keys() -> list[dict]:
     return [r for r in rows if (r.get("private_key") or "").strip()]
 
 
-def _run_threaded(records: list[dict], fn, label: str, threads: int) -> bool:
+def _run_threaded(records: list[dict], fn, label: str) -> bool:
+    """Обходит кошельки; False — пользователь прервал обход."""
     total = len(records)
+    threads = resolve_threads(NUM_THREADS, total)
     set_auto_progress(False)
-    log_simple(f"🪙 Lester Minter {label}: {total} кошельков · threads={threads}",
-               "info")
-    interrupted = False
-    if threads <= 1 or total <= 1:
-        for i, rec in enumerate(records, 1):
-            try:
-                fn(rec, i, total)
-            except KeyboardInterrupt:
-                log_simple("⚠ прервано пользователем (состояние сохранено в БД)",
-                           "warning")
-                interrupted = True
-                break
-    else:
-        with ThreadPoolExecutor(max_workers=threads,
-                                thread_name_prefix="litvm-minter") as ex:
-            futs = [ex.submit(fn, rec, i, total)
-                    for i, rec in enumerate(records, 1)]
-            try:
-                for fut in as_completed(futs):
-                    fut.result()
-            except KeyboardInterrupt:
-                for f in futs:
-                    f.cancel()
-                log_simple("⚠ прервано пользователем (состояние сохранено в БД)",
-                           "warning")
-                interrupted = True
-    return not interrupted
+    log_simple(
+        f"🪙 Lester Minter {label}: {total} кошельков · threads={threads}",
+        "info",
+    )
+    try:
+        run_parallel(records, lambda index, rec: fn(rec, index, total),
+                     threads=threads, thread_name_prefix="litvm-minter")
+    except KeyboardInterrupt:
+        log_simple("⚠ прервано пользователем (состояние сохранено в БД)",
+                   "warning")
+        return False
+    return True
 
 
 def _summary() -> str:
@@ -122,8 +56,7 @@ def _handle_plan() -> None:
     if not records:
         log_simple("Нет кошельков с private_key в data/data.csv", "error")
         return
-    threads = max(1, min(int(NUM_THREADS), len(records)))
-    _run_threaded(records, plan_wallet, "PLAN", threads)
+    _run_threaded(records, plan_wallet, "PLAN")
     log_simple(f"🏁 plan завершён · {_summary()}", "success")
 
 
@@ -132,8 +65,7 @@ def _handle_run() -> None:
     if not records:
         log_simple("Нет кошельков с private_key в data/data.csv", "error")
         return
-    threads = max(1, min(int(NUM_THREADS), len(records)))
-    ok = _run_threaded(records, process_wallet, "RUN", threads)
+    ok = _run_threaded(records, process_wallet, "RUN")
     log_simple(f"🏁 {'готово' if ok else 'остановлено'} · {_summary()}",
                "success" if ok else "warning")
 
@@ -143,36 +75,73 @@ def _handle_export() -> None:
     log_simple(f"📑 отчёт сохранён: {out}", "success")
 
 
+def _stats() -> dict:
+    raw = db.get_statistics()
+    if not raw.get("wallet_total", 0):
+        return {"total": 0}
+    ordered = {"кошельков": raw.get("wallet_total", 0)}
+    for key, value in raw.items():
+        if key.startswith("wallet_") and key != "wallet_total":
+            ordered[f"кошельки · {key[len('wallet_'):]}"] = value
+    ordered["деплоев"] = raw.get("deploy_total", 0)
+    for key, value in raw.items():
+        if key.startswith("deploy_") and key != "deploy_total":
+            ordered[f"деплои · {key[len('deploy_'):]}"] = value
+    return ordered
+
+
+def _info() -> dict:
+    count_lo, count_hi = LITVM_MINTER_TX_PER_WALLET
+    supply_lo, supply_hi = LITVM_MINTER_SUPPLY_RANGE
+    return {
+        "Как это работает": [
+            "Lester Minter — фабрика ERC-20 на LiteForge: один вызов "
+            "создаёт токен с заданным именем, символом и эмиссией.",
+            "Планирование придумывает токены на каждый кошелёк и складывает "
+            "их в базу — сеть при этом не трогается.",
+            "Запуск деплоит запланированные токены и продолжает с того "
+            "места, где остановился прошлый прогон.",
+        ],
+        "Параметры": [
+            f"Фабрика — {LITVM_MINTER_FACTORY}",
+            f"Комиссия за деплой — "
+            f"{LITVM_MINTER_DEPLOY_FEE_WEI / 1e18:.4f} zkLTC",
+            f"Токенов на кошелёк — {count_lo}..{count_hi}, случайно",
+            f"Эмиссия — {supply_lo:,}..{supply_hi:,}",
+        ],
+        "Где что лежит": [
+            "База: db/litvm.db, таблицы minter_wallet_tasks и "
+            "minter_deployments",
+            "Отчёт: result/lester_minter/run_<время>/"
+            "lester_minter_report.xlsx",
+        ],
+    }
+
+
+def _menu() -> ModuleMenu:
+    return ModuleMenu(
+        title="Lester Minter",
+        subtitle="фабрика ERC-20 на LiteForge",
+        icon="🪙",
+        actions=[
+            MenuAction("plan", "Планирование", _handle_plan,
+                       "придумать токены на каждый кошелёк", icon="📋"),
+            MenuAction("run", "Запуск деплоя", _handle_run,
+                       "задеплоить или продолжить запланированные токены",
+                       icon="▶️"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по данным из базы", icon="📑"),
+        ],
+        stats=_stats,
+        stats_title="Прогресс · minter_*",
+        reset=db.reset_tasks,
+        info=_info,
+    )
+
+
 def run_litvm_minter() -> None:
     db.init_database()
-    while True:
-        action = _build_menu()
-        if action is None or action == "back":
-            return
-        if action == "plan":
-            try:
-                _handle_plan()
-            except KeyboardInterrupt:
-                pass
-        elif action == "run":
-            try:
-                _handle_run()
-            except KeyboardInterrupt:
-                pass
-        elif action == "stats":
-            _show_stats()
-        elif action == "export":
-            _handle_export()
-        elif action == "info":
-            _show_info()
-        elif action == "reset":
-            confirm = select(
-                "Очистить все Lester Minter таблицы?",
-                choices=[Choice("Нет", False), Choice("Да, очистить", True)],
-                qmark="🗑️",
-            ).ask()
-            if confirm:
-                db.reset_tasks()
-                log_simple("🗑️ minter_wallet_tasks + minter_deployments очищены",
-                           "success")
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    _menu().run()
+
+
+__all__ = ["run_litvm_minter"]

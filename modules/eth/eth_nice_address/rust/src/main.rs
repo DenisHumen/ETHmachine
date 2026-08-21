@@ -40,7 +40,7 @@ struct Args {
     num_wallets: usize,
 
     /// Config file path (Python config.py)
-    #[arg(short = 'c', long, default_value = "../../../../config/config.py")]
+    #[arg(short = 'c', long, default_value = "../../../../config/modules/cfg_nice_address.py")]
     config_path: String,
 
     /// Output CSV file

@@ -1,8 +1,11 @@
-"""Интерактивное меню чекера прокси: выбор уровня детализации и запуск."""
+"""Интерактивный чекер прокси: выбор уровня детализации и запуск.
+
+Это не обычное меню модуля, а мастер: уровень → сколько прокси → потоки →
+прогон. Поэтому здесь не ``ModuleMenu``, а прямые вызовы UI-набора.
+"""
 
 from __future__ import annotations
 
-import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +15,8 @@ from typing import List
 
 from modules.simple_logger import logger, setup_file_logging
 from modules.proxy_manager import load_proxies
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY, MenuItem
 
 from config.modules.general_config import NUM_THREADS
 
@@ -23,13 +28,19 @@ from .tester import run_proxy_test
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = PROJECT_ROOT / "log"
 
-
-_LEVEL_DESCRIPTIONS = {
-    1: "Базовая проверка: alive, latency, страна/IP",
-    2: "Стандарт: + популярные сайты и соцсети, факт блокировок",
-    3: "Расширенная: + криптобиржи (Binance/OKX/Bybit/...), CoinGecko, Etherscan, EVM/Solana RPC",
-    4: "Максимум: + speed-test, jitter и стадийные тайминги (DNS/TCP/TLS/TTFB)",
+# Уровень детализации: название и что добавляется к предыдущему уровню.
+_LEVELS = {
+    1: ("Уровень 1 · базовый", "доступность, задержка, страна и IP"),
+    2: ("Уровень 2 · стандарт", "плюс сайты и соцсети, факт блокировок"),
+    3: ("Уровень 3 · расширенный",
+        "плюс криптобиржи, CoinGecko, Etherscan, RPC-узлы"),
+    4: ("Уровень 4 · максимум",
+        "плюс скорость, джиттер и тайминги соединения"),
 }
+
+# На четвёртом уровне speed-test тяжёлый — потоков нужно заметно меньше.
+_THREAD_CAP = {4: 20}
+_DEFAULT_THREAD_CAP = 80
 
 
 def _setup_logging(level: int) -> None:
@@ -40,91 +51,67 @@ def _setup_logging(level: int) -> None:
     logger.info(f"Логи проверки прокси: {log_file}")
 
 
-def _ask_level() -> int:
-    """Запросить уровень детализации 1..4."""
-    try:
-        from questionary import Choice, select
-        choices = [
-            Choice(f"  🔹 Уровень {lvl} — {desc}", lvl)
-            for lvl, desc in _LEVEL_DESCRIPTIONS.items()
-        ]
-        choices.append(Choice("  🔙 Назад", "back"))
-        ans = select(
-            "\n╔══════════════════════════════════════════════════════════════╗\n"
-            "║         🛠️  Проверка прокси / Уровень детализации             ║\n"
-            "╚══════════════════════════════════════════════════════════════╝",
-            choices=choices, qmark="🛠️", pointer="👉",
-        ).ask()
-        return ans if isinstance(ans, int) else "back"
-    except Exception:
-        # plain input fallback
-        for lvl, desc in _LEVEL_DESCRIPTIONS.items():
-            print(f"  {lvl}) {desc}")
-        try:
-            v = int(input("Выберите уровень (1-4): ").strip())
-            return v if 1 <= v <= 4 else "back"
-        except Exception:
-            return "back"
+def _ask_level() -> int | None:
+    """Уровень детализации 1..4. ``None`` — пользователь отказался."""
+    items = [
+        MenuItem(str(level), title, description, icon="🔹")
+        for level, (title, description) in _LEVELS.items()
+    ]
+    items.append(MenuItem(BACK_KEY, "Назад", icon="←"))
 
-
-def _ask_max_proxies(total: int) -> int:
-    try:
-        s = input(f"Сколько прокси проверить из {total}? Enter = все: ").strip()
-        if not s:
-            return total
-        n = int(s)
-        return max(1, min(n, total))
-    except Exception:
-        return total
-
-
-def _ask_threads(default: int, level: int) -> int:
-    # Под L4 не стоит давать слишком много потоков — speed-test тяжёлый
-    cap = 20 if level >= 4 else 80
-    suggested = min(default, cap)
-    try:
-        s = input(f"Потоков [{suggested}, max {cap}]: ").strip()
-        if not s:
-            return suggested
-        n = int(s)
-        return max(1, min(n, cap))
-    except Exception:
-        return suggested
+    choice = ui.show_items("🛰️ Проверка прокси — уровень детализации", items)
+    if choice in (None, BACK_KEY):
+        return None
+    return int(choice)
 
 
 def check_proxy_menu() -> None:
-    """Точка входа. Показывает меню уровня детализации и запускает проверку."""
+    """Точка входа: спрашивает параметры прогона и запускает проверку."""
     level = _ask_level()
-    if level == "back" or level is None:
-        return
-    if not isinstance(level, int) or not (1 <= level <= 4):
-        logger.error("Некорректный уровень детализации")
+    if level is None:
         return
 
     _setup_logging(level)
-    logger.info("=" * 70)
-    logger.info(f"🚀 Запуск чекера прокси | Уровень: L{level}")
-    logger.info(f"📋 Профиль: {_LEVEL_DESCRIPTIONS[level]}")
-    logger.info("=" * 70)
 
     proxies: List[str] = load_proxies()
     if not proxies:
-        logger.error("❌ Прокси не найдены — проверьте поле 'proxy' в data.csv")
+        logger.error("Прокси не найдены — проверьте поле proxy в data.csv")
+        ui.pause()
         return
-    logger.info(f"📂 Загружено {len(proxies)} прокси")
 
-    max_n = _ask_max_proxies(len(proxies))
-    if max_n < len(proxies):
-        proxies = proxies[:max_n]
-        logger.info(f"🔧 Ограничение: проверим первые {max_n}")
+    total_found = len(proxies)
+    max_n = ui.ask_int("Сколько прокси проверить", minimum=1,
+                       maximum=total_found, default=total_found)
+    if max_n is None:
+        return
+    proxies = proxies[:max_n]
 
-    threads = _ask_threads(NUM_THREADS, level)
-    logger.info(f"🧵 Потоков: {threads}")
+    cap = _THREAD_CAP.get(level, _DEFAULT_THREAD_CAP)
+    threads = ui.ask_int("Потоков", minimum=1, maximum=cap,
+                         default=min(NUM_THREADS, cap))
+    if threads is None:
+        return
 
     db = ProxyCheckerDB()
     run_id = db.create_run(level=level, threads=threads, proxies=proxies)
-    logger.info(f"🗄️  Run #{run_id} создан в БД ({db.path})")
 
+    ui.print_lines(ui.info_panel("Проверка прокси", {
+        _LEVELS[level][0]: [
+            f"L{step} · {_LEVELS[step][1]}" for step in range(1, level + 1)
+        ],
+        "Параметры": [
+            f"Прокси в работе: {len(proxies)} из {total_found} найденных",
+            f"Потоков: {threads}",
+        ],
+    }, footer=f"Прогон #{run_id} · {db.path.name}"))
+
+    _run(db, run_id, level, proxies, threads)
+    ui.pause()
+
+
+def _run(db: ProxyCheckerDB, run_id: int, level: int,
+         proxies: List[str], threads: int) -> None:
+    """Прогон по всем прокси: результаты пишутся в базу по мере готовности."""
     start_ts = time.time()
     completed = working = partial = broken = 0
 
@@ -168,8 +155,10 @@ def check_proxy_menu() -> None:
                 _log_progress(idx, len(proxies), completed, summary)
 
     except KeyboardInterrupt:
-        logger.warning("⏹️  Прервано пользователем — фиксируем частичные результаты")
+        logger.warning("⏹️ Прервано пользователем — фиксируем частичные результаты")
         db.finalize_run(run_id, working, partial, broken, status="interrupted")
+        _show_summary(level, start_ts, completed, working, partial, broken,
+                      title_suffix="прервано")
         try:
             xlsx = export_run_to_xlsx(db, run_id)
             logger.info(f"📊 Частичный отчёт: {xlsx}")
@@ -177,13 +166,7 @@ def check_proxy_menu() -> None:
             logger.error(f"Ошибка экспорта: {e}")
         return
 
-    duration = round(time.time() - start_ts, 2)
-    logger.info("=" * 70)
-    logger.success(f"✅ Готово за {duration} c | {completed/duration:.2f} прокси/c")
-    logger.info(f"   WORKING:  {working}")
-    logger.info(f"   PARTIAL:  {partial}")
-    logger.info(f"   BROKEN:   {broken}")
-    logger.info("=" * 70)
+    _show_summary(level, start_ts, completed, working, partial, broken)
 
     try:
         xlsx = export_run_to_xlsx(db, run_id)
@@ -195,6 +178,22 @@ def check_proxy_menu() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _show_summary(level: int, start_ts: float, completed: int,
+                  working: int, partial: int, broken: int,
+                  title_suffix: str = "") -> None:
+    # Прогон может уложиться в доли секунды — защищаемся от деления на ноль.
+    duration = max(round(time.time() - start_ts, 2), 0.01)
+    title = f"Итог проверки · L{level}"
+    if title_suffix:
+        title = f"{title} ({title_suffix})"
+    ui.print_lines(ui.stats_panel(
+        title,
+        {"рабочие": working, "частично": partial, "нерабочие": broken,
+         "total": completed},
+        footer=f"{duration} с · {completed / duration:.2f} прокси/с",
+    ))
+
 
 def _run_one(proxy: str, level: int) -> dict:
     """Обёртка для submit() — ловит исключения тестера."""
@@ -220,6 +219,9 @@ def _log_progress(idx: int, total: int, completed: int, summary: dict) -> None:
     extra = f" | {country}, {lat}ms" if lat else f" | {country}"
     icon = {"WORKING": "✅", "PARTIAL": "⚠️", "BROKEN": "❌"}.get(ov, "•")
     logger.info(f"{icon} [{completed}/{total} {pct:5.1f}%] #{idx} {ov} {score:.0f}%{extra}")
+
+
+__all__ = ["check_proxy_menu"]
 
 
 if __name__ == "__main__":

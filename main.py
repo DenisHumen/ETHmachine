@@ -1,969 +1,725 @@
-import os
-import time
+"""ETHmachine — терминальный набор для автоматизации крипто-рутины.
+
+Точка входа. Здесь только маршрутизация: меню объявлено в
+``config/menu_config.py``, внешний вид — в ``modules/ui``, вся логика —
+в модулях под ``modules/``.
+
+Тяжёлые модули (web3, playwright, ccxt) импортируются лениво, прямо
+в обработчиках: иначе запуск программы упирался бы в несколько секунд
+импортов, большая часть которых пользователю в текущей сессии не нужна.
+"""
+
+from __future__ import annotations
+
 import platform
 import sys
 import warnings
 
-# UTF-8 для stdout/stderr — нужно для красивых box-символов прогресс-баров
-# и unicode-логов на Windows PowerShell (кодировка по умолчанию cp1251).
+# ── stdout в UTF-8 ──────────────────────────────────────────────────────
+# Нужно до любых импортов: рамки, эмодзи и русские логи иначе падают
+# на Windows-консоли с кодировкой по умолчанию (cp866/cp1251).
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
     except Exception:
         pass
 
-# Глушим шумные DeprecationWarning от сторонних библиотек (paramiko/cryptography и др.)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 try:
     from cryptography.utils import CryptographyDeprecationWarning  # type: ignore
+
     warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 except Exception:
     pass
 
-# Проверка зависимостей (только stdlib — работает на чистом Python)
+# ── Проверка зависимостей ───────────────────────────────────────────────
+# Только stdlib — работает на чистом Python без установленных пакетов.
 from modules.requirements_checker import check_requirements
+
 if not check_requirements():
-    input("\nНажмите Enter для выхода...")
+    input("\nEnter — выход...")
     sys.exit(1)
 
-from colorama import Fore, Style, init
-init(autoreset=True)
-
-from questionary import Choice, select
-
-from config.networks import get_mainnet_networks, get_testnet_networks
-from config.modules.cfg_backup import DISPLAY_LIST_BACKUPS
 from config.menu_config import (
-    MAIN_MENU_CONFIG,
-    get_enabled_main_menu_items, build_choices, build_submenu_choices,
-    BALANCES_SUBMENU, ETH_BALANCES_SUBMENU, SOL_BALANCES_SUBMENU,
-    TRANSACTIONS_SUBMENU, COLLECTORS_SUBMENU,
-    TWITTER_SUBMENU, PROJECTS_SUBMENU,
-    CEX_SUBMENU, OKX_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, MEXC_SUBMENU,
-    TOOLS_SUBMENU, GENERATE_WALLETS_SUBMENU, ETH_WALLETS_SUBMENU, SOL_WALLETS_SUBMENU,
-    CONVERT_TOOL_SUBMENU, DISCORD_OS_SUBMENU, RUST_IMPL_SUBMENU,
-    WALLET_COUNT_OPTIONS,
+    BALANCES_SUBMENU, BINANCE_SUBMENU, BITGET_SUBMENU, CEX_SUBMENU,
+    COLLECTORS_SUBMENU, CONVERT_TOOL_SUBMENU, DISCORD_OS_SUBMENU,
+    ETH_BALANCES_SUBMENU, ETH_WALLETS_SUBMENU, GENERATE_WALLETS_SUBMENU,
+    MAIN_MENU_CONFIG, MEXC_SUBMENU, OKX_SUBMENU, PROJECTS_SUBMENU,
+    RUST_IMPL_SUBMENU, SOL_BALANCES_SUBMENU, SOL_WALLETS_SUBMENU,
+    TOOLS_SUBMENU, TRANSACTIONS_SUBMENU, TWITTER_SUBMENU,
+    WALLET_COUNT_OPTIONS, get_enabled_main_menu_items,
 )
+from modules.ui import BACK_KEY, banner, ui
+from modules.ui.menu_model import SubMenu
 
-from modules.backup import create_backup, list_backups, backup_menu
-from modules.backup.backup_manager import BackupManager
-
-neura_statistics = None
-neura_load_error = None
-if platform.system().lower() == 'windows':
-    try:
-        from modules.statistics.neura_stats import neura_statistics
-    except ImportError as e:
-        neura_load_error = str(e)
-        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {neura_load_error}")
-        neura_statistics = None
-    except Exception as e:
-        neura_load_error = str(e)
-        print(Fore.YELLOW + f"⚠️  Не удалось загрузить модуль Neura Statistics: {e}")
-        neura_statistics = None
-
-# =============================================================================
-# ИМПОРТЫ ФУНКЦИОНАЛЬНЫХ МОДУЛЕЙ
-# =============================================================================
-
-from modules.config_validator import validate_configuration
-from modules.data_manager import select_data_file
-from modules.info import info
-from modules.eth.eth_get_balaces import check_wallet_balances_menu
-from modules.eth.eth_get_token_balance import check_token_balance_menu
-from modules.password_generator import password_generator_menu
-
-from modules.twitter.twitter_check import run_twitter_check
-from modules.twitter.twitter_task_runner import run_twitter_tasks
-from modules.discord.discord_age import check_discord_accounts
-from modules.email.email_imap_checker import run_email_checker
-
-from modules.cex.okx.okx_SubAccount import check_okx_subaccounts_and_balances, get_balances_okx
-from modules.cex.okx.okx_withdraw import okx_withdraw
-from modules.cex.okx.okx_SpotTrade import start_okx_spot_trading
-from modules.cex.binance.binance_withdraw import binance_withdraw
-from modules.cex.binance.binance_SubAccount import get_balances_binance, subaccount_collector_binance
-from modules.cex.bitget.bitget_SubAccount import check_bitget_subaccounts_and_balances
-from modules.cex.bitget.bitget_withdraw import bitget_withdraw
-from modules.cex.mexc.mexc_withdraw import mexc_withdraw
-from modules.GitHub.check_version import check_version
-
-from modules.check_proxy import check_proxy_menu
-from modules.eth.eth_wallet_generator import eth_generate_wallets
-from modules.eth.eth_nice_address.python.eth_nice_address import eth_generate_nice_wallets
-from modules.eth.eth_nice_address.eth_nice_address_rust_wrapper import run_rust_generator, check_cargo_installed
-from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
-from modules.eth.eth_private_key_to_wallet_address import process_private_keys
-from modules.eth.eth_collectors import eth_collectors
-from modules.relay_link.relay_link import main as relay_bridge_main
-
-from modules.sol.sol_wallet_generator import sol_generate_wallets
-from modules.sol.sol_nice_address import sol_generate_nice_wallets
-from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
-from modules.sol.eclipse_get_balances import eclipse_balance_checker
-from modules.sol.sol_get_balances import solana_balance_checker
-
-from modules.debank.debank_checker import debank_checker_menu
-from modules.debank.debank_protocol_checker import debank_protocol_menu
-from modules.xstocks.menu import xstocks_menu
-from modules.eth.transfer_wallets_to_wallets import run_transfer
-from modules.dune import dune_menu
-
-mainnet_rpc_urls = get_mainnet_networks()
-testnet_rpc_urls = get_testnet_networks()
+BACK = BACK_KEY
 
 
 # =============================================================================
-# УТИЛИТЫ
+# ВСПОМОГАТЕЛЬНОЕ
 # =============================================================================
 
 def get_os_type() -> str:
-    """Определяет тип операционной системы"""
+    """``windows`` / ``macos`` / ``linux``."""
     system = platform.system().lower()
-    if system == 'windows':
-        return 'windows'
-    elif system == 'darwin':
-        return 'macos'
-    else:
-        return 'linux'
+    if system == "windows":
+        return "windows"
+    if system == "darwin":
+        return "macos"
+    return "linux"
 
 
-def check_and_create_files():
-    """Проверяет и создает необходимые файлы и директории"""
-    required_files = [
-        'result/result.csv',
-        'config/cex_settings.py',
-        'data/twitter/twitters.csv',
-        'data/twitter/twitter_task.csv',
-    ]
-    # Каталоги result/twitter, result/discord, result/email создаются ленивыми
-    # средствами самих модулей при первой записи результатов.
-    required_directories = [
-        'result',
-        'data',
-        'db',
-        'data/twitter',
-        'backups',
-        'log',
-    ]
-
-    for directory in required_directories:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            print(Fore.GREEN + f"Directory created: {directory}")
-
-    for file in required_files:
-        if not os.path.exists(file):
-            with open(file, 'w', encoding='utf-8') as f:
-                _write_default_file_content(f, file)
-            print(Fore.GREEN + f"File created: {file}")
-
-    # Автосоздание data/data.csv с заголовками
-    from modules.data_manager import _ensure_data_file
-    _ensure_data_file()
-
-    # Автосоздание config/modules/cfg_pinterest.py
-    pinterest_cfg = 'config/modules/cfg_pinterest.py'
-    if not os.path.exists(pinterest_cfg):
-        with open(pinterest_cfg, 'w', encoding='utf-8') as f:
-            f.write(_get_default_pinterest_settings())
-        print(Fore.GREEN + f"File created: {pinterest_cfg}")
+def ask(submenu: SubMenu):
+    """Показывает подменю и возвращает выбранный ключ (``None`` при Ctrl+C)."""
+    return ui.show_items(submenu.description or submenu.label, submenu.items)
 
 
-def _write_default_file_content(f, file_path: str):
-    """Записывает содержимое по умолчанию для файла"""
-    if 'result.csv' in file_path:
-        f.write('address,balance,network\n')
-    elif 'transaction_count_result.csv' in file_path:
-        f.write('address,transaction_count,network\n')
-    elif 'cex_settings.py' in file_path:
-        f.write(_get_default_cex_settings())
-    elif 'data/twitter/twitters.csv' in file_path:
-        f.write('nickname,auth_token,ct0,proxy\n')
-    elif 'data/twitter/twitter_task.csv' in file_path:
-        f.write('link,type,value\n')
-
-
-def _get_default_cex_settings() -> str:
-    """Возвращает содержимое по умолчанию для cex_settings.py"""
-    return '''# Конфигурация для множественных аккаунтов бирж
-# Для каждой биржи можно настроить несколько аккаунтов
-
-# OKX Configuration
-# https://www.okx.com/ru/account/my-api
-OKX_EU_TYPE = 0  # включите это, если депозиты приходят на Трейдинг аккаунт, вместо Спотового аккаунта
-
-OKX_ACCOUNTS = [
-    {
-        'name': 'OKX Main',
-        'api_key': '',
-        'api_secret': '',
-        'passphrase': '',
-        'type': OKX_EU_TYPE,
-        'enabled': False,
-    },
-]
-
-# Binance Configuration
-# https://www.binance.com/en/my/settings/api-management
-BINANCE_ACCOUNTS = [
-    {
-        'name': 'Binance Main',
-        'api_key': '',
-        'api_secret': '',
-        'enabled': False,
-    },
-]
-
-# Bitget Configuration
-# https://www.bitget.com/ru/support/articles/360033773814
-BITGET_ACCOUNTS = [
-    {
-        'name': 'Bitget Main',
-        'api_key': '',
-        'api_secret': '',
-        'passphrase': '',
-        'enabled': False,
-    },
-]
-
-# MEXC Configuration
-# https://www.mexc.com/ru-RU/user/openapi
-MEXC_ACCOUNTS = [
-    {
-        'name': 'MEXC Main',
-        'api_key': '',
-        'api_secret': '',
-        'enabled': False,
-    },
-]
-'''
-
-
-def _get_default_pinterest_settings() -> str:
-    """Возвращает содержимое по умолчанию для cfg_pinterest.py"""
-    return '''# ========================================================================================
-# PINTEREST DOWNLOADER
-# ========================================================================================
-# Настройки для скачивания рандомных картинок с Pinterest
-# Требуется аккаунт Pinterest для авторизации
-
-PINTEREST_EMAIL = ''              # Email аккаунта Pinterest
-PINTEREST_PASSWORD = ''           # Пароль аккаунта Pinterest
-
-# Максимальное количество картинок за одну сессию
-PINTEREST_MAX_IMAGES = 500
-
-# Задержка между скачиванием картинок [мин, макс] в секундах
-PINTEREST_DOWNLOAD_DELAY = [0.2, 0.6]
-
-# Качество картинок: 'originals' (максимальное), '736x' (среднее), '564x' (сжатое)
-PINTEREST_IMAGE_QUALITY = 'originals'
-
-# Пользовательские поисковые запросы.
-# Если список пустой [] — используется встроенный большой список тем.
-# Если заполнен, например ['meme', 'cats'] — для каждого поиска случайно берётся
-# значение из этого массива (один поиск отдаёт ~20 картинок).
-PINTEREST_SEARCH_QUERIES = []
-'''
-
-
-def show_menu(title: str, choices: list, qmark: str = '🛠️', pointer: str = '👉'):
-    """Отображает меню и возвращает выбор пользователя"""
-    return select(title, choices=choices, qmark=qmark, pointer=pointer).ask()
-
-
-def show_wip_message(feature_name: str = "Функционал"):
-    """Показывает сообщение о функционале в разработке"""
-    print(Fore.RED + f"\n\t{feature_name} в разработке, скоро будет доступен!\n")
-    time.sleep(2)
-
-
-def show_exit_animation():
-    """Показывает анимацию выхода"""
-    animation = ["👋", "👋🙂", "👋🙂🚀", "👋🙂🚀💸", "👋🙂🚀💸✨", "👋🙂🚀💸✨🦾", "👋🙂🚀💸✨🦾\n"]
-    for frame in animation:
-        print(Fore.GREEN + f"\r{frame}", end='', flush=True)
-        time.sleep(0.1)
-    print(Fore.GREEN + "\n\t❤️‍🔥 Спасибо за использование ETHmachine!")
-    print(Fore.GREEN + "\t❤️‍🔥 Если есть вопросы и предложения то в тг https://t.me/DenisHumen")
-    print(Fore.GREEN + "\t❤️‍🔥 GitHub 🌟 - https://github.com/DenisHumen\n\n")
-
-
-def _gradient_line(text: str, r_start, g_start, b_start, r_end, g_end, b_end) -> str:
-    """Окрашивает каждый символ строки RGB-градиентом (true-color ANSI)."""
-    n = max(len(text) - 1, 1)
-    parts: list[str] = []
-    for i, ch in enumerate(text):
-        r = int(r_start + (r_end - r_start) * i / n)
-        g = int(g_start + (g_end - g_start) * i / n)
-        b = int(b_start + (b_end - b_start) * i / n)
-        parts.append(f"\033[38;2;{r};{g};{b}m{ch}")
-    parts.append(Style.RESET_ALL)
-    return "".join(parts)
-
-
-_LOGO_FILE = os.path.join(os.path.dirname(__file__), "assets", "ASCI_logo.txt")
-
-
-def print_welcome_message():
-    """Gradient ASCII-art logo from assets/ + author tag + links."""
-    # Градиент: бирюзовый → фиолетовый
-    cs = (0, 255, 200)
-    ce = (160, 50, 255)
-
-    # Загружаем арт из файла, обрезаем пустые строки и trailing-пробелы
-    try:
-        with open(_LOGO_FILE, "r", encoding="utf-8") as f:
-            raw_lines = f.read().splitlines()
-    except FileNotFoundError:
-        raw_lines = ["  ETHmachine"]
-
-    logo_lines = [ln.rstrip() for ln in raw_lines]
-    # Убираем пустые строки сверху и снизу
-    while logo_lines and not logo_lines[0].strip():
-        logo_lines.pop(0)
-    while logo_lines and not logo_lines[-1].strip():
-        logo_lines.pop()
-
-    max_w = max((len(ln) for ln in logo_lines), default=20)
-
-    print()
-    for line in logo_lines:
-        print(_gradient_line(line, *cs, *ce))
-
-    # Подпись автора — серым, выровнена по правому краю лого
-    author = f"\033[38;2;100;100;100m{'by @DenisHumen':>{max_w}}\033[0m"
-    print(author)
-    print()
-
-    for label, url in [
-        ("ERC20 ", "0xa24fbbd57720ec580395aedba3ad37f6a6067727"),
-        ("TG    ", "https://t.me/DenisHumen"),
-        ("GitHub", "https://github.com/DenisHumen"),
-        ("Steam ", "https://steamcommunity.com/id/Krokosha/"),
-    ]:
-        print(f"  {Fore.GREEN}{label}  {Fore.MAGENTA}{url}{Style.RESET_ALL}")
-    print()
+def not_ready(name: str) -> None:
+    ui.print_lines(ui.panel(
+        name,
+        [f"{ui.theme.FG_MUTED}Функционал ещё в разработке.{ui.theme.RESET}",
+         f"{ui.theme.FG_MUTED}Следите за обновлениями в Telegram-канале.{ui.theme.RESET}"],
+        color=ui.theme.FG_WARN,
+    ))
+    ui.pause()
 
 
 # =============================================================================
-# ОБРАБОТЧИКИ МЕНЮ
+# ОБРАБОТЧИКИ РАЗДЕЛОВ
 # =============================================================================
 
 class MenuHandlers:
-    """Класс с обработчиками всех пунктов меню"""
-    
-    # -------------------------------------------------------------------------
-    # BALANCES
-    # -------------------------------------------------------------------------
-    
-    @staticmethod
-    def handle_check_balances():
-        """Обработчик меню балансов"""
-        blockchain = show_menu(
-            "Выберите блокчейн:",
-            build_submenu_choices(BALANCES_SUBMENU)
-        )
-        
-        if blockchain == 'back':
-            return
-        
-        if blockchain == 'ETH':
-            MenuHandlers._handle_eth_balances()
-        elif blockchain == 'SOL':
-            MenuHandlers._handle_sol_balances()
-        elif blockchain == 'Eclipse':
-            eclipse_balance_checker()
-        elif blockchain == 'debank_checker':
-            debank_checker_menu()
-        elif blockchain == 'debank_protocols':
-            debank_protocol_menu()
-        elif blockchain == 'zksync_lite':
-            from modules.zksync_lite import zksync_lite_menu
-            zksync_lite_menu()
-    
-    @staticmethod
-    def _handle_eth_balances():
-        """Обработчик балансов ETH"""
-        choice = show_menu(
-            "Выберите действие для ETH:",
-            build_submenu_choices(ETH_BALANCES_SUBMENU)
-        )
-        
-        match choice:
-            case 'check_wallet_balances_eth':
-                check_wallet_balances_menu()
-            case 'check_token_balances':
-                check_token_balance_menu()
-    
-    @staticmethod
-    def _handle_sol_balances():
-        """Обработчик балансов SOL"""
-        choice = show_menu(
-            "Выберите действие для SOL:",
-            build_submenu_choices(SOL_BALANCES_SUBMENU)
-        )
-        
-        match choice:
-            case 'check_wallet_balances_sol':
-                solana_balance_checker()
-            case 'check_token_balances_sol':
-                show_wip_message("Функционал проверки токенов SOL")
-    
-    # -------------------------------------------------------------------------
-    # TRANSACTIONS
-    # -------------------------------------------------------------------------
-    
-    @staticmethod
-    def handle_transactions():
-        """Обработчик меню транзакций"""
-        choice = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(TRANSACTIONS_SUBMENU)
-        )
-        
-        match choice:
-            case 'collectors':
-                MenuHandlers._handle_collectors()
-            case 'transfer_wallets_to_wallets_call':
-                MenuHandlers._handle_transfer_wallets()
-            case 'transfer_erc20_tokens_call':
-                from modules.eth.transfer_erc20_tokens import run_transfer_erc20_tokens
-                run_transfer_erc20_tokens()
-            case 'transfer_kava_to_cex_call':
-                from modules.eth.transfer_kava_to_cex import run_transfer_kava_to_cex
-                run_transfer_kava_to_cex()
-            case 'relay_bridge':
-                relay_bridge_main()
-    
-    @staticmethod
-    def _handle_collectors():
-        """Обработчик collectors"""
-        choice = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(COLLECTORS_SUBMENU)
-        )
+    """Маршрутизация пунктов меню в модули.
 
-        match choice:
-            case 'eth_collectors':
-                eth_collectors()
-            case 'sol_collectors':
-                show_wip_message("Функционал SOL Collectors")
-    
-    @staticmethod
-    def _handle_transfer_wallets():
-        """Обработчик перевода между кошельками"""
-        print(Fore.GREEN + f"\n\nДанные читаются из data/data.csv:")
-        print(Fore.YELLOW + f"  private_key       → отправитель")
-        print(Fore.YELLOW + f"  evm_cex_address   → получатель (адрес или приватный ключ)")
-        print(Fore.YELLOW + f"  transfer_amount   → '90-100' или '90-100%' — проценты, 0.1-0.2 — сумма в нативном токене\n")
+    Каждый ``handle_*`` крутится в собственном цикле, пока пользователь не
+    выберет «Назад»: возвращать его в главное меню после каждого действия —
+    лишние нажатия.
+    """
 
-        network_type = show_menu(
-            "Select network type:",
-            [
-                Choice('🌐 Mainnet', 'mainnet'),
-                Choice('🔧 Testnet', 'testnet'),
-                Choice('🔙 Back', 'back')
-            ]
-        )
-
-        if network_type == 'back':
-            return
-
-        network_choices = list(mainnet_rpc_urls.keys()) if network_type == 'mainnet' else list(testnet_rpc_urls.keys())
-        network = show_menu(
-            "Which network do you want to use for transfer?",
-            [Choice(n, n) for n in network_choices] + [Choice('🔙 Back', 'back')]
-        )
-
-        if network == 'back':
-            return
-
-        transfer_data = MenuHandlers._load_transfer_data()
-        if not transfer_data:
-            return
-
-        run_transfer(transfer_data, network)
-    
-    @staticmethod
-    def _load_transfer_data() -> list:
-        """Загружает данные для перевода из data/data.csv через data_manager."""
-        from modules.data_manager import get_transfer_rows
-        transfer_data = get_transfer_rows()
-        if not transfer_data:
-            print(Fore.RED + "Нет данных для перевода: заполните private_key, evm_cex_address и transfer_amount в data/data.csv.")
-        return transfer_data
-    
-    # -------------------------------------------------------------------------
-    # TWITTER
-    # -------------------------------------------------------------------------
+    # ── Балансы ─────────────────────────────────────────────────────────
 
     @staticmethod
-    def handle_twitter():
-        """Обработчик меню Twitter"""
-        choice = show_menu(
-            "Выберите действие с Twitter:",
-            build_submenu_choices(TWITTER_SUBMENU)
-        )
-        
-        match choice:
-            case 'twitter_check':
-                run_twitter_check(get_os_type())
-            case 'twitter_info':
-                run_twitter_check(get_os_type())
-            case 'twitter_task':
-                run_twitter_tasks()
-    
-    # -------------------------------------------------------------------------
-    # PROJECTS
-    # -------------------------------------------------------------------------
-    
-    @staticmethod
-    def handle_projects():
-        """Обработчик меню проектов"""
+    def handle_check_balances() -> None:
         while True:
-            choice = show_menu(
-                "🎮 Выберите проект:",
-                build_submenu_choices(PROJECTS_SUBMENU),
-                qmark='🎮'
-            )
+            choice = ask(BALANCES_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "ETH":
+                MenuHandlers._handle_eth_balances()
+            elif choice == "SOL":
+                MenuHandlers._handle_sol_balances()
+            elif choice == "Eclipse":
+                from modules.sol.eclipse_get_balances import eclipse_balance_checker
 
-            if choice == 'xstocks':
+                eclipse_balance_checker()
+                ui.pause()
+            elif choice == "debank_checker":
+                from modules.debank.debank_checker import debank_checker_menu
+
+                debank_checker_menu()
+            elif choice == "debank_protocols":
+                from modules.debank.debank_protocol_checker import debank_protocol_menu
+
+                debank_protocol_menu()
+            elif choice == "zksync_lite":
+                from modules.zksync_lite import zksync_lite_menu
+
+                zksync_lite_menu()
+
+    @staticmethod
+    def _handle_eth_balances() -> None:
+        while True:
+            choice = ask(ETH_BALANCES_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "check_wallet_balances_eth":
+                from modules.eth.eth_get_balances import check_wallet_balances_menu
+
+                check_wallet_balances_menu()
+            elif choice == "check_token_balances":
+                from modules.eth.eth_get_token_balance import check_token_balance_menu
+
+                check_token_balance_menu()
+            ui.pause()
+
+    @staticmethod
+    def _handle_sol_balances() -> None:
+        while True:
+            choice = ask(SOL_BALANCES_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "check_wallet_balances_sol":
+                from modules.sol.sol_get_balances import solana_balance_checker
+
+                solana_balance_checker()
+                ui.pause()
+            elif choice == "check_token_balances_sol":
+                not_ready("Балансы SPL-токенов")
+
+    # ── Транзакции ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def handle_transactions() -> None:
+        while True:
+            choice = ask(TRANSACTIONS_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "collectors":
+                MenuHandlers._handle_collectors()
+            elif choice == "transfer_wallets_to_wallets_call":
+                MenuHandlers._handle_transfer_wallets()
+            elif choice == "transfer_erc20_tokens_call":
+                from modules.eth.transfer_erc20_tokens import run_transfer_erc20_tokens
+
+                run_transfer_erc20_tokens()
+            elif choice == "transfer_kava_to_cex_call":
+                from modules.eth.transfer_kava_to_cex import run_transfer_kava_to_cex
+
+                run_transfer_kava_to_cex()
+            elif choice == "relay_bridge":
+                from modules.relay_link.relay_link import main as relay_bridge_main
+
+                relay_bridge_main()
+
+    @staticmethod
+    def _handle_collectors() -> None:
+        while True:
+            choice = ask(COLLECTORS_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "eth_collectors":
+                from modules.eth.eth_collectors import eth_collectors
+
+                eth_collectors()
+                ui.pause()
+            elif choice == "sol_collectors":
+                not_ready("Сборщик Solana")
+
+    @staticmethod
+    def _handle_transfer_wallets() -> None:
+        from config.networks import get_mainnet_networks, get_testnet_networks
+
+        ui.print_lines(ui.info_panel("Перевод нативных токенов", {
+            "Данные читаются из data/data.csv": [
+                f"private_key      {ui.glyphs.arrow} отправитель",
+                f"evm_cex_address  {ui.glyphs.arrow} получатель (адрес или приватный ключ)",
+                f"transfer_amount  {ui.glyphs.arrow} 0.1-0.2 — сумма, «90-100» или 90-100% — процент",
+            ],
+        }))
+
+        network_type = ui.choose("Тип сети", [
+            ("🌐 Mainnet", "mainnet"),
+            ("🔧 Testnet", "testnet"),
+        ])
+        if network_type in (None, BACK):
+            return
+
+        networks = (get_mainnet_networks() if network_type == "mainnet"
+                    else get_testnet_networks())
+        network = ui.choose("В какой сети переводим", [(n, n) for n in networks])
+        if network in (None, BACK):
+            return
+
+        from modules.data_manager import get_transfer_rows
+
+        rows = get_transfer_rows()
+        if not rows:
+            ui.print_lines(ui.panel("Нет данных для перевода", [
+                "Заполните в data/data.csv колонки:",
+                "  private_key, evm_cex_address, transfer_amount",
+            ], color=ui.theme.FG_WARN))
+            ui.pause()
+            return
+
+        from modules.eth.transfer_wallets_to_wallets import run_transfer
+
+        run_transfer(rows, network)
+        ui.pause()
+
+    # ── Twitter ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def handle_twitter() -> None:
+        while True:
+            choice = ask(TWITTER_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "twitter_check":
+                from modules.twitter.twitter_check import run_twitter_check
+
+                run_twitter_check(get_os_type())
+                ui.pause()
+            elif choice == "twitter_task":
+                from modules.twitter.twitter_task_runner import run_twitter_tasks
+
+                run_twitter_tasks()
+
+    # ── Проекты ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def handle_projects() -> None:
+        while True:
+            choice = ask(PROJECTS_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "xstocks":
+                from modules.xstocks.menu import xstocks_menu
+
                 xstocks_menu()
-            elif choice == 'neura_stat':
-                if neura_statistics is not None:
-                    neura_statistics()
-                else:
-                    MenuHandlers._show_neura_unavailable()
-            elif choice == 'dune':
+            elif choice == "neura_stat":
+                MenuHandlers._handle_neura()
+            elif choice == "dune":
+                from modules.dune import dune_menu
+
                 dune_menu()
-            elif choice == 'fhenix':
+            elif choice == "fhenix":
                 from modules.fhenix.menu import fhenix_menu
+
                 fhenix_menu()
-            elif choice == 'litvm_testnet':
+            elif choice == "litvm_testnet":
                 from modules.litvm_testnet import litvm_testnet_menu
+
                 litvm_testnet_menu()
-            elif choice == 'sahara':
+            elif choice == "sahara":
                 from modules.sahara import run_sahara
+
                 run_sahara()
-            elif choice == 'safepal_x1':
+            elif choice == "safepal_x1":
                 from modules.eth.safepal_x1_checker import safepal_x1_checker_menu
+
                 safepal_x1_checker_menu()
-            elif choice == 'back' or choice is None:
-                break
-    
+
     @staticmethod
-    def _show_neura_unavailable():
-        """Показывает сообщение о недоступности Neura Statistics"""
-        print(Fore.RED + "\n⚠️  Модуль Neura Statistics недоступен!")
-        if neura_load_error:
-            print(Fore.YELLOW + f"Причина: {neura_load_error}")
-        else:
-            print(Fore.YELLOW + "Этот модуль работает только на Windows из-за зависимости от pyarmor_runtime.pyd")
-        print(Fore.YELLOW + f"Ваша текущая ОС: {get_os_type()}, Python: {platform.python_version()}")
-        input("\nНажмите Enter для продолжения...")
-    
-    # -------------------------------------------------------------------------
-    # CEX
-    # -------------------------------------------------------------------------
-    
+    def _handle_neura() -> None:
+        """Neura собран под Windows (зависит от pyarmor_runtime.pyd)."""
+        if get_os_type() != "windows":
+            ui.print_lines(ui.panel("Neura недоступен", [
+                "Модуль собран только под Windows —",
+                "он использует бинарный pyarmor_runtime.pyd.",
+                "",
+                f"Ваша ОС: {get_os_type()}, Python {platform.python_version()}",
+            ], color=ui.theme.FG_WARN))
+            ui.pause()
+            return
+        try:
+            from modules.statistics.neura_stats import neura_statistics
+        except Exception as exc:
+            ui.print_lines(ui.panel("Не удалось загрузить Neura", [
+                str(exc),
+            ], color=ui.theme.FG_ERR))
+            ui.pause()
+            return
+        neura_statistics()
+
+    # ── Биржи ───────────────────────────────────────────────────────────
+
     @staticmethod
-    def handle_cex():
-        """Обработчик меню CEX"""
-        exchange = show_menu(
-            "Выберите биржу:",
-            build_submenu_choices(CEX_SUBMENU)
-        )
-        
-        match exchange:
-            case 'OKX':
+    def handle_cex() -> None:
+        while True:
+            exchange = ask(CEX_SUBMENU)
+            if exchange in (None, BACK):
+                return
+            if exchange == "OKX":
                 MenuHandlers._handle_okx()
-            case 'Binance':
+            elif exchange == "Binance":
                 MenuHandlers._handle_binance()
-            case 'Bitget':
+            elif exchange == "Bitget":
                 MenuHandlers._handle_bitget()
-            case 'MEXC':
+            elif exchange == "MEXC":
                 MenuHandlers._handle_mexc()
-    
+
     @staticmethod
-    def _handle_okx():
-        """Обработчик OKX"""
-        action = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(OKX_SUBMENU)
-        )
-        
-        match action:
-            case 'withdraw_from_okx':
+    def _handle_okx() -> None:
+        while True:
+            action = ask(OKX_SUBMENU)
+            if action in (None, BACK):
+                return
+            if action == "withdraw_from_okx":
+                from modules.cex.okx.okx_withdraw import okx_withdraw
+
                 okx_withdraw()
-            case 'get_balances_okx':
+            elif action == "get_balances_okx":
+                from modules.cex.okx.okx_SubAccount import get_balances_okx
+
                 get_balances_okx()
-            case 'subaccount_collector_okx':
-                check_okx_subaccounts_and_balances()
-            case 'spot_trade_okx':
-                start_okx_spot_trading()
-    
-    @staticmethod
-    def _handle_binance():
-        """Обработчик Binance"""
-        action = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(BINANCE_SUBMENU)
-        )
-        
-        match action:
-            case 'withdraw_from_binance':
-                binance_withdraw()
-            case 'get_balances_binance':
-                print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
-                get_balances_binance()
-            case 'subaccount_collector_binance':
-                print(Fore.GREEN + "\n\tФункционал Binance в разработке, скоро будет доступен\n")
-                subaccount_collector_binance()
-    
-    @staticmethod
-    def _handle_bitget():
-        """Обработчик Bitget"""
-        action = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(BITGET_SUBMENU)
-        )
-        
-        match action:
-            case 'withdraw_from_bitget':
-                bitget_withdraw()
-            case 'get_balances_bitget':
-                show_wip_message("Функционал Bitget")
-            case 'subaccount_collector_bitget':
-                check_bitget_subaccounts_and_balances()
-    
-    @staticmethod
-    def _handle_mexc():
-        """Обработчик MEXC"""
-        action = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(MEXC_SUBMENU)
-        )
-        
-        if action == 'withdraw_from_mexc':
-            mexc_withdraw()
-    
-    # -------------------------------------------------------------------------
-    # TOOLS (MISCELLANEOUS)
-    # -------------------------------------------------------------------------
-    
-    @staticmethod
-    def handle_tools():
-        """Обработчик меню инструментов"""
-        choice = show_menu(
-            "Выберите действие:",
-            build_submenu_choices(TOOLS_SUBMENU)
-        )
-        
-        match choice:
-            case 'generate_wallets':
-                MenuHandlers._handle_generate_wallets()
-            case 'ETH_convert_tool':
-                MenuHandlers._handle_convert_tool()
-            case 'password_generator':
-                password_generator_menu()
-            case 'nickname_generator':
-                from modules.nickname_generator import generate_nicknames
-                generate_nicknames()
-            case 'fullname_generator':
-                from modules.fullname_generator import generate_fullnames_menu
-                generate_fullnames_menu()
-            case 'check_proxy':
-                check_proxy_menu()
-            case 'check_age_discord':
-                MenuHandlers._handle_discord_check()
-            case 'email_checker':
-                run_email_checker()
-            case 'pinterest_downloader':
-                from modules.pinterest_downloader import pinterest_downloader_menu
-                pinterest_downloader_menu()
-            case 'swap_all_polygon_zkevm_to_base':
-                from modules.eth.swap_all_polygon_zkevm_to_base import run_swap_all_polygon_zkevm_to_base
-                run_swap_all_polygon_zkevm_to_base()
-            case 'swap_all_zksync_era_to_base':
-                from modules.eth.swap_all_zksync_era_to_base import run_swap_all_zksync_era_to_base
-                run_swap_all_zksync_era_to_base()
-    
-    @staticmethod
-    def _handle_generate_wallets():
-        """Обработчик генерации кошельков"""
-        wallet_type = show_menu(
-            "Выберите тип генерации кошельков:",
-            build_submenu_choices(GENERATE_WALLETS_SUBMENU),
-            qmark='🪙'
-        )
-        
-        if wallet_type == 'back':
-            return
-        
-        num_wallets = MenuHandlers._select_wallet_count()
-        if num_wallets is None or num_wallets == 'back':
-            return
-        
-        if wallet_type == 'eth_wallets':
-            MenuHandlers._generate_eth_wallets(num_wallets)
-        elif wallet_type == 'sol_wallets':
-            MenuHandlers._generate_sol_wallets(num_wallets)
-    
-    @staticmethod
-    def _select_wallet_count():
-        """Выбор количества кошельков"""
-        choices = [
-            Choice(f'▶️  {opt["label"]}' if opt["value"] not in ['manual', 'back'] else
-                   f'✏️ {opt["label"]}' if opt["value"] == 'manual' else f'🔙 {opt["label"]}', 
-                   opt["value"])
-            for opt in WALLET_COUNT_OPTIONS
-        ]
-        
-        num_wallets = show_menu(
-            "Сколько кошельков вы хотите сгенерировать?",
-            choices,
-            qmark='🪙'
-        )
-        
-        if num_wallets == 'back':
-            return None
-        
-        if num_wallets == 'manual':
-            try:
-                num_wallets = int(input(Fore.YELLOW + "Введите количество кошельков для генерации: "))
-                if num_wallets <= 0:
-                    print(Fore.RED + "Пожалуйста, введите положительное число!")
-                    return None
-            except ValueError:
-                print(Fore.RED + "Неверный ввод. Пожалуйста, введите правильное число.")
-                return None
-        
-        return num_wallets
-    
-    @staticmethod
-    def _generate_eth_wallets(num_wallets: int):
-        """Генерация ETH кошельков"""
-        eth_choice = show_menu(
-            "Выберите тип генерации ETH кошельков:",
-            build_submenu_choices(ETH_WALLETS_SUBMENU),
-            qmark='⚡'
-        )
-        
-        match eth_choice:
-            case 'generate':
-                eth_generate_wallets(num_wallets)
-                print(Fore.GREEN + f"\nСгенерировано {num_wallets} кошельков и сохранено в result/result.csv\n")
-            case 'nice_generate':
-                MenuHandlers._generate_nice_eth_wallets(num_wallets)
-    
-    @staticmethod
-    def _generate_nice_eth_wallets(num_wallets: int):
-        """Генерация красивых ETH кошельков"""
-        print(f"\n{Fore.CYAN}Выберите реализацию генератора:{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Python - медленно, но без зависимостей{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}Rust - быстро (10-100x), требует Cargo{Style.RESET_ALL}\n")
-        
-        impl_choice = show_menu(
-            "Реализация:",
-            build_submenu_choices(RUST_IMPL_SUBMENU),
-            qmark='⚙️'
-        )
-        
-        if impl_choice == 'python':
-            eth_generate_nice_wallets(num_wallets)
-            print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
-        elif impl_choice == 'rust':
-            MenuHandlers._run_rust_eth_generator(num_wallets)
-    
-    @staticmethod
-    def _run_rust_eth_generator(num_wallets: int):
-        """Запуск Rust генератора ETH кошельков"""
-        if check_cargo_installed():
-            print(f"\n{Fore.GREEN}✓ Cargo установлен, используем Rust версию{Style.RESET_ALL}")
-            
-            use_auto_threads = show_menu(
-                "Использовать все доступные потоки?",
-                [
-                    Choice("✅ Да (рекомендуется)", 'yes'),
-                    Choice("⚙️ Указать вручную", 'no')
-                ],
-                qmark='🔧'
-            )
-            
-            if use_auto_threads == 'yes':
-                threads = 0
-            else:
-                threads_input = show_menu(
-                    "Количество потоков:",
-                    [Choice(str(t), str(t)) for t in [2, 4, 6, 8, 12, 16]],
-                    qmark='🔢'
+            elif action == "subaccount_collector_okx":
+                from modules.cex.okx.okx_SubAccount import (
+                    check_okx_subaccounts_and_balances,
                 )
-                threads = int(threads_input)
-            
-            run_rust_generator(
-                num_wallets=num_wallets,
-                config_path="config/config.py",
-                output_path="result/result.csv",
-                threads=threads,
-                display_process=True
-            )
-        else:
-            print(f"\n{Fore.RED}❌ Cargo не установлен!{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}Используем Python версию...{Style.RESET_ALL}\n")
-            eth_generate_nice_wallets(num_wallets)
-            print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых кошельков и сохранено в result/result.csv\n")
-    
+
+                check_okx_subaccounts_and_balances()
+            elif action == "spot_trade_okx":
+                from modules.cex.okx.okx_SpotTrade import start_okx_spot_trading
+
+                start_okx_spot_trading()
+            ui.pause()
+
     @staticmethod
-    def _generate_sol_wallets(num_wallets: int):
-        """Генерация SOL кошельков"""
-        sol_choice = show_menu(
-            "Выберите тип генерации SOL кошельков:",
-            build_submenu_choices(SOL_WALLETS_SUBMENU),
-            qmark='☀️'
-        )
-        
-        match sol_choice:
-            case 'generate':
-                sol_generate_wallets(num_wallets)
-                print(Fore.GREEN + f"\nСгенерировано {num_wallets} SOL кошельков и сохранено в result/result.csv\n")
-            case 'nice_generate':
-                sol_generate_nice_wallets(num_wallets)
-                print(Fore.GREEN + f"\nСгенерировано {num_wallets} красивых SOL кошельков и сохранено в result/result.csv\n")
-    
+    def _handle_binance() -> None:
+        while True:
+            action = ask(BINANCE_SUBMENU)
+            if action in (None, BACK):
+                return
+            if action == "withdraw_from_binance":
+                from modules.cex.binance.binance_withdraw import binance_withdraw
+
+                binance_withdraw()
+            elif action == "get_balances_binance":
+                from modules.cex.binance.binance_SubAccount import get_balances_binance
+
+                get_balances_binance()
+            elif action == "subaccount_collector_binance":
+                from modules.cex.binance.binance_SubAccount import (
+                    subaccount_collector_binance,
+                )
+
+                subaccount_collector_binance()
+            ui.pause()
+
     @staticmethod
-    def _handle_convert_tool():
-        """Обработчик инструмента конвертации"""
-        action = show_menu(
-            "Выберите операцию конвертации:",
-            build_submenu_choices(CONVERT_TOOL_SUBMENU)
+    def _handle_bitget() -> None:
+        while True:
+            action = ask(BITGET_SUBMENU)
+            if action in (None, BACK):
+                return
+            if action == "withdraw_from_bitget":
+                from modules.cex.bitget.bitget_withdraw import bitget_withdraw
+
+                bitget_withdraw()
+                ui.pause()
+            elif action == "get_balances_bitget":
+                not_ready("Балансы Bitget")
+            elif action == "subaccount_collector_bitget":
+                from modules.cex.bitget.bitget_SubAccount import (
+                    check_bitget_subaccounts_and_balances,
+                )
+
+                check_bitget_subaccounts_and_balances()
+                ui.pause()
+
+    @staticmethod
+    def _handle_mexc() -> None:
+        while True:
+            action = ask(MEXC_SUBMENU)
+            if action in (None, BACK):
+                return
+            if action == "withdraw_from_mexc":
+                from modules.cex.mexc.mexc_withdraw import mexc_withdraw
+
+                mexc_withdraw()
+                ui.pause()
+
+    # ── Инструменты ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def handle_tools() -> None:
+        while True:
+            choice = ask(TOOLS_SUBMENU)
+            if choice in (None, BACK):
+                return
+            if choice == "generate_wallets":
+                MenuHandlers._handle_generate_wallets()
+            elif choice == "ETH_convert_tool":
+                MenuHandlers._handle_convert_tool()
+            elif choice == "password_generator":
+                from modules.password_generator import password_generator_menu
+
+                password_generator_menu()
+                ui.pause()
+            elif choice == "nickname_generator":
+                from modules.nickname_generator import generate_nicknames
+
+                generate_nicknames()
+                ui.pause()
+            elif choice == "fullname_generator":
+                from modules.fullname_generator import generate_fullnames_menu
+
+                generate_fullnames_menu()
+                ui.pause()
+            elif choice == "check_proxy":
+                from modules.check_proxy import check_proxy_menu
+
+                check_proxy_menu()
+            elif choice == "check_age_discord":
+                MenuHandlers._handle_discord_check()
+            elif choice == "email_checker":
+                from modules.email.email_imap_checker import run_email_checker
+
+                run_email_checker()
+                ui.pause()
+            elif choice == "pinterest_downloader":
+                from modules.pinterest_downloader import pinterest_downloader_menu
+
+                pinterest_downloader_menu()
+            elif choice == "swap_all_polygon_zkevm_to_base":
+                from modules.eth.swap_all_polygon_zkevm_to_base import (
+                    run_swap_all_polygon_zkevm_to_base,
+                )
+
+                run_swap_all_polygon_zkevm_to_base()
+            elif choice == "swap_all_zksync_era_to_base":
+                from modules.eth.swap_all_zksync_era_to_base import (
+                    run_swap_all_zksync_era_to_base,
+                )
+
+                run_swap_all_zksync_era_to_base()
+
+    @staticmethod
+    def _handle_generate_wallets() -> None:
+        while True:
+            wallet_type = ask(GENERATE_WALLETS_SUBMENU)
+            if wallet_type in (None, BACK):
+                return
+
+            count = MenuHandlers._select_wallet_count()
+            if count is None:
+                continue
+
+            if wallet_type == "eth_wallets":
+                MenuHandlers._generate_eth_wallets(count)
+            elif wallet_type == "sol_wallets":
+                MenuHandlers._generate_sol_wallets(count)
+
+    @staticmethod
+    def _select_wallet_count() -> int | None:
+        options = [
+            (f"{option['label']}", option["value"])
+            for option in WALLET_COUNT_OPTIONS
+        ]
+        choice = ui.menu("Сколько кошельков генерируем", options)
+        if choice in (None, BACK):
+            return None
+        if choice == "manual":
+            return ui.ask_int("Количество кошельков", minimum=1, maximum=10_000_000)
+        return int(choice)
+
+    @staticmethod
+    def _generate_eth_wallets(count: int) -> None:
+        choice = ask(ETH_WALLETS_SUBMENU)
+        if choice in (None, BACK):
+            return
+        if choice == "generate":
+            from modules.eth.eth_wallet_generator import eth_generate_wallets
+
+            eth_generate_wallets(count)
+            MenuHandlers._report_generated(count, "EVM-кошельков")
+        elif choice == "nice_generate":
+            MenuHandlers._generate_nice_eth_wallets(count)
+
+    @staticmethod
+    def _generate_nice_eth_wallets(count: int) -> None:
+        from modules.eth.eth_nice_address.eth_nice_address_rust_wrapper import (
+            check_cargo_installed, run_rust_generator,
         )
-        
-        match action:
-            case 'eth_mnemonic_to_privkey':
+        from modules.eth.eth_nice_address.python.eth_nice_address import (
+            eth_generate_nice_wallets,
+        )
+
+        impl = ask(RUST_IMPL_SUBMENU)
+        if impl in (None, BACK):
+            return
+
+        if impl == "rust" and not check_cargo_installed():
+            ui.print_lines(ui.panel("Cargo не установлен", [
+                "Rust-генератор требует установленный Cargo.",
+                "Ставится вместе с Rust: https://rustup.rs",
+                "",
+                "Продолжаем на Python-реализации.",
+            ], color=ui.theme.FG_WARN))
+            impl = "python"
+
+        if impl == "python":
+            eth_generate_nice_wallets(count)
+            MenuHandlers._report_generated(count, "красивых EVM-кошельков")
+            return
+
+        threads = 0
+        if not ui.confirm("Использовать все доступные потоки?", default=True):
+            threads = ui.ask_int("Количество потоков", minimum=1, maximum=256,
+                                 default=4) or 0
+        run_rust_generator(
+            num_wallets=count,
+            config_path="config/modules/cfg_nice_address.py",
+            output_path="result/result.csv",
+            threads=threads,
+            display_process=True,
+        )
+
+    @staticmethod
+    def _generate_sol_wallets(count: int) -> None:
+        choice = ask(SOL_WALLETS_SUBMENU)
+        if choice in (None, BACK):
+            return
+        if choice == "generate":
+            from modules.sol.sol_wallet_generator import sol_generate_wallets
+
+            sol_generate_wallets(count)
+            MenuHandlers._report_generated(count, "Solana-кошельков")
+        elif choice == "nice_generate":
+            from modules.sol.sol_nice_address import sol_generate_nice_wallets
+
+            sol_generate_nice_wallets(count)
+            MenuHandlers._report_generated(count, "красивых Solana-кошельков")
+
+    @staticmethod
+    def _report_generated(count: int, what: str) -> None:
+        ui.print_lines(ui.panel("Готово", [
+            f"Сгенерировано {count} {what}.",
+            "Результат: result/result.csv",
+        ], color=ui.theme.FG_OK))
+        ui.pause()
+
+    @staticmethod
+    def _handle_convert_tool() -> None:
+        while True:
+            action = ask(CONVERT_TOOL_SUBMENU)
+            if action in (None, BACK):
+                return
+            if action == "eth_mnemonic_to_privkey":
+                from modules.eth.eth_mnemonic_to_privkey import process_mnemonics
+
                 process_mnemonics()
-            case 'eth_privkey_to_wallet':
+            elif action == "eth_privkey_to_wallet":
+                from modules.eth.eth_private_key_to_wallet_address import (
+                    process_private_keys,
+                )
+
                 process_private_keys()
-            case 'sol_mnemonic_to_privkey':
+            elif action == "sol_mnemonic_to_privkey":
+                from modules.sol.sol_mnemonic_to_privkey import sol_process_mnemonics
+
                 sol_process_mnemonics()
-    
+            ui.pause()
+
     @staticmethod
-    def _handle_discord_check():
-        """Обработчик проверки Discord"""
-        os_choice = show_menu(
-            "Выберите способ проверки возраста аккаунта Discord:",
-            build_submenu_choices(DISCORD_OS_SUBMENU)
-        )
-        
-        if os_choice in ['windows', 'macos', 'linux']:
-            check_discord_accounts(os_choice)
+    def _handle_discord_check() -> None:
+        os_choice = ask(DISCORD_OS_SUBMENU)
+        if os_choice in (None, BACK):
+            return
+        from modules.discord.discord_age import check_discord_accounts
+
+        check_discord_accounts(os_choice)
+        ui.pause()
 
 
 # =============================================================================
 # ГЛАВНОЕ МЕНЮ
 # =============================================================================
 
-def main_menu():
-    """Главное меню приложения"""
-    try:
-        print_welcome_message()
-        
-        while True:
-            # Строим меню из конфигурации
-            menu_items = get_enabled_main_menu_items()
-            choices = build_choices(menu_items)
-            
-            action = show_menu(
-                MAIN_MENU_CONFIG['title'],
-                choices,
-                qmark=MAIN_MENU_CONFIG['qmark'],
-                pointer=MAIN_MENU_CONFIG['pointer']
-            )
-            
-            # Обработка действий
-            match action:
-                case 'check_balances':
-                    MenuHandlers.handle_check_balances()
-                case 'transactions':
-                    MenuHandlers.handle_transactions()
-                case 'twitter':
-                    MenuHandlers.handle_twitter()
-                case 'projects_menu':
-                    MenuHandlers.handle_projects()
-                case 'CEX_menu':
-                    MenuHandlers.handle_cex()
-                case 'miscellaneous':
-                    MenuHandlers.handle_tools()
-                case 'backup_menu':
-                    backup_menu()
-                case 'info':
-                    info()
-                case 'faucets':
-                    show_wip_message("Функционал Faucets")
-                case 'exit':
-                    show_exit_animation()
-                    break
-                case None:
-                    # Пользователь нажал Ctrl+C
-                    break
-    
-    except KeyboardInterrupt:
-        print(Fore.YELLOW + "\n\nПрервано пользователем.")
-    except Exception as e:
-        print(Fore.RED + f"Error: {e}")
+_ROUTES = {
+    "check_balances": MenuHandlers.handle_check_balances,
+    "transactions": MenuHandlers.handle_transactions,
+    "twitter": MenuHandlers.handle_twitter,
+    "projects_menu": MenuHandlers.handle_projects,
+    "CEX_menu": MenuHandlers.handle_cex,
+    "miscellaneous": MenuHandlers.handle_tools,
+}
+
+
+def main_menu() -> None:
+    while True:
+        action = ui.show_items(
+            MAIN_MENU_CONFIG["title"], get_enabled_main_menu_items(),
+        )
+
+        if action in (None, "exit"):
+            banner.print_farewell()
+            return
+
+        handler = _ROUTES.get(action)
+        if handler is not None:
+            handler()
+        elif action == "backup_menu":
+            from modules.backup import backup_menu
+
+            backup_menu()
+        elif action == "info":
+            from modules.info import info
+
+            info()
+        elif action == "faucets":
+            not_ready("Faucets")
 
 
 # =============================================================================
-# ТОЧКА ВХОДА
+# ЗАПУСК
 # =============================================================================
 
-# Проверка и создание файлов при импорте
-check_and_create_files()
-
-if __name__ == "__main__":
-    # Web-dashboard: preflight → autostart в фоне. Если каких-то библиотек
-    # не хватает — модуль сам напечатает инструкцию и не упадёт.
+def _start_web_dashboard() -> str | None:
+    """Поднимает веб-панель в фоне. Возвращает URL или ``None``."""
     try:
-        import web as _web
-        _web.startup()
-    except Exception as _web_err:
-        print(Fore.YELLOW + f"⚠️  Web dashboard не запустился: {_web_err}" + Style.RESET_ALL)
+        import web
+
+        if not web.startup():
+            return None
+        from config.modules.cfg_web import WEB_HOST, WEB_PORT
+
+        host = "127.0.0.1" if WEB_HOST in ("0.0.0.0", "::", "") else WEB_HOST
+        return f"http://{host}:{WEB_PORT}/"
+    except Exception as exc:
+        print(f"{ui.theme.FG_WARN}Веб-панель не запустилась: {exc}{ui.theme.RESET}")
+        return None
+
+
+def main() -> int:
+    from modules.bootstrap import prepare_workspace
+
+    prepare_workspace()
+
+    web_url = _start_web_dashboard()
+
+    from modules.GitHub.check_version import check_version
 
     check_version("ETHmachine")
-    create_backup()
-    
-    # Сбрасываем цвета после бэкапа
-    print(Style.RESET_ALL, end='')
-    
-    print(Fore.CYAN + "\n🔍 Проверка конфигурации..." + Style.RESET_ALL)
-    if not validate_configuration():
-        print(Fore.RED + "\n❌ Обнаружены проблемы в конфигурации!" + Style.RESET_ALL)
-        print(Fore.YELLOW + "Исправьте ошибки и перезапустите скрипт." + Style.RESET_ALL)
-        input("\nНажмите Enter для выхода...")
-        exit(1)
 
-    # Выбор файла данных (если несколько — интерактивный выбор)
+    from modules.backup import create_backup, list_backups
+    from modules.backup.backup_manager import BackupManager
+    from config.modules.cfg_backup import DISPLAY_LIST_BACKUPS
+
+    create_backup()
+
+    from modules.config_validator import validate_configuration
+
+    print(f"\n{ui.theme.FG_ACCENT}Проверка конфигурации...{ui.theme.RESET}")
+    if not validate_configuration():
+        print(ui.panel("В конфигурации есть ошибки", [
+            "Исправьте пункты выше и запустите программу заново.",
+        ], color=ui.theme.FG_ERR))
+        input("\nEnter — выход...")
+        return 1
+
+    from modules.data_manager import get_selected_data_file, select_data_file
+
     select_data_file()
-    
-    # Запускаем live мониторинг если включен
+
     backup_manager = None
     try:
-        from config.modules.cfg_backup import SFTP_LIVE_SYNC_ENABLE, SFTP_SERVER_INTO_BACKUP_ENABLE
-        
+        from config.modules.cfg_backup import (
+            SFTP_LIVE_SYNC_ENABLE, SFTP_SERVER_INTO_BACKUP_ENABLE,
+        )
+
         if SFTP_SERVER_INTO_BACKUP_ENABLE and SFTP_LIVE_SYNC_ENABLE:
             backup_manager = BackupManager()
             backup_manager.start_live_monitoring()
-    except Exception as e:
-        print(Fore.YELLOW + f"⚠️  Не удалось запустить live мониторинг: {e}")
-    
+    except Exception as exc:
+        print(f"{ui.theme.FG_WARN}Live-синхронизация не запустилась: "
+              f"{exc}{ui.theme.RESET}")
+
     if DISPLAY_LIST_BACKUPS:
         list_backups()
-    
+
+    banner.print_welcome(data_profile=get_selected_data_file(), web_url=web_url)
+
     try:
         main_menu()
+    except KeyboardInterrupt:
+        print(f"\n{ui.theme.FG_WARN}Прервано пользователем.{ui.theme.RESET}")
     finally:
-        # Останавливаем мониторинг при выходе
-        if backup_manager:
+        if backup_manager is not None:
             backup_manager.stop_live_monitoring()
-            print(Fore.YELLOW + "\n🔄 Live синхронизация остановлена")
+            print(f"{ui.theme.FG_MUTED}Live-синхронизация остановлена.{ui.theme.RESET}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

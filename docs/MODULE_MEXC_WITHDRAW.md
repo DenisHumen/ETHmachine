@@ -1,103 +1,81 @@
-# MEXC Withdraw Module
+# Вывод средств с MEXC
 
-## Описание
-Модуль для автоматического вывода криптовалют с биржи MEXC.com через API.
+`modules/cex/mexc/mexc_withdraw.py` — массовый вывод одного токена с MEXC
+на список адресов из `data/data.csv`.
 
-## Особенности
-- ✅ Многопоточность с настраиваемым количеством потоков
-- ✅ Задержки между запуском потоков
-- ✅ Поддержка прокси
-- ✅ Автоматический выбор доступных сетей для вывода
-- ✅ Проверка поступления средств на кошельки
-- ✅ Сохранение прогресса в базе данных SQLite
-- ✅ Детальное логирование
-- ✅ Красивые прогресс-бары
-- ✅ Возможность продолжить работу после сбоя
+**Меню:** `CEX → MEXC → Вывод средств`
+**Точка входа:** `mexc_withdraw()`
 
-## Требования для использования
+Устройство общее с остальными выводами
+([OKX](MODULE_OKX_WITHDRAW.md), [Binance](MODULE_BINANCE_WITHDRAW.md),
+[Bitget](MODULE_BITGET_WITHDRAW.md)); ниже — специфика MEXC.
 
-### 1. API ключи MEXC
-Необходимо создать API ключ на MEXC с правами на вывод средств:
-1. Перейдите на https://www.mexc.com/user/openapi
-2. Создайте новый API ключ
-3. Включите право "Withdraw" (Вывод средств)
-4. Добавьте API ключи в файл `config/cex_settings.py`:
+---
 
-```python
-# https://mexcdevelop.github.io/apidocs/spot_v3_en/
-mexc_api_key = "ваш_api_ключ"
-mexc_api_secret = "ваш_секретный_ключ"
-```
+## Что нужно заполнить
 
-### 2. Файлы с данными
-- `data/walletss.txt` - список адресов кошельков для вывода (по одному на строку)
-- `data/proxy.csv` - список прокси в формате `login:password@ip:port` (опционально)
+| Что | Где |
+|---|---|
+| `api_key`, `api_secret` | `config/cex_settings.py`, список `MEXC_ACCOUNTS` |
+| Адреса-получатели | колонка `wallet_address` в `data/data.csv` |
+| Правила суммы | `config/modules/cfg_cex.py` |
 
-### 3. Конфигурация
-В файлах `config/modules/` настройте:
-- `NUM_THREADS` (general_config.py) - количество потоков (рекомендуется 3-5)
-- `SLEEP_BETWEEN_ACTIONS` (general_config.py) - задержка между запуском потоков в секундах
-- `TYPE_WITHDRAW` (cfg_cex.py) - тип вывода (0 - в нативном токене, 1 - в USDT эквиваленте)
-- `VALUES_TO_WITHDRAW` (cfg_cex.py) - диапазон сумм для вывода
-- `WAIT_FOR_BALANCE` (cfg_cex.py) - ждать ли поступления средств на кошельки
+Passphrase у MEXC нет. Аутентификация: заголовок `X-MEXC-APIKEY` плюс
+подпись HMAC-SHA256 от query-строки. Метка времени берётся не с локальной
+машины, а с `/api/v3/time` — так подпись не отваливается из-за
+разъехавшихся часов.
 
-## Использование
+---
 
-### Через главное меню
-1. Запустите `python main.py`
-2. Выберите "🏦 CEX"
-3. Выберите "💲 MEXC"
-4. Выберите "💲 Withdraw from MEXC"
+## Прокси
 
-### Прямой вызов
-```python
-from modules.cex.mexc.mexc_withdraw import mexc_withdraw
-mexc_withdraw()
-```
+Запросы к API идут через случайный прокси из `data/data.csv`
+(`modules.proxy_manager.get_random_proxy_dict()`).
 
-## Поддерживаемые сети
-Модуль автоматически определяет доступные сети для каждого токена через API MEXC:
-- Ethereum (ERC20)
-- Binance Smart Chain (BEP20)
-- Polygon
-- Arbitrum
-- Optimism
-- Base
-- Avalanche
-- TRON (TRC20)
-- Solana
-- И другие, поддерживаемые MEXC
+---
 
-## Файлы логов и результатов
-- `log/mexc_withdraw_errors.log` - лог ошибок
-- `log/mexc_withdraw_full.log` - полный лог всех операций
-- `result/mexc_withdraw_results_YYYYMMDD.csv` - результаты выводов
-- `db/mexc_withdraw_progress.db` - база данных прогресса
+## Настройки
 
-## Безопасность
-- ✅ Используется HMAC SHA256 подпись согласно документации MEXC API
-- ✅ API ключи никуда не передаются кроме официального API MEXC
-- ✅ Поддержка прокси для дополнительной анонимности
-- ✅ Валидация всех параметров перед отправкой запросов
+`config/modules/cfg_cex.py`:
 
-## Возможные ошибки и решения
+| Параметр | Значение по умолчанию | Что делает |
+|---|---|---|
+| `TYPE_WITHDRAW` | `0` | `0` — сумма в токене, `1` — в USDT по курсу |
+| `VALUES_TO_WITHDRAW` | `[0.00496102, 0.005]` | диапазон `[min, max]` на кошелёк |
+| `WAIT_FOR_BALANCE` | `True` | ждать поступления, таймаут 1 час |
 
-### "No balance found"
-- Убедитесь, что на аккаунте MEXC есть средства
-- Проверьте правильность API ключей
+Потоки и паузы — `NUM_THREADS`, `SLEEP_BETWEEN_ACTIONS` из
+`config/modules/general_config.py`.
 
-### "No withdrawal chains available"
-- Токен может не поддерживать вывод
-- Проверьте, не заблокирован ли вывод на MEXC
+---
 
-### "Withdrawal failed"
-- Проверьте лимиты на вывод в настройках MEXC
-- Убедитесь, что API ключ имеет права на вывод
-- Проверьте минимальные суммы для вывода
+## Ход работы
 
-### "Cannot connect to RPC"
-- Проблемы с подключением к блокчейн сетям
-- Проверьте интернет соединение или используйте прокси
+1. Выбор аккаунта (`select_mexc_account()`).
+2. Проверка незавершённого прогресса в `db/mexc_withdraw_progress.db`.
+3. Запрос балансов (`/api/v3/account`), выбор токена.
+4. Запрос сетей токена, выбор сети, получение комиссии.
+5. Подтверждение и запуск пула потоков.
+6. При `WAIT_FOR_BALANCE = True` — ожидание поступления на адрес.
 
-## API Documentation
-Официальная документация MEXC API: https://mexcdevelop.github.io/apidocs/spot_v3_en/
+---
+
+## Результаты
+
+| Путь | Что внутри |
+|---|---|
+| `db/mexc_withdraw_progress.db` | таблица `withdraw_progress` |
+| `result/mexc_withdraw_results_<ГГГГММДД>.csv` | лог выводов за день |
+
+Колонки CSV: `timestamp, wallet_address, token, chain, amount, status,
+error_message`.
+
+Статусы: `pending`, `processing`, `success`, `failed`,
+`balance_timeout`, `error`.
+
+---
+
+## Ограничение
+
+У MEXC в проекте есть только вывод. Балансов и сбора с субаккаунтов нет —
+в подменю `CEX → MEXC` один пункт.

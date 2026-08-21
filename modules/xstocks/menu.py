@@ -1,57 +1,29 @@
-"""xStocks DeFi Points — меню интеграции с ETHmachine."""
-import asyncio
+"""Меню modules.xstocks — xStocks DeFi Points."""
+from __future__ import annotations
 
-from colorama import Fore, Style
-from questionary import select
+import asyncio
+from pathlib import Path
+
 from eth_account import Account
 
 from config.modules.cfg_xstocks import GM_COOLDOWN_HOURS
-from config.modules.general_config import NUM_THREADS, DELAY_BETWEEN_ACCOUNTS
-from config.menu_config import SubMenu, MenuItem, build_submenu_choices
+from config.modules.general_config import DELAY_BETWEEN_ACCOUNTS, NUM_THREADS
+from modules.data_manager import load_data
+from modules.ui import theme, ui
+from modules.ui.module_menu import MenuAction, ModuleMenu
 from modules.xstocks import database as db
 from modules.xstocks import xstocks_logger as logger
-from modules.xstocks.worker import (
-    run_registration, run_connect_sol, run_gm_once,
-    run_gm_loop, run_stats, run_full_auto,
-)
 from modules.xstocks.excel_export import export_results
-
-from modules.data_manager import load_data
-
-
-# ---------------------------------------------------------------
-# Подменю xStocks
-# ---------------------------------------------------------------
-
-XSTOCKS_MENU = SubMenu(
-    key='xstocks',
-    label='xStocks DeFi Points',
-    description='Register, GM, Referrals, Stats',
-    icon='📈',
-    qmark='📈',
-    pointer='👉',
-    items=[
-        # Основные действия
-        MenuItem(key='full_auto', label='Full Auto', description='Регистрация + Solana + бесконечный GM', icon='♾️'),
-        MenuItem(key='register', label='Register', description='Регистрация EVM кошельков', icon='✅'),
-        MenuItem(key='connect_sol', label='Connect Solana', description='Подключить Solana кошельки', icon='☀️'),
-        MenuItem(key='gm_once', label='Say GM (однократно)', description='Say GM для всех готовых', icon='🌅'),
-        MenuItem(key='gm_loop', label='Say GM (бесконечный цикл)', description='Автоматический GM каждые 14ч', icon='🔄'),
-        # Данные
-        MenuItem(key='stats', label='Статистика', description='Сбор и вывод статистики', icon='📊'),
-        MenuItem(key='export', label='Экспорт в XLSX', description='Экспорт всех данных в Excel', icon='📄'),
-        MenuItem(key='db_info', label='Информация о БД', description='Показать состояние базы данных', icon='🗄️'),
-        MenuItem(key='back', label='Назад', description='', icon='🔙'),
-    ]
+from modules.xstocks.worker import (
+    run_connect_sol, run_full_auto, run_gm_loop, run_gm_once, run_registration,
+    run_stats,
 )
 
 
-# ---------------------------------------------------------------
-# Загрузка кошельков
-# ---------------------------------------------------------------
+# ── Подготовка данных ────────────────────────────────────────────────────
 
 def load_wallets() -> list[dict]:
-    """Загрузить кошельки из data.csv."""
+    """Кошельки из data.csv: приватный ключ, прокси, Solana, реф-код."""
     rows = load_data()
     if not rows:
         return []
@@ -80,162 +52,209 @@ def load_wallets() -> list[dict]:
     return wallets
 
 
-# ---------------------------------------------------------------
-# Инициализация БД
-# ---------------------------------------------------------------
-
 def _ensure_db() -> bool:
-    """Инициализация/синхронизация БД из data.csv."""
+    """Синхронизирует базу с data.csv. False — работать не с чем."""
     wallets = load_wallets()
     if not wallets:
         logger.log("Нет данных в data.csv! Добавьте приватные ключи", "error")
         return False
 
     total = db.ensure_wallets(wallets)
-    logger.log(f"БД синхронизирована: {total} кошельков", "info")
+    logger.log(f"База синхронизирована: {total} кошельков", "info")
     return True
 
 
-# ---------------------------------------------------------------
-# Вспомогательные
-# ---------------------------------------------------------------
+def _ask_workers() -> int | None:
+    """Сколько кошельков обрабатывать одновременно. None — отказ."""
+    return ui.ask_int("Параллельных кошельков", minimum=1, default=NUM_THREADS)
 
-def _ask_workers() -> int:
-    """Запросить кол-во потоков."""
+
+# ── Действия ─────────────────────────────────────────────────────────────
+
+def _handle_full_auto() -> None:
+    if not _ensure_db():
+        return
+    ui.print_lines(ui.panel("Авто-режим", [
+        "Порядок работы: регистрация → подключение Solana → GM по кругу.",
+        f"Кулдаун GM: {GM_COOLDOWN_HOURS} ч.",
+        f"Задержка между аккаунтами: "
+        f"{DELAY_BETWEEN_ACCOUNTS[0]}–{DELAY_BETWEEN_ACCOUNTS[1]} с.",
+        "Остановка — Ctrl+C, прогресс останется в базе.",
+    ]))
+    workers = _ask_workers()
+    if workers is None:
+        return
     try:
-        raw = input(
-            f"  {Fore.WHITE}Макс. параллельных кошельков [{NUM_THREADS}]: {Style.RESET_ALL}"
-        ).strip()
-        return int(raw) if raw else NUM_THREADS
-    except ValueError:
-        return NUM_THREADS
+        asyncio.run(run_full_auto(workers))
+    except KeyboardInterrupt:
+        logger.log("Авто-режим остановлен (Ctrl+C). Прогресс сохранён в базе.",
+                   "warning")
 
 
-def _show_menu(title: str, choices: list, qmark: str = '📈', pointer: str = '👉'):
-    """Показать меню."""
-    return select(title, choices=choices, qmark=qmark, pointer=pointer).ask()
+def _handle_register() -> None:
+    if not _ensure_db():
+        return
+    workers = _ask_workers()
+    if workers is None:
+        return
+    try:
+        results = asyncio.run(run_registration(workers))
+    except Exception as exc:
+        logger.log(f"Регистрация прервана ошибкой: {exc}", "error")
+        return
+    if results:
+        export_results()
 
 
-def _show_db_info():
-    """Показать информацию о БД."""
-    stats = db.get_db_stats()
-    print(f"\n{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}xStocks Database Info{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}{'─' * 50}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Всего кошельков:      {Fore.GREEN}{stats['total_wallets']}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}EVM зарегистрировано: {Fore.GREEN}{stats['evm_registered']}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}SOL подключено:       {Fore.GREEN}{stats['sol_connected']}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Всего GM:             {Fore.GREEN}{stats['total_gm']}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Реферальных кодов:    {Fore.GREEN}{stats['referral_codes']}{Style.RESET_ALL}")
-
-    next_gm = db.get_next_gm_time()
-    if next_gm:
-        print(f"  {Fore.WHITE}Ближайший GM:         {Fore.YELLOW}{next_gm[:16]}{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}{'=' * 50}{Style.RESET_ALL}\n")
-    input(f"  {Fore.WHITE}Нажмите Enter...{Style.RESET_ALL}")
+def _handle_connect_sol() -> None:
+    if not _ensure_db():
+        return
+    workers = _ask_workers()
+    if workers is None:
+        return
+    asyncio.run(run_connect_sol(workers))
 
 
-# ---------------------------------------------------------------
-# Главное меню xStocks
-# ---------------------------------------------------------------
+def _handle_gm_once() -> None:
+    if not _ensure_db():
+        return
+    workers = _ask_workers()
+    if workers is None:
+        return
+    asyncio.run(run_gm_once(workers))
 
-def xstocks_menu():
-    """Главное меню xStocks — вызывается из projects_menu ETHmachine."""
-    logger.banner()
 
-    while True:
-        action = _show_menu(
-            "xStocks DeFi Points — выберите действие:",
-            build_submenu_choices(XSTOCKS_MENU),
-            qmark=XSTOCKS_MENU.qmark,
-            pointer=XSTOCKS_MENU.pointer,
+def _handle_gm_loop() -> None:
+    if not _ensure_db():
+        return
+    ui.print_lines(ui.panel("GM по кругу", [
+        f"Отметка повторяется примерно раз в {GM_COOLDOWN_HOURS} ч "
+        f"для каждого кошелька.",
+        "Точное время следующей отметки берётся из ответа сайта.",
+        "Остановка — Ctrl+C, прогресс останется в базе.",
+    ]))
+    workers = _ask_workers()
+    if workers is None:
+        return
+    try:
+        asyncio.run(run_gm_loop(workers))
+    except KeyboardInterrupt:
+        logger.log("GM-цикл остановлен (Ctrl+C). Прогресс сохранён в базе.",
+                   "warning")
+
+
+def _handle_collect_stats() -> None:
+    if not _ensure_db():
+        return
+    workers = _ask_workers()
+    if workers is None:
+        return
+    results = asyncio.run(run_stats(workers))
+    if results:
+        ui.print_lines(_accounts_panel(results))
+
+
+def _handle_export() -> None:
+    export_results()
+
+
+# ── Панели ───────────────────────────────────────────────────────────────
+
+# Колонки таблицы аккаунтов: адрес, множитель, рефералы, очки.
+_COLUMNS = ((12, "адрес"), (8, "xBoost"), (11, "рефералов"), (8, "очков"))
+
+
+def _accounts_panel(results: list[dict]) -> str:
+    """Собранная с сайта статистика по каждому аккаунту."""
+    widths = [width for width, _ in _COLUMNS]
+    head = "  ".join(
+        ui.fit(title, width, "left" if i == 0 else "right")
+        for i, (width, title) in enumerate(_COLUMNS)
+    )
+    lines = [f"{theme.FG_MUTED}{head}{theme.RESET}"]
+
+    for row in results:
+        stats = row.get("stats") or {}
+        xboost = stats.get("xboost_multiplier") or stats.get("xboost") or "?"
+        points = stats.get("total_points") or stats.get("today_points", 0)
+        lines.append(
+            f"{ui.fit(ui.shorten_address(row.get('address', '?')), widths[0])}  "
+            f"{theme.FG_OK}{ui.fit(f'x{xboost}', widths[1], 'right')}"
+            f"{theme.RESET}  "
+            f"{theme.FG_WARN}"
+            f"{ui.fit(str(stats.get('referrals_count', 0)), widths[2], 'right')}"
+            f"{theme.RESET}  "
+            f"{theme.FG_INFO}{ui.fit(str(points), widths[3], 'right')}"
+            f"{theme.RESET}"
         )
+    return ui.panel("Статистика аккаунтов", lines)
 
-        if action is None or action == 'back':
-            return
 
-        # Инициализация БД перед действиями
-        if action not in ('export', 'db_info'):
-            if not _ensure_db():
-                continue
+def _stats() -> dict:
+    """Состояние базы в порядке жизненного цикла кошелька."""
+    raw = db.get_db_stats()
+    next_gm = db.get_next_gm_time()
+    return {
+        "зарегистрировано": raw.get("evm_registered", 0),
+        "подключено Solana": raw.get("sol_connected", 0),
+        "отметок GM": raw.get("total_gm", 0),
+        "реферальных кодов": raw.get("referral_codes", 0),
+        "ближайший GM": next_gm[:16] if next_gm else "—",
+        "total": raw.get("total_wallets", 0),
+    }
 
-        match action:
-            case 'full_auto':
-                print(f"\n{Fore.CYAN}╔══════════════════════════════════════════════════╗")
-                print(f"║{Fore.WHITE}       xStocks FULL AUTO MODE                     {Fore.CYAN}║")
-                print(f"╚══════════════════════════════════════════════════╝{Style.RESET_ALL}")
-                print(f"  {Fore.WHITE}Режим: Регистрация -> Solana -> GM бесконечный цикл")
-                print(f"  GM кулдаун: {GM_COOLDOWN_HOURS}ч")
-                print(f"  Потоки: {NUM_THREADS} | Задержка: {DELAY_BETWEEN_ACCOUNTS}с")
-                print(f"  Для остановки нажмите Ctrl+C{Style.RESET_ALL}\n")
 
-                workers = _ask_workers()
-                try:
-                    asyncio.run(run_full_auto(workers))
-                except KeyboardInterrupt:
-                    logger.log("Авто-режим остановлен (Ctrl+C). Прогресс сохранён в БД.", "warning")
+def _info() -> dict:
+    return {
+        "Как это работает": [
+            "Кошельки берутся из data/data.csv по полю private_key и перед "
+            "каждым запуском синхронизируются с базой.",
+            "Регистрация подписывает сообщение EVM-ключом и привязывает "
+            "реферальный код: сначала из data.csv, иначе случайный из уже "
+            "собранных — с балансировкой по числу использований.",
+            "Solana подключается отдельным шагом и только тем кошелькам, у "
+            "которых заполнен sol_private_key.",
+            f"Say GM повторяется по кулдауну сайта, примерно раз в "
+            f"{GM_COOLDOWN_HOURS} ч; точное время следующей отметки приходит "
+            f"в ответе и хранится в базе.",
+            "Авто-режим ведёт цикл сам: регистрирует новых, подключает Solana "
+            "и отмечается, пока его не прервут Ctrl+C.",
+        ],
+        "Где что лежит": [
+            f"База: db/{Path(db.DB_FILE).name}",
+            "Кошельки и статусы: таблица wallets",
+            "Реферальные коды: таблица referral_codes",
+            "История отметок: таблица gm_history",
+            "Отчёт: result/xstocks/xstocks_<время>.xlsx",
+        ],
+    }
 
-            case 'register':
-                workers = _ask_workers()
-                print(f"  [DIAG] asyncio.run(run_registration({workers})) — СТАРТ", flush=True)
-                try:
-                    results = asyncio.run(run_registration(workers))
-                except BaseException as e:
-                    print(f"  [DIAG] asyncio.run() вызвал {type(e).__name__}: {e}", flush=True)
-                    results = []
-                print(f"  [DIAG] asyncio.run() — ФИНИШ, результатов: {len(results)}", flush=True)
-                if results:
-                    filepath = export_results()
-                    if filepath:
-                        print(f"\n  {Fore.GREEN}Результаты: {filepath}{Style.RESET_ALL}")
 
-            case 'connect_sol':
-                workers = _ask_workers()
-                asyncio.run(run_connect_sol(workers))
+def xstocks_menu() -> None:
+    ModuleMenu(
+        title="xStocks DeFi Points",
+        subtitle="регистрация, Solana и ежедневный GM",
+        icon="📈",
+        actions=[
+            MenuAction("full_auto", "Авто-режим", _handle_full_auto,
+                       "регистрация, Solana и GM по кругу", icon="🤖"),
+            MenuAction("register", "Регистрация", _handle_register,
+                       "завести EVM-кошельки на сайте", icon="✅"),
+            MenuAction("connect_sol", "Подключение Solana", _handle_connect_sol,
+                       "привязать Solana-кошельки к аккаунтам", icon="☀️"),
+            MenuAction("gm_once", "Отметка GM", _handle_gm_once,
+                       "отметить всех, у кого прошёл кулдаун", icon="🌅"),
+            MenuAction("gm_loop", "Отметка GM по кругу", _handle_gm_loop,
+                       "повторять отметку по кулдауну сайта", icon="🔄"),
+            MenuAction("collect", "Сбор статистики", _handle_collect_stats,
+                       "обновить xBoost, рефералов и очки с сайта", icon="🔎"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по данным из базы", icon="📑"),
+        ],
+        stats=_stats,
+        stats_title=f"Прогресс · {Path(db.DB_FILE).name}",
+        info=_info,
+    ).run()
 
-            case 'gm_once':
-                workers = _ask_workers()
-                asyncio.run(run_gm_once(workers))
 
-            case 'gm_loop':
-                print(f"\n{Fore.CYAN}╔══════════════════════════════════════════════════╗")
-                print(f"║{Fore.WHITE}       xStocks GM LOOP (бесконечный)              {Fore.CYAN}║")
-                print(f"╚══════════════════════════════════════════════════╝{Style.RESET_ALL}")
-                print(f"  {Fore.WHITE}GM каждые ~{GM_COOLDOWN_HOURS}ч для каждого кошелька")
-                print(f"  Для остановки нажмите Ctrl+C{Style.RESET_ALL}\n")
-
-                workers = _ask_workers()
-                try:
-                    asyncio.run(run_gm_loop(workers))
-                except KeyboardInterrupt:
-                    logger.log("GM цикл остановлен (Ctrl+C). Прогресс сохранён в БД.", "warning")
-
-            case 'stats':
-                workers = _ask_workers()
-                results = asyncio.run(run_stats(workers))
-                if results:
-                    # Вывести таблицу
-                    print(f"\n{Fore.CYAN}{'=' * 70}{Style.RESET_ALL}")
-                    print(f"  {Fore.WHITE}{'Address':<44} {'xBoost':>7} {'Refs':>5} {'Points':>7}{Style.RESET_ALL}")
-                    print(f"  {Fore.CYAN}{'=' * 70}{Style.RESET_ALL}")
-                    for r in results:
-                        s = r.get("stats", {})
-                        xboost = s.get('xboost_multiplier') or s.get('xboost', '?')
-                        points = s.get('total_points') or s.get('today_points', 0)
-                        print(
-                            f"  {Fore.WHITE}{r['address']:<44} "
-                            f"{Fore.GREEN}{'x' + str(xboost):>7} "
-                            f"{Fore.YELLOW}{s.get('referrals_count', 0):>5} "
-                            f"{Fore.CYAN}{points:>7}{Style.RESET_ALL}"
-                        )
-                    print(f"  {Fore.CYAN}{'=' * 70}{Style.RESET_ALL}")
-
-            case 'export':
-                filepath = export_results()
-                if filepath:
-                    print(f"\n  {Fore.GREEN}Экспорт сохранён: {filepath}{Style.RESET_ALL}")
-                else:
-                    print(f"\n  {Fore.RED}Нет данных для экспорта{Style.RESET_ALL}")
-
-            case 'db_info':
-                _show_db_info()
+__all__ = ["xstocks_menu", "load_wallets"]

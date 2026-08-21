@@ -31,8 +31,10 @@ from config.modules.general_config import NUM_THREADS
 from config.networks import NETWORKS, get_network_display_name
 from modules.eth.database import (
     init_database, create_balance_tasks, get_pending_tasks,
-    update_task_status, reset_database_for_new_run
+    update_task_status, reset_database_for_new_run, get_all_results
 )
+from modules.proxy_manager import get_proxy_dict, mask_proxy, parse_proxy
+from modules.simple_logger import logger
 
 console = Console()
 
@@ -59,14 +61,13 @@ def load_proxies() -> list:
 
 
 def make_proxy_dict(proxy_str: str) -> dict:
-    if not proxy_str:
-        return None
-    try:
-        auth, addr = proxy_str.split('@')
-        proxy_url = f"http://{auth}@{addr}"
-        return {'http': proxy_url, 'https': proxy_url}
-    except:
-        return None
+    """Разбор прокси общим парсером из modules.proxy_manager.
+
+    Локальная копия умела только `user:pass@host:port`: на обычном `host:port`
+    распаковка падала в голый except и возвращала None — запрос молча уходил
+    напрямую с реального IP пользователя.
+    """
+    return get_proxy_dict(proxy_str)
 
 
 def get_balance_rpc(wallet: str, rpc_url: str, proxy_dict: dict = None) -> float:
@@ -183,8 +184,22 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
     
     proxies = load_proxies()
     max_workers = min(NUM_THREADS, total, 20)
-    
+
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков в {max_workers} потоках", "INFO"))
+
+    # Нераспознанный прокси = запрос с реального IP. Молчать об этом нельзя:
+    # пользователь узнает о проблеме только когда RPC его забанит.
+    bad_proxies = [p for p in dict.fromkeys(proxies) if p and parse_proxy(p) is None]
+    if bad_proxies:
+        logger.warning(
+            f"Не удалось разобрать {len(bad_proxies)} прокси "
+            f"({', '.join(mask_proxy(p) for p in bad_proxies[:3])}) — эти запросы пойдут напрямую"
+        )
+        logs.append((
+            time.strftime("%H:%M:%S"),
+            f"⚠️ Не разобрано прокси: {len(bad_proxies)} — часть запросов пойдёт напрямую",
+            "WARNING"
+        ))
     
     with Live(create_panel(network_name, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -223,6 +238,37 @@ def process_wallets(wallets: list, rpc_urls: list, network_name: str, symbol: st
                 live.update(create_panel(network_name, total, success, failed, logs))
     
     return results
+
+
+def merge_with_db_results(results: dict, task_type: str, network_name: str) -> dict:
+    """Дополняет результаты текущего прогона завершёнными задачами из БД.
+
+    При «Продолжить незавершённые задачи» обрабатываются только pending-кошельки,
+    поэтому без слияния отчёт объявлял все прошлые успехи «ERROR: Not processed»
+    с нулевым балансом, хотя реальные данные лежат в db/eth_balance_tasks.db.
+    """
+    merged = {}
+    try:
+        rows = get_all_results(task_type, network_name)
+    except Exception as e:
+        logger.warning(f"Не удалось прочитать прошлые результаты из БД: {e}")
+        rows = []
+
+    for row in rows:
+        if row.get('status') != 'completed':
+            continue
+        wallet = row.get('wallet_address')
+        if not wallet:
+            continue
+        try:
+            balance = float(row.get('balance') or 0)
+        except (TypeError, ValueError):
+            continue
+        merged[wallet] = {'wallet': wallet, 'balance': balance, 'success': True, 'error': None}
+
+    # Свежий результат всегда приоритетнее сохранённого
+    merged.update(results)
+    return merged
 
 
 def save_results(results: dict, wallets: list, network_name: str, symbol: str):
@@ -367,11 +413,14 @@ def check_wallet_balances_menu():
         
         # Обработка
         results = process_wallets(wallets_to_check, rpc_urls, network_name, symbol)
-        all_results.update(results)
-        
+
+        # Отчёт строим по БД + текущему прогону, иначе resume затрёт прошлые успехи
+        report = merge_with_db_results(results, 'native_balance', network_name)
+        all_results.update(report)
+
         # Сохранение в порядке wallets
-        save_results(results, wallets, network_name, symbol)
-        print_summary(results, symbol)
+        save_results(report, wallets, network_name, symbol)
+        print_summary(report, symbol)
     
     console.print("\n[bold green]✅ Проверка завершена![/bold green]\n")
     

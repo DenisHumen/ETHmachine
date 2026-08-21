@@ -1,12 +1,15 @@
-"""
-DeBank Balance Checker
-Проверка всех балансов токенов через DeBank (debank.com)
-Использует Playwright для обхода anti-bot защиты DeBank API
-Асинхронная обработка с прокси-ротацией и Rich UI
+"""DeBank Balance Checker — балансы всех токенов кошелька во всех сетях.
+
+Данные снимаются через браузер (Playwright): открывается профиль кошелька
+на debank.com и перехватывается ответ ``cache_balance_list`` — прямой вызов
+API упирается в anti-bot защиту.
+
+Здесь же живут общие для обоих DeBank-модулей части: загрузка кошельков и
+прокси, выбор источника кошельков, панель хода проверки и панель прогресса
+по задачам — ``debank_protocol_checker`` импортирует их отсюда.
 """
 
 import csv
-import sys
 import asyncio
 import time
 import random
@@ -19,10 +22,6 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.table import Table
 from rich.console import Group
-from questionary import Choice, select
-
-project_root = Path(__file__).parent.parent.parent
-sys.path.append(str(project_root))
 
 from config.modules.general_config import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
@@ -32,6 +31,11 @@ from modules.debank.database import (
     update_task_status, save_token_balances_batch, delete_wallet_balances,
     get_all_balances, reset_database, get_task_statistics
 )
+from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY, MenuItem, render_items
+
+project_root = Path(__file__).parent.parent.parent
 
 console = Console()
 
@@ -49,19 +53,23 @@ def load_wallets() -> list:
                 if line and line.startswith('0x'):
                     wallets.append(line)
     except Exception as e:
-        console.print(f"[red]Ошибка загрузки кошельков: {e}[/red]")
+        logger.error(f"Не удалось прочитать data/walletss.txt: {e}")
     return wallets
 
 
 def load_private_keys_as_wallets() -> list:
-    """Загрузить приватные ключи из data/private_keys.txt и конвертировать в адреса"""
+    """Адреса, выведенные из data/private_keys.txt.
+
+    Ключи используются локально и наружу не уходят — DeBank видит только
+    публичные адреса.
+    """
     from eth_account import Account
 
     pk_file = project_root / 'data' / 'private_keys.txt'
     wallets = []
     try:
         with open(pk_file, 'r', encoding='utf-8') as f:
-            for line in f:
+            for number, line in enumerate(f, 1):
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
@@ -71,11 +79,12 @@ def load_private_keys_as_wallets() -> list:
                     account = Account.from_key(line)
                     wallets.append(account.address)
                 except Exception:
-                    console.print(f"[yellow]⚠️ Невалидный ключ: {line[:8]}...{line[-4:]}[/yellow]")
+                    # Сам ключ в лог не пишем — это секрет.
+                    logger.warning(f"Строка {number}: не похоже на приватный ключ")
     except FileNotFoundError:
-        console.print("[red]❌ Файл data/private_keys.txt не найден[/red]")
+        logger.error("Файл data/private_keys.txt не найден")
     except Exception as e:
-        console.print(f"[red]Ошибка загрузки приватных ключей: {e}[/red]")
+        logger.error(f"Не удалось прочитать data/private_keys.txt: {e}")
     return wallets
 
 
@@ -222,8 +231,14 @@ async def check_wallet_playwright(wallet: str, proxy_config: dict, semaphore: as
     return {'wallet': wallet, 'tokens': [], 'success': False, 'error': 'Max retries exceeded'}
 
 
-def create_panel(total: int, success: int, failed: int, logs: list) -> Panel:
-    """Панель прогресса в стиле проекта"""
+def progress_panel(icon: str, title: str, accent: str, total: int,
+                   success: int, failed: int, logs: list) -> Panel:
+    """Панель хода проверки для Live-вывода.
+
+    Одна на оба DeBank-модуля: отличались только заголовок и цвет рамки.
+    Живой прогресс рисует rich, а не UI-набор проекта: набор отдаёт
+    статичные блоки, здесь же панель перерисовывается по ходу работы.
+    """
     processed = success + failed
     percent = (processed / total * 100) if total > 0 else 0
 
@@ -250,8 +265,8 @@ def create_panel(total: int, success: int, failed: int, logs: list) -> Panel:
     )
 
     header = Text()
-    header.append("\n🏦 ", style="bold")
-    header.append("DeBank Balance Checker\n", style="bold cyan")
+    header.append(f"\n{icon} ", style="bold")
+    header.append(f"{title}\n", style=f"bold {accent}")
 
     progress_bar = Text()
     progress_bar.append(bar_filled, style=f"bold {bar_style}")
@@ -275,11 +290,57 @@ def create_panel(total: int, success: int, failed: int, logs: list) -> Panel:
 
     return Panel(
         content,
-        title="[bold bright_blue]🏦 DEBANK BALANCE CHECKER[/bold bright_blue]",
+        title=f"[bold {accent}]{icon} {title}[/bold {accent}]",
         subtitle="[dim]ETHmachine[/dim]",
-        border_style="bright_blue",
+        border_style=accent,
         padding=(1, 2)
     )
+
+
+def balance_panel(total: int, success: int, failed: int, logs: list) -> Panel:
+    return progress_panel("🏦", "DeBank · балансы токенов", "bright_blue",
+                          total, success, failed, logs)
+
+
+def choose_wallet_source() -> list | None:
+    """Спрашивает, откуда брать кошельки, и возвращает список адресов.
+
+    ``None`` — пользователь вышел или подходящих кошельков не нашлось.
+    """
+    source = ui.menu("Откуда берём кошельки?", render_items([
+        MenuItem("wallets", "Адреса кошельков",
+                 "data/walletss.txt — только публичные адреса", icon="📋"),
+        MenuItem("private_keys", "Приватные ключи",
+                 "data/private_keys.txt — в файле лежат секреты", icon="🔑"),
+        MenuItem(BACK_KEY, "Назад", "", icon="←"),
+    ]))
+    if source in (None, BACK_KEY):
+        return None
+
+    if source == "private_keys":
+        wallets = load_private_keys_as_wallets()
+        if not wallets:
+            logger.error("В data/private_keys.txt нет валидных ключей")
+            return None
+        logger.info(f"🔑 Из ключей получено адресов: {len(wallets)}")
+        return wallets
+
+    wallets = load_wallets()
+    if not wallets:
+        logger.error("В data/walletss.txt нет адресов")
+        return None
+    logger.info(f"📋 Загружено кошельков: {len(wallets)}")
+    return wallets
+
+
+def task_stats_panel(title: str, stats: dict) -> str | None:
+    """Панель прогресса по задачам. ``None`` — в базе пока пусто."""
+    labels = {"completed": "готово", "pending": "в очереди", "failed": "с ошибкой"}
+    ordered = {label: stats.get(key, 0) for key, label in labels.items()}
+    if not any(ordered.values()):
+        return None
+    ordered["total"] = sum(stats.values())
+    return ui.stats_panel(title, ordered)
 
 
 async def process_wallets_async(wallets: list) -> dict:
@@ -296,14 +357,14 @@ async def process_wallets_async(wallets: list) -> dict:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     if not proxies:
-        console.print("[yellow]⚠️ Прокси не найдены, запросы пойдут напрямую[/yellow]")
+        logger.warning("Прокси не найдены — запросы пойдут напрямую")
 
     delay_min, delay_max = DELAY_BETWEEN_ACCOUNTS
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно, задержка {delay_min}-{delay_max}с)", "INFO"))
     if proxies:
         logs.append((time.strftime("%H:%M:%S"), f"Загружено {len(proxies)} прокси (round-robin)", "INFO"))
 
-    live = Live(create_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
+    live = Live(balance_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
     live.start()
 
     try:
@@ -354,7 +415,7 @@ async def process_wallets_async(wallets: list) -> dict:
                     update_task_status(wallet, 'failed', str(e)[:100])
                     logs.append((time.strftime("%H:%M:%S"), f"[{short}] ❌ {str(e)[:30]}", "ERROR"))
 
-                live.update(create_panel(total, success, failed, logs))
+                live.update(balance_panel(total, success, failed, logs))
 
             # Запуск задач с задержкой DELAY_BETWEEN_ACCOUNTS между стартами
             tasks = []
@@ -388,7 +449,7 @@ def save_results_csv(wallets: list):
 
     all_balances = get_all_balances()
     if not all_balances:
-        console.print("[yellow]⚠️ Нет данных для экспорта[/yellow]")
+        logger.warning("В базе нет балансов — экспортировать нечего")
         return None
 
     # Собрать все уникальные токены (chain:symbol) в порядке появления
@@ -440,140 +501,120 @@ def save_results_csv(wallets: list):
                     row.append(wallet_data[wallet].get(tk, 0))
                 writer.writerow(row)
 
-    console.print(f"[green]💾 Результаты сохранены: {filepath}[/green]")
+    logger.success(f"Результаты сохранены: {filepath}")
     return filepath
 
 
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Русское склонение: 1 токен, 2 токена, 5 токенов."""
+    tail = abs(count) % 100
+    if 11 <= tail <= 14:
+        return many
+    tail %= 10
+    if tail == 1:
+        return one
+    if 2 <= tail <= 4:
+        return few
+    return many
+
+
+def top_wallets_panel(title: str, results: dict, count_key: str,
+                      forms: tuple) -> str | None:
+    """Топ-10 кошельков по стоимости. ``None`` — ни на одном ничего нет."""
+    top = sorted(
+        (r for r in results.values()
+         if r['success'] and r.get('total_usd', 0) > 0),
+        key=lambda r: r['total_usd'], reverse=True,
+    )[:10]
+    if not top:
+        return None
+
+    amounts = [f"${r['total_usd']:,.2f}" for r in top]
+    width = max(len(amount) for amount in amounts)
+    lines = []
+    for index, (row, amount) in enumerate(zip(top, amounts), 1):
+        count = len(row[count_key])
+        lines.append(
+            f"{index:>2}. {ui.pad(ui.shorten_address(row['wallet'], 10, 6), 18)}"
+            f"{ui.theme.FG_OK}{ui.pad(amount, width, 'right')}{ui.theme.RESET}  "
+            f"{ui.theme.FG_MUTED}{count} {plural(count, *forms)}{ui.theme.RESET}"
+        )
+    return ui.panel(title, lines)
+
+
 def print_summary(results: dict):
-    """Вывод итогов проверки"""
-    success_list = [r for r in results.values() if r['success']]
-    failed_list = [r for r in results.values() if not r['success']]
+    """Итоги проверки балансов."""
+    succeeded = [r for r in results.values() if r['success']]
+    failed = [r for r in results.values() if not r['success']]
+    total_usd = sum(r.get('total_usd', 0) for r in succeeded)
 
-    total_tokens = sum(len(r['tokens']) for r in success_list)
-    total_usd = sum(r.get('total_usd', 0) for r in success_list)
+    ui.print_lines(ui.stats_panel("Итоги проверки балансов", {
+        "успешно": len(succeeded),
+        "с ошибкой": len(failed),
+        "токенов найдено": sum(len(r['tokens']) for r in succeeded),
+        "стоимость": f"${total_usd:,.2f}",
+        "total": len(results),
+    }))
 
-    console.print("\n" + "=" * 60)
-    console.print("[bold cyan]📊 ИТОГИ ПРОВЕРКИ DEBANK[/bold cyan]")
-    console.print("=" * 60)
-    console.print(f"[green]✅ Успешно: {len(success_list)}[/green]")
-    console.print(f"[red]❌ Ошибки: {len(failed_list)}[/red]")
-    console.print(f"[yellow]💰 Общая стоимость: ${total_usd:,.2f}[/yellow]")
-    console.print("=" * 60)
-
-    wallets_with_value = sorted(
-        [r for r in success_list if r.get('total_usd', 0) > 0],
-        key=lambda x: x.get('total_usd', 0),
-        reverse=True
-    )
-    if wallets_with_value:
-        console.print("\n[bold cyan]🏆 Топ кошельков по стоимости:[/bold cyan]")
-        for i, r in enumerate(wallets_with_value[:10], 1):
-            w = r['wallet']
-            console.print(
-                f"  {i}. {w[:10]}...{w[-6:]} → "
-                f"[green]${r['total_usd']:,.2f}[/green] "
-                f"({len(r['tokens'])} токенов)"
-            )
+    top = top_wallets_panel("Топ кошельков по стоимости", results, "tokens",
+                            ("токен", "токена", "токенов"))
+    if top:
+        ui.print_lines(top)
 
 
 def debank_checker_menu():
-    """Главное меню DeBank Checker"""
-    # Выбор источника кошельков
-    wallet_source = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Источник кошельков                        ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   📋 Адреса кошельков (data/walletss.txt)', 'wallets'),
-            Choice('   🔑 Приватные ключи (data/private_keys.txt)', 'private_keys'),
-            Choice('   🔙 Назад', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-
-    if wallet_source == 'back' or not wallet_source:
+    """Меню проверки балансов — точка входа из главного меню."""
+    wallets = choose_wallet_source()
+    if not wallets:
         return
-
-    if wallet_source == 'private_keys':
-        wallets = load_private_keys_as_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет валидных ключей в data/private_keys.txt[/red]")
-            return
-        console.print(f"[cyan]🔑 Конвертировано {len(wallets)} приватных ключей в адреса[/cyan]")
-    else:
-        wallets = load_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет кошельков в data/walletss.txt[/red]")
-            return
-        console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
 
     init_database()
 
-    stats = get_task_statistics()
-    completed = stats.get('completed', 0)
-    pending = stats.get('pending', 0)
-    failed_count = stats.get('failed', 0)
+    stats = task_stats_panel("Прогресс · балансы", get_task_statistics())
+    if stats:
+        ui.print_lines(stats)
 
-    if completed > 0 or pending > 0 or failed_count > 0:
-        console.print(f"[dim]БД: ✅ {completed} | ⏳ {pending} | ❌ {failed_count}[/dim]")
-
-    action = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      DeBank Balance Checker                    ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
-            Choice('   🔄 Начать заново (сброс БД)', 'reset'),
-            Choice('   📊 Экспорт результатов в CSV', 'export'),
-            Choice('   🔙 Назад', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-
-    if action == 'back' or not action:
+    action = ui.menu("Проверка балансов DeBank", render_items([
+        MenuItem("continue", "Продолжить проверку",
+                 "взять из базы незавершённые кошельки", icon="▶️"),
+        MenuItem("reset", "Начать заново",
+                 "очистить базу и проверить все кошельки", icon="🔄"),
+        MenuItem("export", "Экспорт в CSV",
+                 "выгрузить балансы из базы", icon="📄"),
+        MenuItem(BACK_KEY, "Назад", "", icon="←"),
+    ]))
+    if action in (None, BACK_KEY):
         return
 
-    if action == 'export':
+    if action == "export":
         save_results_csv(wallets)
         return
 
-    if action == 'reset':
+    if action == "reset":
         reset_database()
-        console.print("[yellow]🔄 База данных сброшена[/yellow]")
-        create_tasks(wallets)
-    else:
-        create_tasks(wallets)
+        logger.warning("База балансов очищена")
+    create_tasks(wallets)
 
     pending_tasks = get_pending_tasks()
     if not pending_tasks:
-        console.print("[yellow]⚠️ Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
+        logger.info("Все кошельки уже проверены — для повторной проверки "
+                    "выберите «Начать заново»")
         save_results_csv(wallets)
         return
 
     wallets_to_check = [t['wallet_address'] for t in pending_tasks]
-    console.print(f"[cyan]📋 Задач к выполнению: {len(wallets_to_check)}[/cyan]")
+    logger.info(f"📋 Задач к выполнению: {len(wallets_to_check)}")
 
-    # Обработка
     results = process_wallets(wallets_to_check)
-
-    # Итоги
     print_summary(results)
-
-    # Экспорт в CSV
     save_results_csv(wallets)
-
-    console.print("\n[bold green]✅ Проверка DeBank завершена![/bold green]\n")
-
-    # Telegram
-    try:
-        results_list = list(results.values())
-        success_count = len([r for r in results_list if r['success']])
-        total_usd = sum(r.get('total_usd', 0) for r in results_list if r['success'])
-    except Exception:
-        pass
+    logger.success("Проверка балансов DeBank завершена")
 
 
-if __name__ == "__main__":
-    debank_checker_menu()
+__all__ = [
+    "debank_checker_menu",
+    # Общее с debank_protocol_checker.
+    "load_wallets", "load_private_keys_as_wallets", "load_proxies",
+    "parse_proxy_for_playwright", "choose_wallet_source", "progress_panel",
+    "task_stats_panel", "top_wallets_panel", "plural",
+]

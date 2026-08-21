@@ -5,6 +5,11 @@
 process list только локально); альтернатива — stdin, но запуск долгий и так.
 
 Если нужно сменить L1 RPC — выставите ZKSL_L1_RPC в env.
+
+Прокси не поддерживается: signer.js ходит в zkSync/L1 напрямую, поэтому все
+вызовы уходят с реального IP машины. Колонка `proxy` из data.csv покрывает
+только HTTP-клиент Layerswap на стороне Python — executor'ы об этом
+предупреждают в логе.
 """
 
 from __future__ import annotations

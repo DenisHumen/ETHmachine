@@ -1,8 +1,5 @@
-"""ZNS.bio · CLI submenu."""
+"""ZNS.bio — меню пресета (регистрация .lit доменов)."""
 from __future__ import annotations
-
-from colorama import Fore, Style
-from questionary import Choice, select
 
 from config.modules.cfg_litvm_testnet import (
     ZNS_MIN_NATIVE_BALANCE,
@@ -19,10 +16,12 @@ from config.modules.cfg_litvm_testnet import (
 )
 from config.modules.general_config import SHUFLE_ACCOUNTS
 from modules.data_manager import load_data
-from modules.simple_logger import log_simple, set_auto_progress
+from modules.litvm_testnet.database import DB_PATH
 from modules.litvm_testnet.zns_bio import database as db
 from modules.litvm_testnet.zns_bio import excel_export
 from modules.litvm_testnet.zns_bio.worker import run_random_session
+from modules.simple_logger import log_simple, set_auto_progress
+from modules.ui.module_menu import MenuAction, ModuleMenu
 
 
 def _records_with_keys() -> list[dict]:
@@ -47,95 +46,113 @@ def _handle_run() -> None:
 
 
 def _handle_export() -> None:
-    out = excel_export.build_report()
+    try:
+        out = excel_export.build_report()
+    except Exception as exc:  # noqa: BLE001 — отчёт не должен ронять меню
+        log_simple(f"⚠ не удалось собрать отчёт: {exc}", "warning")
+        return
     log_simple(f"📑 ZNS-отчёт сохранён: {out}", "success")
 
 
-def _show_stats() -> None:
-    s = db.get_statistics()
-    print(f"\n{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(f"{Fore.CYAN}  ZNS.bio · статистика{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(f"  {'total registrations':<26} {s.get('total', 0)}")
-    for k in ("arrived", "failed", "sent", "pending", "skipped"):
-        print(f"  {('  · ' + k):<26} {s.get(f'status_{k}', 0)}")
-    print(f"  {'unique wallets done':<26} {s.get('unique_wallets_done', 0)}")
-    paid = float(s.get('total_paid_wei', 0)) / 1e18
-    print(f"  {'paid total':<26} {paid:.6f} zkLTC")
-    print()
+# ── Экраны меню ─────────────────────────────────────────────────────────
+
+_STATUS_LABELS = {
+    "pending": "ожидают",
+    "sent": "отправлено",
+    "arrived": "зарегистрировано",
+    "failed": "ошибка",
+    "skipped": "пропущено",
+}
 
 
-def _show_info() -> None:
-    print(f"\n{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(f"{Fore.CYAN}  ZNS.bio · регистрация .{ZNS_TLD} доменов "
-          f"(LiteForge){Style.RESET_ALL}")
-    print(f"{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(
-        "  Каждый кошелёк регистрирует случайный никнейм в TLD .lit на ZNS\n"
-        "  Connect. Срок аренды выбирается weighted-random:\n"
-    )
-    for y, w in sorted(ZNS_YEARS_WEIGHTS.items()):
-        total = sum(ZNS_YEARS_WEIGHTS.values()) or 1
-        print(f"    · {y}y — {w*100/total:.1f}%")
-    print()
-    print(f"  {'Home':<26} {ZNS_SITE_HOME}")
-    print(f"  {'Search':<26} {ZNS_SITE_SEARCH}")
-    print(f"  {'Cart':<26} {ZNS_SITE_CART}")
-    print(f"  {'Docs':<26} {ZNS_SITE_DOCS}")
-    print(f"  {'Registry':<26} {ZNS_REGISTRY}")
-    print(f"  {'TLD':<26} .{ZNS_TLD}")
-    print(f"  {'Name length':<26} "
-          f"{ZNS_NAME_LENGTH_RANGE[0]}–{ZNS_NAME_LENGTH_RANGE[1]} chars")
-    print(f"  {'Min native':<26} {ZNS_MIN_NATIVE_BALANCE} zkLTC")
-    print(f"  {'Ops per wallet':<26} "
-          f"{ZNS_OPS_PER_WALLET_RANGE[0]}–{ZNS_OPS_PER_WALLET_RANGE[1]}")
-    print(f"  {'Sleep between ops':<26} "
-          f"{ZNS_SLEEP_BETWEEN_OPS[0]}–{ZNS_SLEEP_BETWEEN_OPS[1]} sec")
-    print()
+def _stats() -> dict:
+    raw = db.get_statistics()
+    ordered = {label: raw.get(f"status_{status}", 0)
+               for status, label in _STATUS_LABELS.items()}
+    ordered["кошельков с доменом"] = raw.get("unique_wallets_done", 0)
+    paid = float(raw.get("total_paid_wei", 0)) / 1e18
+    ordered["оплачено, zkLTC"] = f"{paid:.6f}"
+    ordered["total"] = raw.get("total", 0)
+    return ordered
 
 
-def _build_menu() -> str | None:
-    return select(
-        "🪪 ZNS.bio · выберите действие:",
-        choices=[
-            Choice("🤖 Запустить регистрацию (по всем кошелькам)", "run"),
-            Choice("📊 Статистика БД", "stats"),
-            Choice("📑 Экспорт Excel-отчёта", "export"),
-            Choice("🗑️  Очистить zns_registrations", "reset"),
-            Choice("📖 Информация о модуле", "info"),
-            Choice("🔙 Назад", "back"),
+def _years_word(years: int) -> str:
+    if years % 10 == 1 and years % 100 != 11:
+        return "год"
+    if years % 10 in (2, 3, 4) and years % 100 not in (12, 13, 14):
+        return "года"
+    return "лет"
+
+
+def _years_lines() -> list[str]:
+    total = sum(ZNS_YEARS_WEIGHTS.values()) or 1
+    return [
+        f"{years} {_years_word(years)} — {weight * 100 / total:.1f}%"
+        for years, weight in sorted(ZNS_YEARS_WEIGHTS.items())
+    ]
+
+
+def _range(bounds, suffix: str = "") -> str:
+    """«5–10 символов», но «1 регистрация», когда границы совпали."""
+    low, high = bounds
+    body = f"{low}" if low == high else f"{low}–{high}"
+    return f"{body} {suffix}".strip()
+
+
+def _info() -> dict:
+    return {
+        "Как это работает": [
+            f"Каждый кошелёк из data/data.csv регистрирует случайный никнейм "
+            f"в зоне .{ZNS_TLD} на ZNS Connect.",
+            "Имя подбирает генератор ников; занятость проверяется и в базе "
+            "модуля, и в контракте реестра.",
+            "Цена берётся из контракта: регистрация плюс продление за каждый "
+            "следующий год.",
+            "Если на выбранный срок баланса не хватает, модуль пробует тот же "
+            "домен на один год.",
+            "Кошелёк с балансом ниже минимального пропускается целиком.",
         ],
-        qmark="🪪", pointer="👉",
-    ).ask()
+        "Срок аренды выбирается случайно": _years_lines(),
+        "Параметры (config/modules/cfg_litvm_testnet.py)": [
+            f"Зона: .{ZNS_TLD}",
+            f"Длина имени: {_range(ZNS_NAME_LENGTH_RANGE, 'символов')}",
+            f"Регистраций на кошелёк: {_range(ZNS_OPS_PER_WALLET_RANGE)}",
+            f"Минимальный баланс: {ZNS_MIN_NATIVE_BALANCE} zkLTC",
+            f"Пауза между регистрациями: {_range(ZNS_SLEEP_BETWEEN_OPS, 'с')}",
+            f"Реестр: {ZNS_REGISTRY}",
+        ],
+        "Ссылки": [
+            f"Сайт: {ZNS_SITE_HOME}",
+            f"Поиск домена: {ZNS_SITE_SEARCH}",
+            f"Корзина: {ZNS_SITE_CART}",
+            f"Документация: {ZNS_SITE_DOCS}",
+        ],
+        "Где что лежит": [
+            f"База: db/{DB_PATH.name}",
+            "Регистрации: таблица zns_registrations",
+            "Отчёт: result/zns_bio/",
+        ],
+    }
 
 
 def run_litvm_zns_bio() -> None:
     db.init_database()
-    while True:
-        action = _build_menu()
-        if action is None or action == "back":
-            return
-        if action == "run":
-            try:
-                _handle_run()
-            except KeyboardInterrupt:
-                pass
-        elif action == "stats":
-            _show_stats()
-        elif action == "export":
-            try:
-                _handle_export()
-            except Exception as e:  # noqa: BLE001
-                log_simple(f"⚠ export failed: {e}", "warning")
-        elif action == "info":
-            _show_info()
-        elif action == "reset":
-            confirm = select(
-                "Очистить zns_registrations?",
-                choices=[Choice("Нет", False), Choice("Да, очистить", True)],
-                qmark="🗑️",
-            ).ask()
-            if confirm:
-                db.reset_registrations()
-                log_simple("🗑️ zns_registrations очищена", "success")
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    ModuleMenu(
+        title=f"ZNS.bio · домены .{ZNS_TLD}",
+        subtitle="регистрация никнеймов на LiteForge",
+        icon="🪪",
+        actions=[
+            MenuAction("run", "Запуск регистрации", _handle_run,
+                       "пройти по всем кошелькам и занять свободные имена",
+                       icon="▶️"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по данным из базы", icon="📑"),
+        ],
+        stats=_stats,
+        stats_title=f"Прогресс · {DB_PATH.name}",
+        reset=db.reset_registrations,
+        info=_info,
+    ).run()
+
+
+__all__ = ["run_litvm_zns_bio"]

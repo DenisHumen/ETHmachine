@@ -24,7 +24,6 @@ patchright-Chromium (обход Cloudflare) открывает страницу,
 Используются:
   • config/modules/general_config.py — потоки, задержки, RETRY_COUNT
   • modules/data_manager.py    — загрузка строк data.csv
-  • modules/proxy_manager.py   — маскирование прокси в логах
   • modules/simple_logger.py   — единый формат логирования
   • modules/dune/base/scraper.py — Playwright-скрейпер дашборда
 """
@@ -40,7 +39,6 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional, Tuple
 
-from colorama import Fore, Style
 from eth_account import Account
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -63,8 +61,8 @@ from modules.dune.base.database import (
     update_task_success,
 )
 from modules.dune.base.scraper import DuneBaseScraper
-from modules.proxy_manager import mask_proxy
 from modules.simple_logger import log_task, log_wallet_task, logger, tqdm_safe_logging
+from modules.ui import theme, ui
 
 # ──────────────────────────────────────────────────────────────────────────
 # Константы
@@ -377,7 +375,7 @@ def run_base_checker() -> List[Dict[str, Any]]:
     # tqdm_safe_logging: loguru-логи идут через tqdm.write, чтобы не рвать бар.
     with tqdm_safe_logging(), _DuneTqdm(
         total=total,
-        desc=f"{Fore.CYAN}🟦 Dune Base{Style.RESET_ALL}",
+        desc=f"{theme.FG_ACCENT}🟦 Dune Base{theme.RESET}",
         bar_format=_BAR_FORMAT,
         ascii=_BAR_ASCII,
         colour="cyan",
@@ -427,21 +425,15 @@ def _print_summary() -> None:
     s = get_task_statistics()
     if s["total"] == 0:
         return
-    sep = f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}"
-    print()
-    print(sep)
-    print(f"{Fore.CYAN}  DUNE BASE CHECKER — РЕЗУЛЬТАТЫ{Style.RESET_ALL}")
-    print(sep)
-    print(f"  Всего кошельков:    {s['total']}")
-    print(f"  Проверено:          {Fore.GREEN}{s['completed']}{Style.RESET_ALL}")
-    print(f"  Ожидают:            {Fore.YELLOW}{s['pending']}{Style.RESET_ALL}")
-    print(f"  Ошибки:             {Fore.RED}{s['failed']}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}{'─' * 60}{Style.RESET_ALL}")
-    print(f"  ✅ Найдено в Ranking: {Fore.GREEN}{s['found_ranking']}{Style.RESET_ALL}")
-    print(f"  ✅ Найдено в Volume:  {Fore.GREEN}{s['found_volume']}{Style.RESET_ALL}")
-    print(f"  ✅ Найдено хотя бы где-то: {Fore.GREEN}{s['found_any']}{Style.RESET_ALL}")
-    print(sep)
-    print()
+    ui.print_lines(ui.stats_panel("Dune Base — результаты проверки", {
+        "проверено": s["completed"],
+        "ожидают": s["pending"],
+        "ошибка": s["failed"],
+        "есть в ranking": s["found_ranking"],
+        "есть в volume": s["found_volume"],
+        "найдено всего": s["found_any"],
+        "total": s["total"],
+    }))
 
 
 def print_run_statistics() -> None:

@@ -148,8 +148,11 @@ def get_captcha_solver(proxy_url: Optional[str] = None):
             )
             return _create_solver(svc, api_key, captcha_proxy)
 
+    field = SERVICE_CONFIG_FIELDS.get(service, "<SERVICE>_API_KEY")
     _announce_once(
-        "[Captcha] ни один сервис капчи не настроен (нет API ключей)",
+        f"[Captcha] ни один сервис капчи не настроен. Впишите ключ в "
+        f"config/modules/general_config.py -> {field} "
+        f"(выбранный сервис: '{service}')",
         "warning", "no_service",
     )
     return None
@@ -219,7 +222,11 @@ class CaptchaManager:
 
     def _check_and_warn(self, captcha_type: str) -> bool:
         if not self._solver:
-            logger.error("[CaptchaManager] Solver не инициализирован. Настройте API ключ в general_config.py")
+            field = SERVICE_CONFIG_FIELDS.get(self._service, "<SERVICE>_API_KEY")
+            logger.error(
+                f"[CaptchaManager] Сервис капчи не настроен: впишите ключ в "
+                f"config/modules/general_config.py -> {field}"
+            )
             return False
         return check_captcha_support(self._service, captcha_type)
 

@@ -3,10 +3,21 @@ Python wrapper для Rust версии генератора nice адресов
 Автоматически компилирует и запускает Rust бинарник
 """
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from colorama import Fore, Style
 import questionary
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
+# Обёртку запускают и напрямую (`python eth_nice_address_rust_wrapper.py`),
+# когда корня проекта нет в sys.path — иначе импорт ниже развалится.
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from modules.eth.eth_wallet_generator import new_wallets_file
 
 def check_cargo_installed():
     """Проверка установки Cargo (Rust)"""
@@ -75,10 +86,15 @@ def compile_rust_binary(force_rebuild=False):
         print(f"{Fore.RED}❌ Ошибка при компиляции: {e}{Style.RESET_ALL}")
         return None
 
-def run_rust_generator(num_wallets, config_path="config/config.py", 
+def run_rust_generator(num_wallets, config_path="config/modules/cfg_nice_address.py", 
                        output_path="result/result.csv", threads=0, display_process=False):
-    """Запуск Rust генератора"""
-    
+    """Запуск Rust генератора.
+
+    Ключи бинарник пишет в собственный файл запуска (result/wallets/...),
+    а в ``output_path`` кладётся копия — result/result.csv затирают чекеры
+    балансов, и мнемоники оттуда пропадают безвозвратно.
+    """
+
     # Проверяем Cargo
     if not check_cargo_installed():
         install_cargo_instructions()
@@ -92,20 +108,20 @@ def run_rust_generator(num_wallets, config_path="config/config.py",
     
     print(f"\n{Fore.CYAN}🚀 Запуск Rust генератора...{Style.RESET_ALL}\n")
     
-    # Получаем абсолютные пути относительно корня проекта
-    project_root = Path(__file__).parent.parent.parent.parent
-    abs_config_path = project_root / config_path
-    abs_output_path = project_root / output_path
-    
+    # Пути должны быть абсолютными: бинарник запускается с другим cwd
+    abs_config_path = PROJECT_ROOT / config_path
+    abs_output_path = PROJECT_ROOT / output_path
+    keys_path = new_wallets_file('eth_nice_wallets', PROJECT_ROOT / 'result' / 'wallets')
+
     # Создаем директорию для результатов если её нет
     abs_output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Формируем команду
     cmd = [
         str(binary_path),
         "-n", str(num_wallets),
         "-c", str(abs_config_path),
-        "-o", str(abs_output_path),
+        "-o", str(keys_path),
         "-t", str(threads)
     ]
     
@@ -117,7 +133,11 @@ def run_rust_generator(num_wallets, config_path="config/config.py",
         result = subprocess.run(cmd, cwd=os.path.dirname(binary_path))
         
         if result.returncode == 0:
+            # Копию кладём туда, куда исторически смотрят пользователи и меню.
+            if keys_path.exists() and keys_path != abs_output_path:
+                shutil.copyfile(keys_path, abs_output_path)
             print(f"\n{Fore.GREEN}✓ Генерация завершена успешно!{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}✓ Ключи сохранены в {keys_path}{Style.RESET_ALL}")
             return True
         else:
             print(f"\n{Fore.RED}❌ Ошибка при выполнении{Style.RESET_ALL}")
@@ -125,6 +145,9 @@ def run_rust_generator(num_wallets, config_path="config/config.py",
             
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}⚠ Генерация прервана пользователем{Style.RESET_ALL}")
+        # Поиск идёт часами — найденное до обрыва лежит в файле запуска.
+        if keys_path.exists():
+            print(f"{Fore.YELLOW}Найденное сохранено в {keys_path}{Style.RESET_ALL}")
         return False
     except Exception as e:
         print(f"{Fore.RED}❌ Ошибка: {e}{Style.RESET_ALL}")
@@ -174,7 +197,7 @@ def main():
     
     if success:
         print(f"\n{Fore.GREEN}{'='*60}{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}✓ Результаты сохранены в result/result.csv{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}✓ Ключи — в result/wallets/, копия в result/result.csv{Style.RESET_ALL}")
         print(f"{Fore.GREEN}{'='*60}{Style.RESET_ALL}\n")
 
 if __name__ == "__main__":

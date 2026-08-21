@@ -6,8 +6,18 @@ import struct
 from ecdsa.curves import SECP256k1
 from eth_utils import to_checksum_address, keccak as eth_utils_keccak
 import csv
+from datetime import datetime
 from itertools import cycle
+from pathlib import Path
 import sys
+
+from modules.simple_logger import logger
+
+# result/result.csv — общая свалка: чекеры балансов и конвертеры открывают её
+# с mode='w' и затирают всё, что там лежало. Поэтому свежие мнемоники и
+# приватники дублируем в отдельный файл запуска, который больше никто не трогает.
+RESULT_CSV = Path('result') / 'result.csv'
+WALLETS_DIR = Path('result') / 'wallets'
 
 BIP39_PBKDF2_ROUNDS = 2048
 BIP39_SALT_MODIFIER = "mnemonic"
@@ -83,25 +93,50 @@ def mnemonic_to_private_key(mnemonic, str_derivation_path, passphrase=""):
         private_key, chain_code = derive_bip32childkey(private_key, chain_code, i)
     return private_key
 
+def new_wallets_file(prefix, wallets_dir=WALLETS_DIR):
+    """
+    Уникальный путь под ключи одного запуска генератора.
+
+    Штамп времени в имени: потерянную мнемонику восстановить нечем,
+    поэтому новый запуск не имеет права затирать результат предыдущего.
+    ``wallets_dir`` нужен вызывающим, которые работают не из корня проекта
+    (Rust-обёртка запускает бинарник с другим cwd и передаёт абсолютный путь).
+    """
+    wallets_dir = Path(wallets_dir)
+    wallets_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = wallets_dir / f"{prefix}_{stamp}.csv"
+    attempt = 1
+    while path.exists():
+        attempt += 1
+        path = wallets_dir / f"{prefix}_{stamp}_{attempt}.csv"
+    return path
+
 def eth_generate_wallets(num_wallets):
     """
     Generate Ethereum wallets and save them to a CSV file with a progress bar.
     Then verify that mnemonic/private key import gives the same address.
+
+    Возвращает путь к файлу запуска с ключами (result/wallets/...).
     """
     mnemo = Mnemonic("english")
     spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
     bar_length = 30  # Length of the progress bar
 
+    wallets_path = new_wallets_file('eth_wallets')
+
     # Clear the file and write the header
-    with open('result/result.csv', mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
     # Stage 1: Generation
     completed_wallets = 0
     wallets = []
-    with open('result/result.csv', mode='a', newline='') as file:
-        writer = csv.writer(file)
+    with open(RESULT_CSV, mode='a', newline='', encoding='utf-8') as shared_file, \
+         open(wallets_path, mode='a', newline='', encoding='utf-8') as wallets_file:
+        writers = [csv.writer(shared_file), csv.writer(wallets_file)]
         for i in range(num_wallets):
             try:
                 mnemonic = mnemo.generate()
@@ -109,7 +144,8 @@ def eth_generate_wallets(num_wallets):
                 public_key = PublicKey(private_key)
                 address = public_key.address()
                 priv_hex = binascii.hexlify(bytes(private_key)).decode("utf-8")
-                writer.writerow([mnemonic, address, priv_hex])
+                for writer in writers:
+                    writer.writerow([mnemonic, address, priv_hex])
                 wallets.append((mnemonic, address, priv_hex))
 
                 # Update progress bar
@@ -155,11 +191,15 @@ def eth_generate_wallets(num_wallets):
         )
     print()  # Move to the next line after the progress bar is complete
 
-    # Перезаписываем файл с отметками
-    with open('result/result.csv', mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key", "check"])
-        for row in results:
-            writer.writerow(row)
+    # Перезаписываем файлы с отметками
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key", "check"])
+            for row in results:
+                writer.writerow(row)
+
+    logger.success(f"Ключи сохранены в {wallets_path} (копия в {RESULT_CSV})")
+    return wallets_path
 
 #generate_wallets(10000)  # Example usage

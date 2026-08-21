@@ -1,7 +1,8 @@
 """Адаптер логгера xStocks -> modules.simple_logger (loguru)."""
 import threading
-from colorama import Fore, Style
-from modules.simple_logger import log_wallet_task, log_simple
+
+from modules.simple_logger import log_simple, log_wallet_task
+from modules.ui import ui
 
 
 _print_lock = threading.Lock()
@@ -41,27 +42,7 @@ def log(msg: str, level: str = "info", addr: str = "",
         log_simple(safe_msg, status=status, account_name=account_name)
 
 
-def banner():
+def stats_block(stats: dict, title: str = "Итог прогона"):
+    """Итоговая сводка режима — одна рамка на все режимы модуля."""
     with _print_lock:
-        print(f"""
-{Fore.CYAN}+==================================================+
-|{Fore.WHITE}       xSTOCKS DeFi POINTS AUTOMATION             {Fore.CYAN}|
-|{Fore.WHITE}        ETHmachine Integration                    {Fore.CYAN}|
-+==================================================+{Style.RESET_ALL}
-""")
-
-
-def header(text: str):
-    log(text, "header")
-
-
-def stats_block(stats: dict):
-    """Вывести блок статистики."""
-    with _print_lock:
-        print(f"\n{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-        for key, val in stats.items():
-            color = Fore.GREEN if any(w in key.lower() for w in ("success", "done", "ok")) else (
-                Fore.RED if any(w in key.lower() for w in ("fail", "error")) else Fore.YELLOW
-            )
-            print(f"  {color}{key}: {val}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
+        ui.print_lines(ui.panel(title, ui.key_values(stats)))

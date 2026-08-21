@@ -1,5 +1,6 @@
 import requests
 import base64
+import json
 import random
 import time
 import hmac
@@ -359,7 +360,12 @@ def get_withdraw_fee(token, chain, api_key, api_secret, passphrase):
         return 0
 
 
-def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float, 
+def format_okx_amount(value) -> str:
+    """Сумма для OKX всегда строка: float даёт экспоненту (1e-06), которую биржа не парсит"""
+    return f"{float(value):.8f}".rstrip('0').rstrip('.')
+
+
+def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float,
                         api_key: str, api_secret: str, passphrase: str,
                         wallet_number: int = 0, total_wallets: int = 0, retry=0):
     """Выполнить вывод средств"""
@@ -386,28 +392,37 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float,
                     trading_balance = float(balance_data["data"][0]["details"][0]["cashBal"])
                     
                     if trading_balance > 0:
-                        body = {"ccy": token, "amt": trading_balance, "from": 18, "to": 6, "type": "0"}
-                        _, _, headers = okx_data(api_key, api_secret, passphrase, 
-                                               request_path="/api/v5/asset/transfer", body=str(body), meth="POST")
-                        requests.post("https://www.okx.cab/api/v5/asset/transfer", data=str(body), 
+                        # Подпись OKX считается по телу запроса байт в байт, поэтому сериализуем
+                        # JSON один раз и одну и ту же строку отдаём и в подпись, и в POST
+                        body = json.dumps({
+                            "ccy": token,
+                            "amt": format_okx_amount(trading_balance),
+                            "from": "18",
+                            "to": "6",
+                            "type": "0",
+                        })
+                        _, _, headers = okx_data(api_key, api_secret, passphrase,
+                                               request_path="/api/v5/asset/transfer", body=body, meth="POST")
+                        requests.post("https://www.okx.cab/api/v5/asset/transfer", data=body,
                                     timeout=10, headers=headers)
             except Exception:
                 pass
         
         # Выполняем вывод
-        body = {
-            "ccy": token, 
-            "amt": amount, 
-            "fee": fee, 
-            "dest": "4", 
-            "chain": f"{token}-{chain}", 
-            "toAddr": wallet
-        }
-        
-        _, _, headers = okx_data(api_key, api_secret, passphrase, 
-                                request_path="/api/v5/asset/withdrawal", meth="POST", body=str(body))
-        response = requests.post("https://www.okx.cab/api/v5/asset/withdrawal", 
-                               data=str(body), timeout=10, headers=headers)
+        # Тело обязано быть валидным JSON (str(dict) даёт одинарные кавычки, биржа такое не парсит)
+        body = json.dumps({
+            "ccy": token,
+            "amt": format_okx_amount(amount),
+            "fee": format_okx_amount(fee),
+            "dest": "4",
+            "chain": f"{token}-{chain}",
+            "toAddr": wallet,
+        })
+
+        _, _, headers = okx_data(api_key, api_secret, passphrase,
+                                request_path="/api/v5/asset/withdrawal", meth="POST", body=body)
+        response = requests.post("https://www.okx.cab/api/v5/asset/withdrawal",
+                               data=body, timeout=10, headers=headers)
         result = response.json()
         
         if result['code'] == '0':
@@ -426,7 +441,9 @@ def execute_okx_withdraw(wallet: str, token: str, chain: str, amount: float,
         logger.error(f"{wallet_prefix}OKX withdraw error => {wallet} | {error}")
         if retry < 3:
             time.sleep(10)
-            return execute_okx_withdraw(wallet, token, chain, amount, wallet_number, total_wallets, retry + 1)
+            return execute_okx_withdraw(wallet, token, chain, amount,
+                                       api_key, api_secret, passphrase,
+                                       wallet_number, total_wallets, retry + 1)
     
     return None
 

@@ -1,11 +1,7 @@
-"""Aynilabs — submenu (plan / run / auto / stats / export / reset / info)."""
+"""Меню modules.litvm_testnet.aynilabs — обёртка zkLTC в WzkLTC."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
-
-from colorama import Fore, Style
-from questionary import Choice, select
 
 from config.modules.cfg_litvm_testnet import (
     AYNI_GAS_RESERVE_ZKLTC,
@@ -15,20 +11,14 @@ from config.modules.cfg_litvm_testnet import (
     AYNI_WZKLTC_ADDRESS,
 )
 from config.modules.general_config import NUM_THREADS, SHUFLE_ACCOUNTS
+from modules.core.runner import resolve_threads, run_parallel
 from modules.data_manager import load_data
-from modules.simple_logger import log_simple, set_auto_progress
 from modules.litvm_testnet.aynilabs import database as db
 from modules.litvm_testnet.aynilabs import excel_export
 from modules.litvm_testnet.aynilabs.worker import plan_wallet, process_wallet
+from modules.simple_logger import log_simple, set_auto_progress
+from modules.ui.module_menu import MenuAction, ModuleMenu
 
-
-_PLAN_THREADS = max(1, int(NUM_THREADS))
-_RUN_THREADS = max(1, int(NUM_THREADS))
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _records_with_keys() -> list[dict]:
     rows = load_data()
@@ -39,44 +29,23 @@ def _records_with_keys() -> list[dict]:
     return records
 
 
-def _run_threaded(records: list[dict], fn: Callable[[dict, int, int], object],
-                  label: str, threads: int) -> bool:
+def _run_threaded(records: list[dict],
+                  fn: Callable[[dict, int, int], object],
+                  label: str) -> bool:
+    """Обходит кошельки; False — пользователь прервал обход."""
     total = len(records)
+    threads = resolve_threads(NUM_THREADS, total)
     set_auto_progress(False)
-    log_simple(
-        f"🪙 Aynilabs {label}: {total} кошельков · threads={threads}",
-        "info",
-    )
-    interrupted = False
-    if threads <= 1 or total <= 1:
-        for i, rec in enumerate(records, 1):
-            try:
-                fn(rec, i, total)
-            except KeyboardInterrupt:
-                log_simple(
-                    "⚠ прервано пользователем (состояние сохранено в БД)",
-                    "warning",
-                )
-                interrupted = True
-                break
-    else:
-        with ThreadPoolExecutor(
-            max_workers=threads, thread_name_prefix="ayni"
-        ) as ex:
-            futs = [ex.submit(fn, rec, i, total)
-                    for i, rec in enumerate(records, 1)]
-            try:
-                for fut in as_completed(futs):
-                    fut.result()
-            except KeyboardInterrupt:
-                for f in futs:
-                    f.cancel()
-                log_simple(
-                    "⚠ прервано пользователем (состояние сохранено в БД)",
-                    "warning",
-                )
-                interrupted = True
-    return not interrupted
+    log_simple(f"🪙 Aynilabs {label}: {total} кошельков · threads={threads}",
+               "info")
+    try:
+        run_parallel(records, lambda index, rec: fn(rec, index, total),
+                     threads=threads, thread_name_prefix="ayni")
+    except KeyboardInterrupt:
+        log_simple("⚠ прервано пользователем (состояние сохранено в БД)",
+                   "warning")
+        return False
+    return True
 
 
 def _summary() -> str:
@@ -88,17 +57,12 @@ def _summary() -> str:
             f"skipped={s.get('skipped', 0)}")
 
 
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
-
 def _handle_plan() -> None:
     records = _records_with_keys()
     if not records:
         log_simple("Нет кошельков с private_key в data/data.csv", "error")
         return
-    threads = max(1, min(_PLAN_THREADS, len(records)))
-    _run_threaded(records, plan_wallet, "PLAN", threads)
+    _run_threaded(records, plan_wallet, "PLAN")
     log_simple(f"🏁 plan завершён · {_summary()}", "success")
 
 
@@ -107,114 +71,94 @@ def _handle_run() -> None:
     if not records:
         log_simple("Нет кошельков с private_key в data/data.csv", "error")
         return
-    threads = max(1, min(_RUN_THREADS, len(records)))
-    ok = _run_threaded(records, process_wallet, "RUN", threads)
-    log_simple(
-        f"🏁 {'готово' if ok else 'прервано'} · {_summary()}",
-        "success" if ok else "warning",
-    )
+    ok = _run_threaded(records, process_wallet, "RUN")
+    log_simple(f"🏁 {'готово' if ok else 'прервано'} · {_summary()}",
+               "success" if ok else "warning")
+
+
+def _handle_export() -> None:
+    try:
+        out = excel_export.build_report()
+    except Exception as exc:  # noqa: BLE001 — отчёт не должен ронять меню
+        log_simple(f"⚠ export failed: {exc}", "warning")
+        return
+    log_simple(f"📑 отчёт сохранён: {out}", "success")
 
 
 def _handle_auto() -> None:
-    """Pipeline: plan → run → export."""
     _handle_plan()
     _handle_run()
     _handle_export()
 
 
-def _handle_export() -> None:
-    out = excel_export.build_report()
-    log_simple(f"📑 отчёт сохранён: {out}", "success")
+def _stats() -> dict:
+    """Статистика в порядке жизненного цикла задачи, а не в алфавитном."""
+    raw = db.get_statistics()
+    labels = {
+        "pending": "ожидают",
+        "tx_sent": "отправлено",
+        "arrived": "завёрнуто",
+        "failed": "ошибка",
+        "skipped": "пропущено",
+    }
+    ordered = {label: raw.get(status, 0) for status, label in labels.items()}
+    ordered["total"] = raw.get("total", 0)
+    return ordered
 
 
-def _show_stats() -> None:
-    s = db.get_statistics()
-    print(f"\n{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(f"{Fore.CYAN}  Aynilabs · статистика{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    keys = ("pending", "tx_sent", "arrived", "failed", "skipped")
-    for k in keys:
-        print(f"  {k:<22} {s.get(k, 0)}")
-    print(f"  {'-' * 40}")
-    print(f"  {'TOTAL':<22} {s.get('total', 0)}")
-    print()
-
-
-def _show_info() -> None:
-    print(f"\n{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(f"{Fore.CYAN}  Aynilabs · описание{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}" + "=" * 60 + Style.RESET_ALL)
-    print(
-        "  Сайт https://www.aynilabs.xyz/dashboard/ имеет один полезный\n"
-        "  on-chain action — обёртка native zkLTC в WzkLTC (1:1) через\n"
-        "  вызов WzkLTC.deposit() payable. Этот модуль автоматизирует:\n"
-        "    1. чтение native zkLTC баланса (через прокси кошелька)\n"
-        "    2. подпись и отправка deposit() с payable value\n"
-        "    3. проверка, что WzkLTC.balanceOf реально вырос\n"
-    )
-    print(f"  {'WzkLTC contract':<26} {AYNI_WZKLTC_ADDRESS}")
-    print(f"  {'wrap fraction range':<26} "
-          f"{AYNI_WRAP_PCT_RANGE[0]*100:.0f}% – {AYNI_WRAP_PCT_RANGE[1]*100:.0f}%")
-    print(f"  {'min native balance':<26} {AYNI_MIN_NATIVE_BALANCE_ZKLTC} zkLTC")
-    print(f"  {'gas reserve':<26} {AYNI_GAS_RESERVE_ZKLTC} zkLTC")
-    print(f"  {'tx attempts':<26} {AYNI_TX_ATTEMPTS}")
-    print()
-
-
-def _build_menu() -> str | None:
-    return select(
-        "🪙 Aynilabs · выберите действие:",
-        choices=[
-            Choice("🤖 Авто-режим (plan → run → Excel)", "auto"),
-            Choice("📋 Планирование (баланс + сумма wrap'а)", "plan"),
-            Choice("▶️  Запуск wrap'а (deposit + проверка)", "run"),
-            Choice("📊 Статистика БД", "stats"),
-            Choice("📑 Экспорт Excel-отчёта", "export"),
-            Choice("🗑️  Очистить БД", "reset"),
-            Choice("📖 Информация о модуле", "info"),
-            Choice("🔙 Назад", "back"),
+def _info() -> dict:
+    wrap_lo, wrap_hi = AYNI_WRAP_PCT_RANGE
+    return {
+        "Как это работает": [
+            "На aynilabs.xyz есть ровно одно полезное on-chain действие — "
+            "обёртка нативного zkLTC в WzkLTC один к одному вызовом "
+            "WzkLTC.deposit() с payable-значением.",
+            "Модуль делает это сам:",
+            "1. читает баланс нативного zkLTC через прокси кошелька;",
+            "2. подписывает и отправляет deposit() с рассчитанной суммой;",
+            "3. проверяет, что WzkLTC.balanceOf действительно вырос.",
         ],
-        qmark="🪙", pointer="👉",
-    ).ask()
+        "Параметры": [
+            f"Контракт WzkLTC — {AYNI_WZKLTC_ADDRESS}",
+            f"Доля баланса на обёртку — {wrap_lo * 100:.0f}% – "
+            f"{wrap_hi * 100:.0f}%",
+            f"Минимальный баланс — {AYNI_MIN_NATIVE_BALANCE_ZKLTC} zkLTC",
+            f"Резерв на газ — {AYNI_GAS_RESERVE_ZKLTC} zkLTC",
+            f"Попыток на транзакцию — {AYNI_TX_ATTEMPTS}",
+        ],
+        "Где что лежит": [
+            "База задач: db/litvm.db, таблица ayni_wrap_tasks",
+            "Отчёт: result/aynilabs/run_<время>/",
+        ],
+    }
+
+
+def _menu() -> ModuleMenu:
+    return ModuleMenu(
+        title="Aynilabs",
+        subtitle="обёртка zkLTC в WzkLTC",
+        icon="🪙",
+        actions=[
+            MenuAction("auto", "Авто-режим", _handle_auto,
+                       "планирование, обёртка и отчёт подряд", icon="🤖"),
+            MenuAction("plan", "Планирование", _handle_plan,
+                       "снять балансы и рассчитать сумму обёртки", icon="📋"),
+            MenuAction("run", "Запуск обёртки", _handle_run,
+                       "отправить deposit() и проверить результат",
+                       icon="▶️"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по данным из базы", icon="📑"),
+        ],
+        stats=_stats,
+        stats_title="Прогресс · ayni_wrap_tasks",
+        reset=db.reset_database,
+        info=_info,
+    )
 
 
 def run_litvm_aynilabs() -> None:
     db.init_database()
-    while True:
-        action = _build_menu()
-        if action is None or action == "back":
-            return
-        if action == "auto":
-            try:
-                _handle_auto()
-            except KeyboardInterrupt:
-                pass
-        elif action == "plan":
-            try:
-                _handle_plan()
-            except KeyboardInterrupt:
-                pass
-        elif action == "run":
-            try:
-                _handle_run()
-            except KeyboardInterrupt:
-                pass
-        elif action == "stats":
-            _show_stats()
-        elif action == "export":
-            try:
-                _handle_export()
-            except Exception as e:  # noqa: BLE001
-                log_simple(f"⚠ export failed: {e}", "warning")
-        elif action == "info":
-            _show_info()
-        elif action == "reset":
-            confirm = select(
-                "Очистить таблицу ayni_wrap_tasks?",
-                choices=[Choice("Нет", False), Choice("Да, очистить", True)],
-                qmark="🗑️",
-            ).ask()
-            if confirm:
-                db.reset_database()
-                log_simple("🗑️ ayni_wrap_tasks очищена", "success")
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    _menu().run()
+
+
+__all__ = ["run_litvm_aynilabs"]

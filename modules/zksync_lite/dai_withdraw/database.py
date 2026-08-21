@@ -48,6 +48,15 @@ def _conn() -> sqlite3.Connection:
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(DB_FILE))
     c.row_factory = sqlite3.Row
+    # WAL (AGENTS §5.1): веб-дашборд открывает этот же файл в режиме mode=ro,
+    # а горячий rollback-journal делает такое открытие невозможным (SQLite
+    # потребовал бы запись для восстановления). Свойство персистентное и
+    # идемпотентное, схему не трогает. На сетевых дисках WAL недоступен —
+    # тогда просто остаёмся в journal-режиме.
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
     return c
 
 
