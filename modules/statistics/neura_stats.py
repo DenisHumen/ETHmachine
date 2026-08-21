@@ -1040,20 +1040,14 @@ def process_wallet_thread(wallet_data: Dict[str, Any]) -> bool:
 def neura_statistics():
     global CURRENT_CSV_FILE
 
-    print("\n" + "="*60)
-    print("🔮 NEURA PROTOCOL STATISTICS (Multithreaded)")
-    print("="*60 + "\n")
+    ui.print_lines(ui.header("Neura Protocol", "сбор статистики"))
 
-    if not astrum_CAPTCHA_API_KEY or len(astrum_CAPTCHA_API_KEY.strip()) == 0:
-        log_error("❌ КРИТИЧЕСКАЯ ОШИБКА: API ключ капчи не настроен!")
-        log_warning("⚠️  Установите astrum_CAPTCHA_API_KEY в config/config.py")
-        log_info("ℹ️  Получить ключ можно в: https://t.me/astrumsolutionsbot")
-        return
-
-    if len(astrum_CAPTCHA_API_KEY) != 36 or astrum_CAPTCHA_API_KEY.count('-') != 4:
-        log_error("❌ КРИТИЧЕСКАЯ ОШИБКА: Неверный формат API ключа капчи!")
-        log_warning(f"⚠️  Текущий ключ: {astrum_CAPTCHA_API_KEY[:10]} (длина: {len(astrum_CAPTCHA_API_KEY)})")
-        log_info("ℹ️  Ожидается UUID формат: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 символов)")
+    # Капча решается браузером (BrowserHCaptchaSolver), платный API-ключ
+    # не нужен. Раньше здесь проверялся astrum_CAPTCHA_API_KEY, которого
+    # в конфиге проекта нет — из-за чего пункт меню падал с NameError.
+    if BrowserHCaptchaSolver is None:
+        log_error("Решатель капчи недоступен — установите playwright "
+                  "и playwright-stealth")
         return
 
     init_database()
