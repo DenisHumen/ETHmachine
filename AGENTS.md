@@ -279,8 +279,8 @@ setup_file_logging(log_file: str) -> int
 ```
 
 Отрисовка — через `modules/ui` (§15.1), не через прямые вызовы questionary.
-Часть модулей (в том числе оба `swap_all_*`) ещё зовёт `questionary` напрямую
-и переводится на `ui` — копируй оттуда структуру фаз, но не отрисовку меню.
+Вне `modules/ui` прямых вызовов `questionary` не осталось, и это проверяет
+`tests/test_ui_consistency.py` — новый модуль обязан брать меню из `ui`.
 
 `run_<module_name>()` — public entry, реэкспортируется из `__init__.py`.
 
@@ -579,6 +579,7 @@ from modules.ui import ui
 | `ui.menu` | `menu(title, options, *, qmark=QMARK, pointer=POINTER, default=None)` | `options` — последовательность пар `(текст, значение)`. Возвращает значение; при Ctrl+C — `None`. |
 | `ui.choose` | `choose(title, options, *, back_label="Назад", **kwargs)` | то же, плюс автоматически добавленный пункт «Назад» со значением `"back"`. |
 | `ui.confirm` | `confirm(question, *, default=True) -> bool` | Ctrl+C трактуется как «нет». |
+| `ui.confirm_or_back` | `confirm_or_back(question, *, yes="Да", no="Нет")` | да / нет / назад: `True`, `False` или `"back"`; `None` при Ctrl+C. Для мастеров, где нужен возврат на шаг назад, а не отмена всей операции. |
 | `ui.ask_int` | `ask_int(question, *, minimum=None, maximum=None, default=None) -> int \| None` | валидация и подсказка с диапазоном; `None` — отказ. |
 | `ui.ask_text` | `ask_text(question, *, default="", allow_empty=True) -> str \| None` | |
 | `ui.pause` | `pause(message="Enter — продолжить")` | Ctrl+C/EOF не роняют программу. |
@@ -709,6 +710,7 @@ pytest
 | `test_config_surface.py` | всё, что код импортирует из `config/`, там действительно есть; записи `NETWORKS` well-formed, без дублей RPC внутри сети и без совпадающих имён |
 | `test_networks_config_regressions.py` | атрибуты `config/networks.py`, к которым обращаются модули; explorer одной сети не скопирован в другую; адреса токенов не заимствованы из чужой сети |
 | `test_ui.py` | `modules/ui`: подсчёт визуальной ширины (эмодзи, ANSI), одинаковая ширина строк панелей, бейджи, ASCII-фолбэк глифов |
+| `test_ui_consistency.py` | вне `modules/ui` никто не импортирует `questionary` — интерфейс собирается только из UI-набора |
 | `test_docs.py` | README и `docs/`: относительные ссылки резолвятся, числа сетей совпадают с `NETWORKS`, каждый пункт меню упомянут в README, нет упоминаний давно удалённых конфигов |
 | `test_proxy_manager.py` | нормализация форматов прокси |
 | `test_balance_checkers.py` | регрессии чекеров балансов (парсинг прокси, возобновление задач) |
