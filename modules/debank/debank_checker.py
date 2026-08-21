@@ -12,6 +12,7 @@ import time
 import random
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs
 
 from rich.console import Console
 from rich.live import Live
@@ -38,60 +39,123 @@ console = Console()
 # Максимум параллельных браузерных контекстов
 MAX_CONCURRENT = NUM_THREADS
 
+# Пути ответов DeBank, из которых собираются балансы.
+# ``cache_balance_list`` — агрегат сразу по всем сетям, ``balance_list`` — по одной
+# сети (фронт дёргает его десятки раз). ``used_chains`` нужен, чтобы отличить пустой
+# кошелёк от сорванной загрузки: если сетей у адреса нет, DeBank балансы вообще
+# не запрашивает, и ждать их бессмысленно.
+USED_CHAINS_PATH = '/user/used_chains'
+CACHE_BALANCE_PATH = '/token/cache_balance_list'
+CHAIN_BALANCE_PATH = '/token/balance_list'
+
+# Сколько секунд ждём данные после загрузки страницы, прежде чем считать попытку неудачной.
+DATA_WAIT_TIMEOUT = 30
+
+# Каждая попытка — это полный запуск браузера, поэтому ретраев держим немного:
+# при RETRY_COUNT=15 один проблемный кошелёк занимал бы поток минут на десять.
+MAX_ATTEMPTS = max(1, min(RETRY_COUNT, 3))
+
+
+# Источники кошельков: обе колонки лежат в общем data.csv проекта.
+SOURCE_ADDRESSES = 'wallets'
+SOURCE_PRIVATE_KEYS = 'private_keys'
+
+
+def _legacy_lines(filename: str) -> list:
+    """Строки из старых отдельных файлов (data/walletss.txt и т.п.).
+
+    Нужны только как запасной вариант, пока адреса не перенесены в data.csv.
+    """
+    path = project_root / 'data' / filename
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        console.print(f"[red]Ошибка чтения {path.name}: {e}[/red]")
+        return []
+
+
+def _address_from_key(private_key: str):
+    """Адрес по приватному ключу; сам ключ наружу не уходит — DeBank видит только адрес."""
+    from eth_account import Account
+
+    key = private_key if private_key.startswith('0x') else '0x' + private_key
+    try:
+        return Account.from_key(key).address
+    except Exception:
+        return None
+
+
+def load_wallet_rows(source: str = SOURCE_ADDRESSES) -> list:
+    """Кошельки из общего data.csv — по адресам или по приватным ключам.
+
+    Возвращает список ``{'address', 'proxy'}``: прокси берётся из той же строки,
+    чтобы кошелёк всегда ходил через свой, а не через случайный из общего пула.
+    """
+    from modules.data_manager import load_data
+
+    rows = []
+    invalid_keys = 0
+
+    for row in load_data():
+        proxy = (row.get('proxy') or '').strip()
+        if source == SOURCE_PRIVATE_KEYS:
+            key = (row.get('private_key') or '').strip()
+            if not key:
+                continue
+            address = _address_from_key(key)
+            if not address:
+                invalid_keys += 1      # сам ключ не логируем — это секрет
+                continue
+        else:
+            address = (row.get('wallet_address') or '').strip()
+            if not address.startswith('0x'):
+                continue
+        rows.append({'address': address, 'proxy': proxy})
+
+    if invalid_keys:
+        console.print(f"[yellow]⚠️ Пропущено невалидных ключей: {invalid_keys}[/yellow]")
+
+    if rows:
+        return rows
+
+    # data.csv пуст по нужной колонке — поддерживаем старые отдельные файлы.
+    if source == SOURCE_PRIVATE_KEYS:
+        legacy = [_address_from_key(k) for k in _legacy_lines('private_keys.txt')]
+        legacy = [a for a in legacy if a]
+        source_name = 'data/private_keys.txt'
+    else:
+        legacy = [a for a in _legacy_lines('walletss.txt') if a.startswith('0x')]
+        source_name = 'data/walletss.txt'
+
+    if legacy:
+        console.print(f"[yellow]⚠️ В data.csv нужной колонки нет — взяли {source_name}[/yellow]")
+    return [{'address': a, 'proxy': ''} for a in legacy]
+
 
 def load_wallets() -> list:
-    wallet_file = project_root / 'data' / 'walletss.txt'
-    wallets = []
-    try:
-        with open(wallet_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and line.startswith('0x'):
-                    wallets.append(line)
-    except Exception as e:
-        console.print(f"[red]Ошибка загрузки кошельков: {e}[/red]")
-    return wallets
+    """Адреса кошельков из колонки wallet_address общего data.csv."""
+    return [row['address'] for row in load_wallet_rows(SOURCE_ADDRESSES)]
 
 
 def load_private_keys_as_wallets() -> list:
-    """Загрузить приватные ключи из data/private_keys.txt и конвертировать в адреса"""
-    from eth_account import Account
-
-    pk_file = project_root / 'data' / 'private_keys.txt'
-    wallets = []
-    try:
-        with open(pk_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if not line.startswith('0x'):
-                    line = '0x' + line
-                try:
-                    account = Account.from_key(line)
-                    wallets.append(account.address)
-                except Exception:
-                    console.print(f"[yellow]⚠️ Невалидный ключ: {line[:8]}...{line[-4:]}[/yellow]")
-    except FileNotFoundError:
-        console.print("[red]❌ Файл data/private_keys.txt не найден[/red]")
-    except Exception as e:
-        console.print(f"[red]Ошибка загрузки приватных ключей: {e}[/red]")
-    return wallets
+    """Адреса, выведенные из колонки private_key общего data.csv."""
+    return [row['address'] for row in load_wallet_rows(SOURCE_PRIVATE_KEYS)]
 
 
 def load_proxies() -> list:
-    proxy_file = project_root / 'data' / 'proxy.csv'
-    proxies = []
-    try:
-        with open(proxy_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and '@' in line and ':' in line:
-                    if not line.lower().startswith('proxy') and not line.lower().startswith('login'):
-                        proxies.append(line)
-    except Exception:
-        pass
-    return proxies
+    """Общий пул прокси: колонка proxy из data.csv, иначе старый data/proxy.csv."""
+    from modules.data_manager import get_proxies
+
+    proxies = [p for p in get_proxies() if '@' in p and ':' in p]
+    if proxies:
+        return proxies
+
+    return [line for line in _legacy_lines('proxy.csv')
+            if '@' in line and ':' in line
+            and not line.lower().startswith(('proxy', 'login'))]
 
 
 def parse_proxy_for_playwright(proxy_str: str) -> dict:
@@ -145,11 +209,88 @@ def parse_token_data(data) -> list:
     return tokens
 
 
+def chains_from_body(body):
+    """Список сетей из ответа ``/user/used_chains``; пустой список — кошелёк пустой."""
+    if not isinstance(body, dict):
+        return None
+    data = body.get('data')
+    if not isinstance(data, dict):
+        return None
+    chains = data.get('chains')
+    return chains if isinstance(chains, list) else None
+
+
+def watch_balance_api(page) -> dict:
+    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки страницы."""
+    state = {'chains': None, 'cache': None, 'per_chain': {}}
+
+    async def handle_response(response):
+        url = response.url
+        if 'api.debank.com' not in url:
+            return
+        parsed = urlparse(url)
+        try:
+            if parsed.path == USED_CHAINS_PATH:
+                chains = chains_from_body(await response.json())
+                if chains is not None:
+                    state['chains'] = chains
+            elif parsed.path == CACHE_BALANCE_PATH:
+                data = (await response.json()).get('data')
+                if isinstance(data, list):
+                    state['cache'] = data
+            elif parsed.path == CHAIN_BALANCE_PATH:
+                data = (await response.json()).get('data')
+                if isinstance(data, list):
+                    chain = parse_qs(parsed.query).get('chain', [''])[0]
+                    state['per_chain'][chain] = data
+        except Exception:
+            # Тело ответа могло стать недоступным — данные доберём из других запросов.
+            pass
+
+    page.on('response', handle_response)
+    return state
+
+
+def collected_tokens(state: dict) -> list:
+    """Токены из агрегата, дополненные посетевыми ответами, без дублей."""
+    merged = {}
+    for token in (state.get('cache') or []):
+        merged[(token.get('chain'), token.get('id'))] = token
+    for tokens in state.get('per_chain', {}).values():
+        for token in tokens:
+            merged.setdefault((token.get('chain'), token.get('id')), token)
+    return list(merged.values())
+
+
+def balances_ready(state: dict) -> bool:
+    """Пришло ли всё, что DeBank собирался отдать по этому кошельку."""
+    chains = state.get('chains')
+    if chains is None:
+        return False        # профиль ещё не загрузился
+    if not chains:
+        return True         # сетей нет — кошелёк пустой, балансов не будет
+    if state.get('cache') is not None:
+        return True         # пришёл агрегат сразу по всем сетям
+    return set(chains) <= set(state.get('per_chain', {}))
+
+
+async def wait_for_balances(state: dict, timeout: float = DATA_WAIT_TIMEOUT) -> bool:
+    """Ждём сами данные, а не фиксированную паузу: запросов на профиль десятки."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if balances_ready(state):
+            return True
+        await asyncio.sleep(0.5)
+    return balances_ready(state)
+
+
 async def check_wallet_playwright(wallet: str, proxy_config: dict, semaphore: asyncio.Semaphore,
                                   playwright_instance) -> dict:
     """Проверка одного кошелька через Playwright browser"""
     async with semaphore:
-        for attempt in range(RETRY_COUNT + 1):
+        last_error = 'Max retries exceeded'
+
+        for attempt in range(MAX_ATTEMPTS):
             try:
                 launch_args = {'headless': True}
                 if proxy_config:
@@ -158,68 +299,48 @@ async def check_wallet_playwright(wallet: str, proxy_config: dict, semaphore: as
                 browser = await playwright_instance.chromium.launch(**launch_args)
                 try:
                     page = await browser.new_page()
+                    state = watch_balance_api(page)
 
-                    # Перехват API ответа cache_balance_list
-                    balance_data = {}
-
-                    async def handle_response(response):
-                        url = response.url
-                        if 'api.debank.com' in url and 'cache_balance_list' in url:
-                            try:
-                                body = await response.json()
-                                balance_data['tokens'] = body
-                            except Exception:
-                                pass
-
-                    page.on('response', handle_response)
-
-                    # Навигация на профиль кошелька
+                    # Не networkidle: профиль тянет балансы десятками запросов и
+                    # тишины в сети может не наступить вовсе — ждём сами данные.
                     await page.goto(
                         f'https://debank.com/profile/{wallet}',
-                        wait_until='networkidle',
-                        timeout=30000
+                        wait_until='domcontentloaded',
+                        timeout=45000
                     )
 
-                    # Ждём загрузки данных
-                    await asyncio.sleep(random.uniform(2, 4))
+                    await wait_for_balances(state)
 
-                    if 'tokens' in balance_data:
-                        tokens = parse_token_data(balance_data['tokens'])
-                        total_usd = sum(t['value_usd'] for t in tokens)
+                    tokens_raw = collected_tokens(state)
+                    is_last = attempt == MAX_ATTEMPTS - 1
+
+                    if state['chains'] is None:
+                        # Нет даже списка сетей — блокировка, капча или мёртвый прокси.
+                        last_error = 'DeBank не отдал данные профиля'
+                    elif balances_ready(state) or (tokens_raw and is_last):
+                        # Пустой кошелёк — тоже успех: сетей нет, значит и токенов нет.
+                        tokens = parse_token_data(tokens_raw)
                         return {
                             'wallet': wallet,
                             'tokens': tokens,
                             'success': True,
-                            'total_usd': total_usd,
+                            'total_usd': sum(t['value_usd'] for t in tokens),
                             'error': None,
                         }
-
-                    if attempt < RETRY_COUNT:
-                        await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
-                        continue
-
-                    return {
-                        'wallet': wallet,
-                        'tokens': [],
-                        'success': False,
-                        'error': 'No balance data received',
-                    }
+                    else:
+                        last_error = 'Балансы не пришли за отведённое время'
 
                 finally:
                     await browser.close()
 
             except Exception as e:
-                if attempt < RETRY_COUNT:
-                    await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
-                    continue
-                return {
-                    'wallet': wallet,
-                    'tokens': [],
-                    'success': False,
-                    'error': str(e)[:80],
-                }
+                last_error = str(e)[:80]
 
-    return {'wallet': wallet, 'tokens': [], 'success': False, 'error': 'Max retries exceeded'}
+            if attempt < MAX_ATTEMPTS - 1:
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+
+    return {'wallet': wallet, 'tokens': [], 'success': False,
+            'total_usd': 0, 'error': last_error}
 
 
 def create_panel(total: int, success: int, failed: int, logs: list) -> Panel:
@@ -282,8 +403,12 @@ def create_panel(total: int, success: int, failed: int, logs: list) -> Panel:
     )
 
 
-async def process_wallets_async(wallets: list) -> dict:
-    """Асинхронная обработка кошельков через Playwright"""
+async def process_wallets_async(wallets: list, proxy_map: dict = None) -> dict:
+    """Асинхронная обработка кошельков через Playwright.
+
+    ``proxy_map`` — прокси из строки самого кошелька в data.csv; для кошельков
+    без своего прокси берётся общий пул по кругу.
+    """
     from playwright.async_api import async_playwright
 
     results = {}
@@ -293,6 +418,8 @@ async def process_wallets_async(wallets: list) -> dict:
     logs = []
 
     proxies = load_proxies()
+    proxy_map = proxy_map or {}
+    paired = sum(1 for w in wallets if proxy_map.get(w))
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     if not proxies:
@@ -300,8 +427,12 @@ async def process_wallets_async(wallets: list) -> dict:
 
     delay_min, delay_max = DELAY_BETWEEN_ACCOUNTS
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно, задержка {delay_min}-{delay_max}с)", "INFO"))
+    if paired:
+        logs.append((time.strftime("%H:%M:%S"),
+                     f"У {paired} кошельков свой прокси из data.csv", "INFO"))
     if proxies:
-        logs.append((time.strftime("%H:%M:%S"), f"Загружено {len(proxies)} прокси (round-robin)", "INFO"))
+        logs.append((time.strftime("%H:%M:%S"),
+                     f"Общий пул прокси: {len(proxies)} (round-robin)", "INFO"))
 
     live = Live(create_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
     live.start()
@@ -312,7 +443,10 @@ async def process_wallets_async(wallets: list) -> dict:
             async def process_wallet(idx, wallet):
                 """Обработка одного кошелька с обновлением UI"""
                 nonlocal success, failed
-                proxy_str = proxies[idx % len(proxies)] if proxies else None
+                # Свой прокси кошелька важнее общего пула: один адрес — один IP.
+                proxy_str = proxy_map.get(wallet)
+                if not proxy_str and proxies:
+                    proxy_str = proxies[idx % len(proxies)]
                 proxy_config = parse_proxy_for_playwright(proxy_str)
 
                 short = f"{wallet[:6]}...{wallet[-4:]}"
@@ -356,16 +490,27 @@ async def process_wallets_async(wallets: list) -> dict:
 
                 live.update(create_panel(total, success, failed, logs))
 
-            # Запуск задач с задержкой DELAY_BETWEEN_ACCOUNTS между стартами
-            tasks = []
-            for idx, wallet in enumerate(wallets):
-                task = asyncio.create_task(process_wallet(idx, wallet))
-                tasks.append(task)
-                if idx < len(wallets) - 1:
+            # Очередь и пул воркеров вместо создания всех задач заранее: раньше
+            # между стартами ждали DELAY_BETWEEN_ACCOUNTS последовательно, и на
+            # тысячах кошельков одна только раздача задач растягивалась на часы,
+            # а реальная параллельность была в разы ниже MAX_CONCURRENT.
+            queue = asyncio.Queue()
+            for item in enumerate(wallets):
+                queue.put_nowait(item)
+
+            async def worker():
+                while True:
+                    try:
+                        idx, wallet = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        return
+                    await process_wallet(idx, wallet)
+                    # Пауза между кошельками одного воркера, чтобы не бить DeBank пачкой.
                     await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACCOUNTS))
 
-            # Дождаться завершения всех задач
-            await asyncio.gather(*tasks, return_exceptions=True)
+            workers = [asyncio.create_task(worker())
+                       for _ in range(min(MAX_CONCURRENT, len(wallets)))]
+            await asyncio.gather(*workers, return_exceptions=True)
 
     finally:
         live.stop()
@@ -373,9 +518,9 @@ async def process_wallets_async(wallets: list) -> dict:
     return results
 
 
-def process_wallets(wallets: list) -> dict:
+def process_wallets(wallets: list, proxy_map: dict = None) -> dict:
     """Обёртка для запуска асинхронной обработки"""
-    return asyncio.run(process_wallets_async(wallets))
+    return asyncio.run(process_wallets_async(wallets, proxy_map))
 
 
 def save_results_csv(wallets: list):
@@ -484,8 +629,8 @@ def debank_checker_menu():
         "║      Источник кошельков                        ║\n"
         "╚════════════════════════════════════════════════╝",
         choices=[
-            Choice('   📋 Адреса кошельков (data/walletss.txt)', 'wallets'),
-            Choice('   🔑 Приватные ключи (data/private_keys.txt)', 'private_keys'),
+            Choice('   📋 Адреса кошельков (колонка wallet_address в data.csv)', 'wallets'),
+            Choice('   🔑 Приватные ключи (колонка private_key в data.csv)', 'private_keys'),
             Choice('   🔙 Назад', 'back')
         ],
         qmark='🛠️ ',
@@ -495,17 +640,19 @@ def debank_checker_menu():
     if wallet_source == 'back' or not wallet_source:
         return
 
-    if wallet_source == 'private_keys':
-        wallets = load_private_keys_as_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет валидных ключей в data/private_keys.txt[/red]")
-            return
-        console.print(f"[cyan]🔑 Конвертировано {len(wallets)} приватных ключей в адреса[/cyan]")
+    rows = load_wallet_rows(wallet_source)
+    if not rows:
+        column = 'private_key' if wallet_source == SOURCE_PRIVATE_KEYS else 'wallet_address'
+        console.print(f"[red]❌ В data.csv не заполнена колонка {column}[/red]")
+        return
+
+    wallets = [row['address'] for row in rows]
+    # Прокси кошелька из его же строки data.csv.
+    proxy_map = {row['address']: row['proxy'] for row in rows if row['proxy']}
+
+    if wallet_source == SOURCE_PRIVATE_KEYS:
+        console.print(f"[cyan]🔑 Получено {len(wallets)} адресов из приватных ключей[/cyan]")
     else:
-        wallets = load_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет кошельков в data/walletss.txt[/red]")
-            return
         console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
 
     init_database()
@@ -556,7 +703,7 @@ def debank_checker_menu():
     console.print(f"[cyan]📋 Задач к выполнению: {len(wallets_to_check)}[/cyan]")
 
     # Обработка
-    results = process_wallets(wallets_to_check)
+    results = process_wallets(wallets_to_check, proxy_map)
 
     # Итоги
     print_summary(results)

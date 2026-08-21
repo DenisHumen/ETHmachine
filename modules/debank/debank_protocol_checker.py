@@ -13,6 +13,7 @@ import time
 import random
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse
 
 from rich.console import Console
 from rich.live import Live
@@ -38,7 +39,9 @@ from modules.debank.database import (
     get_protocol_task_statistics
 )
 from modules.debank.debank_checker import (
-    load_wallets, load_private_keys_as_wallets, load_proxies, parse_proxy_for_playwright
+    load_wallets, load_private_keys_as_wallets, load_proxies, parse_proxy_for_playwright,
+    load_wallet_rows, SOURCE_PRIVATE_KEYS, chains_from_body, USED_CHAINS_PATH,
+    DATA_WAIT_TIMEOUT, MAX_ATTEMPTS
 )
 
 console = Console()
@@ -210,11 +213,60 @@ def parse_protocol_data(data) -> list:
     return positions
 
 
+PROJECT_LIST_PATH = '/portfolio/project_list'
+
+
+def watch_protocol_api(page) -> dict:
+    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки страницы."""
+    state = {'chains': None, 'projects': None}
+
+    async def handle_response(response):
+        url = response.url
+        if 'api.debank.com' not in url:
+            return
+        path = urlparse(url).path
+        try:
+            if path == USED_CHAINS_PATH:
+                chains = chains_from_body(await response.json())
+                if chains is not None:
+                    state['chains'] = chains
+            elif path == PROJECT_LIST_PATH:
+                state['projects'] = await response.json()
+        except Exception:
+            # Тело ответа могло стать недоступным — дождёмся следующего запроса.
+            pass
+
+    page.on('response', handle_response)
+    return state
+
+
+def protocols_ready(state: dict) -> bool:
+    """Пришло ли всё, что DeBank собирался отдать по этому кошельку."""
+    chains = state.get('chains')
+    if chains is None:
+        return False        # профиль ещё не загрузился
+    if not chains:
+        return True         # сетей нет — кошелёк пустой, позиций не будет
+    return state.get('projects') is not None
+
+
+async def wait_for_protocols(state: dict, timeout: float = DATA_WAIT_TIMEOUT) -> bool:
+    """Ждём сами данные, а не фиксированную паузу."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if protocols_ready(state):
+            return True
+        await asyncio.sleep(0.5)
+    return protocols_ready(state)
+
+
 async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asyncio.Semaphore,
                                  playwright_instance) -> dict:
     """Проверка DeFi-позиций одного кошелька через Playwright"""
     async with semaphore:
-        for attempt in range(RETRY_COUNT + 1):
+        last_error = 'Max retries exceeded'
+
+        for attempt in range(MAX_ATTEMPTS):
             try:
                 launch_args = {'headless': True}
                 if proxy_config:
@@ -223,66 +275,47 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                 browser = await playwright_instance.chromium.launch(**launch_args)
                 try:
                     page = await browser.new_page()
+                    state = watch_protocol_api(page)
 
-                    protocol_data = {}
-
-                    async def handle_response(response):
-                        url = response.url
-                        if 'api.debank.com' in url and 'portfolio/project_list' in url:
-                            try:
-                                body = await response.json()
-                                protocol_data['protocols'] = body
-                            except Exception:
-                                pass
-
-                    page.on('response', handle_response)
-
+                    # Не networkidle: профиль тянет данные десятками запросов и
+                    # тишины в сети может не наступить вовсе — ждём сами данные.
                     await page.goto(
                         f'https://debank.com/profile/{wallet}',
-                        wait_until='networkidle',
-                        timeout=30000
+                        wait_until='domcontentloaded',
+                        timeout=45000
                     )
 
-                    await asyncio.sleep(random.uniform(3, 6))
+                    await wait_for_protocols(state)
 
-                    if 'protocols' in protocol_data:
-                        positions = parse_protocol_data(protocol_data['protocols'])
-                        total_usd = sum(p['value_usd'] for p in positions)
+                    is_last = attempt == MAX_ATTEMPTS - 1
+
+                    if state['chains'] is None:
+                        # Нет даже списка сетей — блокировка, капча или мёртвый прокси.
+                        last_error = 'DeBank не отдал данные профиля'
+                    elif protocols_ready(state) or is_last:
+                        # Пустой кошелёк — тоже успех: сетей нет, значит и позиций нет.
+                        positions = parse_protocol_data(state['projects']) if state['projects'] else []
                         return {
                             'wallet': wallet,
                             'positions': positions,
                             'success': True,
-                            'total_usd': total_usd,
+                            'total_usd': sum(p['value_usd'] for p in positions),
                             'error': None,
                         }
-
-                    if attempt < RETRY_COUNT:
-                        await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
-                        continue
-
-                    return {
-                        'wallet': wallet,
-                        'positions': [],
-                        'success': True,
-                        'total_usd': 0,
-                        'error': None,
-                    }
+                    else:
+                        last_error = 'Позиции не пришли за отведённое время'
 
                 finally:
                     await browser.close()
 
             except Exception as e:
-                if attempt < RETRY_COUNT:
-                    await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
-                    continue
-                return {
-                    'wallet': wallet,
-                    'positions': [],
-                    'success': False,
-                    'error': str(e)[:80],
-                }
+                last_error = str(e)[:80]
 
-    return {'wallet': wallet, 'positions': [], 'success': False, 'error': 'Max retries exceeded'}
+            if attempt < MAX_ATTEMPTS - 1:
+                await asyncio.sleep(random.uniform(*SLEEP_BETWEEN_ACTIONS))
+
+    return {'wallet': wallet, 'positions': [], 'success': False,
+            'total_usd': 0, 'error': last_error}
 
 
 def create_protocol_panel(total: int, success: int, failed: int, logs: list) -> Panel:
@@ -345,8 +378,12 @@ def create_protocol_panel(total: int, success: int, failed: int, logs: list) -> 
     )
 
 
-async def process_wallets_protocols_async(wallets: list) -> dict:
-    """Асинхронная обработка кошельков — сбор DeFi-позиций"""
+async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None) -> dict:
+    """Асинхронная обработка кошельков — сбор DeFi-позиций.
+
+    ``proxy_map`` — прокси из строки самого кошелька в data.csv; для кошельков
+    без своего прокси берётся общий пул по кругу.
+    """
     from playwright.async_api import async_playwright
 
     results = {}
@@ -356,14 +393,20 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
     logs = []
 
     proxies = load_proxies()
+    proxy_map = proxy_map or {}
+    paired = sum(1 for w in wallets if proxy_map.get(w))
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     if not proxies:
         console.print("[yellow][!] Прокси не найдены, запросы пойдут напрямую[/yellow]")
 
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно)", "INFO"))
+    if paired:
+        logs.append((time.strftime("%H:%M:%S"),
+                     f"У {paired} кошельков свой прокси из data.csv", "INFO"))
     if proxies:
-        logs.append((time.strftime("%H:%M:%S"), f"Загружено {len(proxies)} прокси (round-robin)", "INFO"))
+        logs.append((time.strftime("%H:%M:%S"),
+                     f"Общий пул прокси: {len(proxies)} (round-robin)", "INFO"))
 
     live = Live(create_protocol_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
     live.start()
@@ -373,7 +416,10 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
 
             async def process_wallet(idx, wallet):
                 nonlocal success, failed
-                proxy_str = proxies[idx % len(proxies)] if proxies else None
+                # Свой прокси кошелька важнее общего пула: один адрес — один IP.
+                proxy_str = proxy_map.get(wallet)
+                if not proxy_str and proxies:
+                    proxy_str = proxies[idx % len(proxies)]
                 proxy_config = parse_proxy_for_playwright(proxy_str)
 
                 short = f"{wallet[:6]}...{wallet[-4:]}"
@@ -418,14 +464,27 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
 
                 live.update(create_protocol_panel(total, success, failed, logs))
 
-            tasks = []
-            for idx, wallet in enumerate(wallets):
-                task = asyncio.create_task(process_wallet(idx, wallet))
-                tasks.append(task)
-                if idx < len(wallets) - 1:
+            # Очередь и пул воркеров вместо создания всех задач заранее: раньше
+            # между стартами ждали DELAY_BETWEEN_ACCOUNTS последовательно, и на
+            # тысячах кошельков одна только раздача задач растягивалась на часы,
+            # а реальная параллельность была в разы ниже MAX_CONCURRENT.
+            queue = asyncio.Queue()
+            for item in enumerate(wallets):
+                queue.put_nowait(item)
+
+            async def worker():
+                while True:
+                    try:
+                        idx, wallet = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        return
+                    await process_wallet(idx, wallet)
+                    # Пауза между кошельками одного воркера, чтобы не бить DeBank пачкой.
                     await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACCOUNTS))
 
-            await asyncio.gather(*tasks, return_exceptions=True)
+            workers = [asyncio.create_task(worker())
+                       for _ in range(min(MAX_CONCURRENT, len(wallets)))]
+            await asyncio.gather(*workers, return_exceptions=True)
 
     finally:
         live.stop()
@@ -433,9 +492,9 @@ async def process_wallets_protocols_async(wallets: list) -> dict:
     return results
 
 
-def process_wallets_protocols(wallets: list) -> dict:
+def process_wallets_protocols(wallets: list, proxy_map: dict = None) -> dict:
     """Обёртка для запуска асинхронной обработки"""
-    return asyncio.run(process_wallets_protocols_async(wallets))
+    return asyncio.run(process_wallets_protocols_async(wallets, proxy_map))
 
 
 # ─── XLSX Export ─────────────────────────────────────────────────────────────
@@ -708,8 +767,8 @@ def debank_protocol_menu():
         "║      Источник кошельков                        ║\n"
         "╚════════════════════════════════════════════════╝",
         choices=[
-            Choice('   📋 Адреса кошельков (data/walletss.txt)', 'wallets'),
-            Choice('   🔑 Приватные ключи (data/private_keys.txt)', 'private_keys'),
+            Choice('   📋 Адреса кошельков (колонка wallet_address в data.csv)', 'wallets'),
+            Choice('   🔑 Приватные ключи (колонка private_key в data.csv)', 'private_keys'),
             Choice('   🔙 Назад', 'back')
         ],
         qmark='🛠️ ',
@@ -719,17 +778,19 @@ def debank_protocol_menu():
     if wallet_source == 'back' or not wallet_source:
         return
 
-    if wallet_source == 'private_keys':
-        wallets = load_private_keys_as_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет валидных ключей в data/private_keys.txt[/red]")
-            return
-        console.print(f"[cyan]🔑 Конвертировано {len(wallets)} приватных ключей в адреса[/cyan]")
+    rows = load_wallet_rows(wallet_source)
+    if not rows:
+        column = 'private_key' if wallet_source == SOURCE_PRIVATE_KEYS else 'wallet_address'
+        console.print(f"[red]❌ В data.csv не заполнена колонка {column}[/red]")
+        return
+
+    wallets = [row['address'] for row in rows]
+    # Прокси кошелька из его же строки data.csv.
+    proxy_map = {row['address']: row['proxy'] for row in rows if row['proxy']}
+
+    if wallet_source == SOURCE_PRIVATE_KEYS:
+        console.print(f"[cyan]🔑 Получено {len(wallets)} адресов из приватных ключей[/cyan]")
     else:
-        wallets = load_wallets()
-        if not wallets:
-            console.print("[red]❌ Нет кошельков в data/walletss.txt[/red]")
-            return
         console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
 
     init_database()
@@ -779,7 +840,7 @@ def debank_protocol_menu():
     wallets_to_check = [t['wallet_address'] for t in pending_tasks]
     console.print(f"[cyan]📋 Задач к выполнению: {len(wallets_to_check)}[/cyan]")
 
-    results = process_wallets_protocols(wallets_to_check)
+    results = process_wallets_protocols(wallets_to_check, proxy_map)
 
     print_protocol_summary(results)
 

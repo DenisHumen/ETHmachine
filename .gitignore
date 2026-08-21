@@ -8,6 +8,14 @@ __pycache__
 # Data files (содержат приватные ключи, пароли, токены)
 data/data.csv
 data/data_*.csv
+# Старые отдельные файлы — до объединения в data.csv (тоже с секретами)
+data/private_keys.txt
+data/walletss.txt
+data/walletss_sol.txt
+data/proxy.csv
+data/mnemonic.txt
+data/email.csv
+data/discord_token.txt
 data/one_time_intermediary.csv
 data/twitter/twitters.csv
 data/twitter/twitter_task.csv
