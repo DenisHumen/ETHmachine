@@ -1,105 +1,95 @@
-"""CLI: dai_withdraw меню (план / запуск / статистика).
+"""Меню вывода DAI из zkSync Lite в L1 (план / запуск / статистика).
 
-Запуск из main.py через Меню или вручную:
+Запускается из главного меню или напрямую::
+
     python -m modules.zksync_lite.dai_withdraw.cli
 """
 from __future__ import annotations
 
 import sys
-from typing import Optional
-
-try:
-    import questionary  # type: ignore
-except Exception:
-    questionary = None
 
 from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.module_menu import MenuAction, ModuleMenu
 from modules.zksync_lite.dai_withdraw import database as dai_db
 from modules.zksync_lite.dai_withdraw.executor import DaiWithdrawExecutor
 from modules.zksync_lite.dai_withdraw.planner import plan_tasks, MIN_DAI_HUMAN
 
 
-def _menu() -> Optional[str]:
-    if questionary is None:
-        print("установите questionary: pip install questionary")
-        return None
-    return questionary.select(
-        "💧 DAI withdraw Lite → L1 — выберите действие:",
-        choices=[
-            "📋 Планирование (создать задачи из balance-БД)",
-            "▶️  Запуск pending задач",
-            "🤖 Авто-режим (план + запуск)",
-            "📊 Статистика",
-            "🔄 Сброс БД (reset)",
-            "↩  Назад",
-        ],
-    ).ask()
-
-
 def cmd_plan(reset: bool = False, dry_run: bool = False) -> None:
-    print(f"Планирование (min_dai={MIN_DAI_HUMAN}) reset={reset} dry_run={dry_run}…")
-    s = plan_tasks(reset=reset, dry_run=dry_run)
-    for k, v in s.items():
-        if k != "preview":
-            print(f"  {k}: {v}")
-    if dry_run and s.get("preview"):
-        print("\nПервые 20 кошельков:")
-        for p in s["preview"][:20]:
-            print(f"  {p['wallet']}  {p['amount']} DAI")
+    logger.info(f"Планирование: min_dai={MIN_DAI_HUMAN}, reset={reset}, "
+                f"dry_run={dry_run}")
+    summary = plan_tasks(reset=reset, dry_run=dry_run)
+
+    ui.print_lines(ui.panel("Итог планирования", [
+        f"{key}: {value}" for key, value in summary.items() if key != "preview"
+    ]))
+
+    if dry_run and summary.get("preview"):
+        ui.print_lines(ui.panel("Первые 20 кошельков", [
+            f"{row['wallet']}  {row['amount']} DAI"
+            for row in summary["preview"][:20]
+        ]))
+
+
+def cmd_plan_dry() -> None:
+    cmd_plan(reset=False, dry_run=True)
 
 
 def cmd_run() -> None:
     dai_db.init_database()
-    executor = DaiWithdrawExecutor()
-    res = executor.run_all()
-    print("\n=== итог ===")
-    print(f"  результаты: {len(res['results'])}")
-    print(f"  фейлы: {len(res['failures'])}")
-    print(f"  статусы: {res['stats']}")
+    result = DaiWithdrawExecutor().run_all()
+    ui.print_lines(ui.panel("Готово", [
+        f"результаты: {len(result['results'])}",
+        f"фейлы:      {len(result['failures'])}",
+        f"статусы:    {result['stats']}",
+    ]))
 
 
-def cmd_stats() -> None:
-    dai_db.init_database()
-    print("\nDAI withdraw stats:")
-    for k, v in dai_db.get_statistics().items():
-        print(f"  {k}: {v}")
+def cmd_auto() -> None:
+    cmd_plan(reset=False, dry_run=False)
+    cmd_run()
 
 
-def cmd_reset() -> None:
-    if questionary is None:
-        ans = input("Точно сбросить БД? (y/N): ").strip().lower() == "y"
-    else:
-        ans = questionary.confirm("Точно сбросить БД?").ask()
-    if ans:
-        dai_db.reset_database()
-        print("Сброшено.")
+def _info_sections() -> dict:
+    return {
+        "Что делает": [
+            "выводит DAI из zkSync Lite в Ethereum L1,",
+            f"порог — от {MIN_DAI_HUMAN} DAI на кошелёк",
+        ],
+        "Порядок": [
+            "1. «zkSync Lite Balance Checker» — наполнить balance-БД",
+            "2. «Планирование» — создать задачи",
+            "3. «Запуск» — выполнить pending-задачи",
+        ],
+        "Состояние": [f"задачи — {dai_db.DB_FILE}"],
+    }
 
 
 def main() -> None:
-    while True:
-        ch = _menu()
-        if not ch or ch.startswith("↩"):
-            return
-        if ch.startswith("📋"):
-            cmd_plan(reset=False, dry_run=False)
-        elif ch.startswith("▶"):
-            cmd_run()
-        elif ch.startswith("🤖"):
-            cmd_plan(reset=False, dry_run=False)
-            cmd_run()
-        elif ch.startswith("📊"):
-            cmd_stats()
-        elif ch.startswith("🔄"):
-            cmd_reset()
-        try:
-            input("\nНажмите Enter для продолжения…")
-        except (EOFError, KeyboardInterrupt):
-            return
+    ModuleMenu(
+        title="DAI withdraw: Lite → L1",
+        subtitle="вывод DAI в Ethereum",
+        icon="💧",
+        actions=[
+            MenuAction("auto", "Авто-режим", cmd_auto,
+                       "план и сразу запуск", icon="🤖"),
+            MenuAction("plan", "Планирование", cmd_plan,
+                       "создать задачи из balance-БД", icon="📋"),
+            MenuAction("dry", "Превью плана", cmd_plan_dry,
+                       "dry-run, в БД ничего не пишется", icon="👁️"),
+            MenuAction("run", "Запуск задач", cmd_run,
+                       "выполнить pending-задачи", icon="▶️"),
+        ],
+        stats=dai_db.get_statistics,
+        stats_title=str(dai_db.DB_FILE),
+        reset=dai_db.reset_database,
+        info=_info_sections,
+    ).run()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print()
         sys.exit(0)
