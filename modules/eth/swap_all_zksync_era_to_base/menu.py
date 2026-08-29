@@ -4,12 +4,10 @@ from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from colorama import Fore, Style
-from questionary import Choice, select
-
 from modules.simple_logger import (
     logger, log_wallet_task, log_simple, set_auto_progress,
 )
+from modules.ui.module_menu import MenuAction, ModuleMenu
 from modules.eth.swap_all_zksync_era_to_base import (
     database as db, planner, excel_export,
 )
@@ -20,27 +18,6 @@ PLAN_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 SWAP_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 
 set_auto_progress(False)
-
-
-def _show_stats() -> None:
-    stats = db.get_statistics()
-    sep = f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}"
-    print()
-    print(sep)
-    print(f"{Fore.CYAN}zkSync Era → Base USDC — Swap All (Rhino.fi){Style.RESET_ALL}")
-    print(f"{Fore.CYAN}DB:{Style.RESET_ALL} {db.DB_PATH}")
-    print(sep)
-    if stats.get("total", 0) == 0:
-        print(f"  {Fore.YELLOW}БД пуста{Style.RESET_ALL}")
-    else:
-        for k, v in stats.items():
-            if k == "total":
-                continue
-            print(f"  {k:<22} {v}")
-        print(f"  {'-' * 40}")
-        print(f"  total                  {stats['total']}")
-    print(sep)
-    print()
 
 
 def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
@@ -257,70 +234,50 @@ def _handle_export() -> None:
     log_simple(f"сохранено: {path}", "success")
 
 
-def _handle_reset() -> None:
-    db.reset_database()
-    logger.success("swap_all_tasks (zkSync→Base) очищена")
-
-
-def _print_info() -> None:
-    print(f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
-║   zkSync Era → Base USDC — Swap All (Rhino.fi)                   ║
-╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
-
-Маршруты Rhino.fi (mode=pay):
-  {Fore.GREEN}USDC{Style.RESET_ALL} (zkSync Era) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
-  {Fore.GREEN}USDT{Style.RESET_ALL} (zkSync Era) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
-  Native ETH — не свапается (нужен на газ).
-
-On-chain: depositWithId(token, amount, commitmentId) на bridge-контракте
-  Rhino.fi — 0x1fa66e2b38d0cc496ec51f81c3e05e6a6708986f
-  commitmentId = uint256(quoteId).
-
-Источник балансов: OKLink (web-internal API, chain=zksync_era).
-Источник кошельков: {Fore.YELLOW}data/data.csv{Style.RESET_ALL}.
-БД задач:           {Fore.YELLOW}db/swap_all_zksync_era_to_base.db{Style.RESET_ALL}.
-
-Excel-отчёт:
-  {Fore.YELLOW}result/swap_all_zksync_era_to_base/run_<timestamp>/swap_all_report.xlsx{Style.RESET_ALL}
-""")
+def _info_sections() -> dict:
+    return {
+        "Маршруты Rhino.fi (mode=pay)": [
+            "USDC (zkSync Era) → USDC (Base)",
+            "USDT (zkSync Era) → USDC (Base)",
+            "нативный ETH не свапается — нужен на газ",
+        ],
+        "On-chain": [
+            "depositWithId(token, amount, commitmentId) на bridge-контракте",
+            "Rhino.fi — 0x1fa66e2b38d0cc496ec51f81c3e05e6a6708986f",
+            "commitmentId = uint256(quoteId)",
+        ],
+        "Откуда данные": [
+            "балансы — OKLink (web-internal API, chain=zksync_era)",
+            "кошельки — data/data.csv",
+            f"задачи — {db.DB_PATH}",
+        ],
+        "Отчёт": [
+            "result/swap_all_zksync_era_to_base/run_<timestamp>/"
+            "swap_all_report.xlsx",
+        ],
+    }
 
 
 def run_swap_all_zksync_era_to_base() -> None:
-    while True:
-        action = select(
-            "💱 zkSync Era → Base USDC swap-all (Rhino.fi):",
-            choices=[
-                Choice("🤖 Авто-режим (pipeline + резюм + Excel)", "auto"),
-                Choice("📋 Планирование (баланс + классификация)", "plan"),
-                Choice("▶️  Запуск свапа",                         "run"),
-                Choice("📊 Статистика БД",                         "stats"),
-                Choice("📑 Экспорт Excel-отчёта",                  "export"),
-                Choice("🗑️  Очистить БД",                         "reset"),
-                Choice("📖 Информация",                            "info"),
-                Choice("🔙 Назад",                                  "back"),
-            ],
-            qmark="💱",
-            pointer="👉",
-        ).ask()
-
-        if action in (None, "back"):
-            return
-        if action == "auto":
-            _handle_auto()
-        elif action == "plan":
-            _handle_plan()
-        elif action == "run":
-            _handle_run()
-        elif action == "stats":
-            _show_stats()
-        elif action == "export":
-            _handle_export()
-        elif action == "reset":
-            _handle_reset()
-        elif action == "info":
-            _print_info()
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    ModuleMenu(
+        title="zkSync Era → Base USDC",
+        subtitle="swap-all через Rhino.fi",
+        icon="💱",
+        actions=[
+            MenuAction("auto", "Авто-режим", _handle_auto,
+                       "план, свап и Excel одной кнопкой", icon="🤖"),
+            MenuAction("plan", "Планирование", _handle_plan,
+                       "снять балансы и создать задачи", icon="📋"),
+            MenuAction("run", "Запуск свапа", _handle_run,
+                       "выполнить незавершённые задачи", icon="▶️"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по результатам прогона", icon="📑"),
+        ],
+        stats=db.get_statistics,
+        stats_title=str(db.DB_PATH),
+        reset=db.reset_database,
+        info=_info_sections,
+    ).run()
 
 
 __all__ = ["run_swap_all_zksync_era_to_base"]

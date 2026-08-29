@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from questionary import Choice, select
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -41,6 +40,8 @@ from config.modules.general_config import (  # noqa: E402
     RETRY_COUNT,
     SLEEP_BETWEEN_ACTIONS,
 )
+from modules.ui import ui  # noqa: E402
+from modules.ui.menu_model import BACK_KEY  # noqa: E402
 from modules.eth.database import (  # noqa: E402
     create_balance_tasks,
     get_pending_tasks,
@@ -48,6 +49,8 @@ from modules.eth.database import (  # noqa: E402
     reset_database_for_new_run,
     update_task_status,
 )
+from modules.proxy_manager import get_proxy_dict, mask_proxy, parse_proxy  # noqa: E402
+from modules.simple_logger import logger  # noqa: E402
 
 console = Console()
 
@@ -108,17 +111,13 @@ def _build_headers() -> dict:
 
 
 def _make_proxy_dict(proxy_str: Optional[str]) -> Optional[dict]:
-    if not proxy_str:
-        return None
-    try:
-        if "@" in proxy_str:
-            proxy_url = f"http://{proxy_str}"
-        else:
-            # plain ip:port
-            proxy_url = f"http://{proxy_str}"
-        return {"http": proxy_url, "https": proxy_url}
-    except Exception:
-        return None
+    """Разбор прокси общим парсером из modules.proxy_manager.
+
+    Локальная версия просто клеила `http://` спереди, поэтому строка со схемой
+    (`http://user:pass@host:port`) превращалась в невалидный двойной префикс.
+    Имя функции сохранено — её импортируют планировщики swap_all_*.
+    """
+    return get_proxy_dict(proxy_str)
 
 
 def _rand_sleep(rng) -> float:
@@ -369,6 +368,20 @@ def _process(
     max_workers = max(1, min(int(NUM_THREADS), total))
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков, потоков: {max_workers}", "INFO"))
 
+    # Нераспознанный прокси = запрос с реального IP. Молчать об этом нельзя:
+    # пользователь узнает о проблеме только когда OKLink его забанит.
+    bad_proxies = [p for p in dict.fromkeys(fallback_proxies) if p and parse_proxy(p) is None]
+    if bad_proxies:
+        logger.warning(
+            f"Не удалось разобрать {len(bad_proxies)} прокси "
+            f"({', '.join(mask_proxy(p) for p in bad_proxies[:3])}) — эти запросы пойдут напрямую"
+        )
+        logs.append((
+            time.strftime("%H:%M:%S"),
+            f"⚠️ Не разобрано прокси: {len(bad_proxies)} — часть запросов пойдёт напрямую",
+            "WARNING"
+        ))
+
     with Live(_build_panel(network_name, total, 0, 0, logs), console=console, refresh_per_second=4) as live:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {
@@ -569,19 +582,12 @@ def run_oklink_balance_check(wallets: list | None, network_name: str, oklink_cha
     if len(records) > 10:
         console.print(f"   [dim]…и ещё {len(records) - 10}[/dim]")
 
-    action = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Действие с базой данных                   ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice("   ▶️  Продолжить незавершённые задачи", "continue"),
-            Choice("   🔄 Начать заново (сброс БД)", "reset"),
-            Choice("   🔙 Назад", "back"),
-        ],
-        qmark="🛠️ ",
-        pointer="👉",
-    ).ask()
-    if action in (None, "back"):
+    action = ui.menu("Действие с базой данных", [
+        ("▶️ Продолжить незавершённые задачи", "continue"),
+        ("🔄 Начать заново (сброс БД)", "reset"),
+        (f"{ui.glyphs.arrow} Назад", BACK_KEY),
+    ])
+    if action in (None, BACK_KEY):
         return
 
     init_database()

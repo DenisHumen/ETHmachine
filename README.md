@@ -1,179 +1,409 @@
+<div align="center">
+
+<img src="assets/logo.jpeg" alt="ETHmachine" width="640">
+
 # ETHmachine
 
-![logo](assets/logo.jpeg)
+**Терминальный комбайн для крипто-рутины: кошельки, балансы, переводы, биржи, тестнеты.**
 
-Если проект оказался полезен, поддержите разработчика:
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-success)](#быстрый-старт)
+[![Networks](https://img.shields.io/badge/EVM%20сетей-29-6f42c1)](#поддерживаемые-сети)
+[![Telegram](https://img.shields.io/badge/Telegram-@DenisHumen-26A5E4?logo=telegram&logoColor=white)](https://t.me/DenisHumen)
 
-**Telegram:** [@DenisHumen](https://t.me/DenisHumen)
-
-Спасибо за поддержку!
-
-```ETH - 0xa24fbbd57720ec580395aedba3ad37f6a6067727```
-
-![Пожертвование](assets/usdt.jpg)
+</div>
 
 ---
 
-## 📋 О проекте
+## Что это
 
-**ETHmachine** — комплексный инструмент для автоматизации работы с криптовалютными кошельками, биржами, социальными сетями и утилитами для крипто-проектов. Поддерживает 50+ блокчейн-сетей, интеграцию с CEX, Twitter-автоматизацию, генерацию кошельков, управление балансами и многое другое.
+ETHmachine — консольный инструмент для тех, кто ведёт много кошельков сразу.
+Один CSV-файл с аккаунтами, одно меню — и оттуда доступны проверка балансов,
+переводы, вывод с бирж, активности в тестнетах и набор бытовых утилит
+(генераторы кошельков, паролей, ников, чекеры прокси и почт).
 
-## 🚀 Установка
+Ключевые принципы, на которых построен проект:
 
-### Требования
-- Python 3.10+
-- Git
+| | |
+|---|---|
+| **Один источник данных** | все аккаунты — в `data/data.csv`. Модули не читают свои файлы и не просят вводить ключи заново. |
+| **Возобновляемость** | долгие операции пишут прогресс в SQLite. Прервали на 300-м кошельке — следующий запуск продолжит с 301-го, а не начнёт заново. |
+| **Отчёты из базы, а не из логов** | Excel-отчёт всегда собирается из БД, поэтому он не врёт после падения. |
+| **Многопоточность по умолчанию** | число потоков задаётся один раз в `general_config.py` и работает во всех модулях. |
+| **Прокси на аккаунт** | у каждой строки данных свой прокси и резервный прокси. |
+
+---
+
+## Быстрый старт
+
+Нужны **Python 3.10+** и **Git**.
 
 ```bash
 git clone https://github.com/DenisHumen/ETHmachine
 cd ETHmachine
+python -m venv venv
+```
+
+Активация окружения:
+
+```bash
+venv\Scripts\activate
+```
+
+<details>
+<summary>Linux / macOS</summary>
+
+```bash
+source venv/bin/activate
+```
+
+</details>
+
+Установка зависимостей:
+
+```bash
+pip install -r requirements.txt
+```
+
+Браузерные модули (DeBank, Dune, xStocks, часть тестнетов) требуют Chromium:
+
+```bash
+python -m playwright install chromium
+```
+
+Запуск:
+
+```bash
 python main.py
 ```
 
-Зависимости установятся автоматически при первом запуске.
+При первом запуске программа создаст каталоги `data/`, `db/`, `result/`, `log/`,
+`backups/` и шаблоны конфигов. Заполните `data/data.csv` — и можно работать.
 
-## 📚 Доступные модули
-
-### 💲 Balances
-- **ETH Balances** — проверка балансов нативных токенов и ERC20 в EVM-сетях
-- **SOL Balances** — проверка балансов SOL и SPL токенов
-- **Eclipse Balances** — проверка балансов в сети Eclipse
-- **DeBank Checker** — мультичейн проверка всех токенов через DeBank (Playwright + API перехват)
-- **DeBank Protocols** — сбор DeFi-позиций: стейкинг, лендинг, locked, LP через DeBank
-
-### 🚀 Transactions
-- **Collectors** — сборщик всех балансов с кошельков на main-кошелек (ETH/SOL)
-- **Transfer Wallets to Wallets** — перевод нативных токенов между кошельками
-- **Transfer ERC20 Tokens** — перевод ERC20 токенов между кошельками
-- **Relay Bridge** — мост между сетями через Relay Link с сохранением прогресса в БД
-
-### 🐦 Twitter
-- **Twitter Check** — проверка валидности аккаунтов Twitter
-- **Twitter Info** — получение детальной информации о Twitter-аккаунтах
-- **Twitter Tasks** — автоматическое выполнение заданий (лайки, репосты, комментарии) с БД прогресса
-
-### 📊 Project Stats
-- **Neura Statistics** — статистика по проекту Neura
-
-### 🎮 Projects
-- **Neura Protocol** — сбор пульсов и клейм задач Neura
-- **Pharos Testnet** — faucet, check-in, квесты Pharos
-
-### 🏦 CEX
-- **OKX** — вывод, балансы, сбор субаккаунтов, спотовая торговля
-- **Binance** — вывод, балансы, сбор субаккаунтов
-- **Bitget** — вывод, сбор субаккаунтов
-- **MEXC** — вывод средств
-
-### 🧰 Tools
-- **Check Gas Price** — проверка текущей цены газа в выбранной сети
-- **Generate Wallets** — генерация ETH/SOL кошельков (обычные + vanity-адреса, Rust-ускорение)
-- **ETH/SOL Convert Tool** — конвертация мнемоника ↔ приватный ключ ↔ адрес
-- **Password Generator** — генерация криптостойких паролей
-- **Nickname Generator** — генерация реалистичных никнеймов
-- **Fullname Generator** — генерация имён и фамилий (RU/UA/ENG)
-- **Check Proxy** — массовая проверка работоспособности прокси
-- **Last Transactions** — проверка последних транзакций кошельков
-- **Check Age Discord** — проверка возраста Discord-аккаунтов (Win/Mac/Linux)
-- **Email IMAP Checker** — валидация почтовых аккаунтов через IMAP
-
-### 💾 Backup
-- **Local Backup** — создание/восстановление/ротация локальных бэкапов
-- **SFTP Backup** — синхронизация бэкапов на удалённый сервер
-- **Live Sync** — автоматическая live-синхронизация с шифрованием
-
-## 🌐 Поддерживаемые блокчейны
-
-**EVM:** Ethereum, Arbitrum, Optimism, Base, Polygon, Avalanche, Fantom, BSC, zkSync Era, Linea, Scroll, Mantle, Blast, Taiko, Mode, Zircuit, Ink, Morph, Alienx, Lumia, Lisk, Metal L2, Sei, XLayer, Unichain, Swellchain, Treasure и другие (50+ сетей с тестнетами)
-
-**Solana:** Solana (Mainnet/Devnet), Eclipse
-
-## 📂 Данные — единый файл `data/data.csv`
-
-Все данные хранятся в **одном CSV файле** `data/data.csv` со следующими заголовками:
-
-```csv
-name,private_key,proxy,reserve_proxy,wallet_address,mnemonic,sol_address,sol_private_key,discord_token,email,email_password,email_imap,referral_code,evm_cex_address,sol_cex_address,transfer_amount
-```
-
-| Колонка | Описание | Пример |
-|---------|----------|--------|
-| `private_key` | Приватный ключ EVM кошелька | `0xabc...` или `abc...` |
-| `proxy` | Основной прокси | `login:pass@ip:port` |
-| `reserve_proxy` | Резервный прокси (fallback) | `login:pass@ip:port` |
-| `wallet_address` | ETH-адрес (если без private_key) | `0x742d...` |
-| `mnemonic` | Мнемоническая фраза (12/24 слова) | `word1 word2 ... word12` |
-| `sol_address` | Solana-адрес | `7xKXt...` |
-| `sol_private_key` | Solana приватный ключ | `5J...` (base58) |
-| `discord_token` | Discord токен | `MTIx...` |
-| `email` | Email адрес | `user@mail.com` |
-| `email_password` | Пароль от email | `password123` |
-| `email_imap` | IMAP сервер | `imap.mail.com` |
-| `referral_code` | Реферальный код | `REF123` |
-| `evm_cex_address` | EVM адрес-получатель CEX (для Transfer Wallets / Transfer ERC20 / CEX withdraw) | `0x742d...` |
-| `sol_cex_address` | SOL адрес-получатель CEX | `7xKXt...` |
-| `transfer_amount` | Сумма для модулей Transfer Wallets / Transfer ERC20. `0.1-0.2` — диапазон сумм; `"0.1-0.2"` или `0.1-0.2%` — процент от баланса; `10-20token` — токены | `0.1-0.2` или `90-100%` |
-
-Не все колонки обязательны — заполняйте только нужные для ваших задач.
-
-### Несколько профилей
-
-Файл данных должен начинаться с `data_` и заканчиваться на `.csv`:
-- `data.csv` — основной файл (обратная совместимость)
-- `data_main.csv` — основной профиль
-- `data_test.csv` — тестовый профиль
-
-Если в `data/` несколько таких файлов — при запуске будет предложен выбор.
-
-### Отдельные файлы
-
-- `data/twitter/` — Twitter аккаунты и задачи (отдельная директория)
-
-## ⚙️ Конфигурация
-
-Основные настройки в `config/`:
-- `config.py` — параметры (задержки, потоки, режимы)
-- `cex_settings.py` — API ключи бирж
-- `rpc.py` — RPC endpoints
-- `token_address_erc20.py` — адреса токенов
-
-## 📖 Документация
-
-- [Twitter Tasks](docs/MODULE_TWITTER_TASKS.md) — работа с Twitter и БД прогресса
-- [OKX Withdraw](docs/MODULE_OKX_WITHDRAW.md) — настройка вывода с OKX
-- [Binance Withdraw](docs/MODULE_BINANCE_WITHDRAW.md) — настройка вывода с Binance
-- [Auto Backup](docs/MODULE_AUTO_BACKUP.md) — автоматическое резервное копирование
-- [Полный список](docs/README.md)
-
-## 🔒 Безопасность
-
-⚠️ **Важно:**
-- Никогда не публикуйте файл `data/data.csv` — он содержит приватные ключи и пароли
-- Храните API ключи бирж в безопасности
-- Используйте `.gitignore` для исключения конфиденциальных данных
-- Регулярно создавайте резервные копии через модуль Backup
-
-## 📊 Логирование
-
-Все операции записываются в папку `log/`:
-- Детальные логи операций (full logs)
-- Логи ошибок (error logs)
-- История выполнения задач
-
-## 🤝 Вклад в проект
-
-Если вы хотите внести свой вклад:
-1. Fork репозитория
-2. Создайте feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit изменений (`git commit -m 'Add some AmazingFeature'`)
-4. Push в branch (`git push origin feature/AmazingFeature`)
-5. Создайте Pull Request
-
-## 📄 Лицензия
-
-Проект распространяется под лицензией, указанной в файле [LICENSE.txt](LICENSE.txt).
+> **Linux:** для сборки некоторых пакетов нужны заголовки Python и компилятор:
+> `sudo apt install -y python3-dev build-essential`
 
 ---
 
-**Разработчик:** [@DenisHumen](https://t.me/DenisHumen)  
-**GitHub:** [DenisHumen/ETHmachine](https://github.com/DenisHumen/ETHmachine)
+## Данные: `data/data.csv`
+
+Все аккаунты живут в одном CSV. Заполняйте только те колонки, которые нужны
+вашим задачам — остальные можно оставить пустыми.
+
+| Колонка | Что это | Пример |
+|---|---|---|
+| `name` | Имя аккаунта для логов | `acc-01` |
+| `private_key` | Приватный ключ EVM | `0xabc…` |
+| `proxy` | Основной прокси | `user:pass@ip:port` |
+| `reserve_proxy` | Запасной прокси | `user:pass@ip:port` |
+| `wallet_address` | EVM-адрес, если ключа нет | `0x742d…` |
+| `mnemonic` | Мнемоника (12/24 слова) | `word1 word2 …` |
+| `sol_address` | Адрес Solana | `7xKXt…` |
+| `sol_private_key` | Приватный ключ Solana (base58) | `5J…` |
+| `discord_token` | Токен Discord | `MTIx…` |
+| `email` | Почта | `user@mail.com` |
+| `email_password` | Пароль от почты | `••••` |
+| `email_imap` | IMAP-сервер | `imap.mail.com` |
+| `referral_code` | Реферальный код | `REF123` |
+| `evm_cex_address` | Адрес-получатель EVM (депозит биржи) | `0x742d…` |
+| `sol_cex_address` | Адрес-получатель Solana | `7xKXt…` |
+| `transfer_amount` | Сумма для модулей перевода | `0.1-0.2` или `90-100%` |
+
+**Формат `transfer_amount`:** `0.1-0.2` — случайная сумма из диапазона в
+нативном токене; `"0.1-0.2"` (в кавычках) или `0.1-0.2%` — процент от баланса.
+
+### Несколько профилей
+
+Файлы данных должны называться `data.csv` или `data_<профиль>.csv`. Если в
+`data/` их несколько, при запуске программа спросит, с каким работать:
+
+```
+data/data.csv        ← основной
+data/data_main.csv
+data/data_farm.csv
+```
+
+Twitter-аккаунты и задания хранятся отдельно, в `data/twitter/`.
+
+---
+
+## Возможности
+
+### Балансы
+
+| Модуль | Что делает |
+|---|---|
+| **EVM-сети** | Нативный токен в любой из 29 сетей |
+| **ERC-20** | Балансы токенов из `config/token_address_erc20.py` |
+| **Solana / Eclipse** | Нативные балансы |
+| **DeBank Checker** | Все токены во всех сетях сразу (перехват API через браузер) |
+| **DeBank Protocols** | DeFi-позиции: стейкинг, лендинг, LP, locked |
+| **zkSync Lite** | Балансы на lite.zksync.io |
+
+### Транзакции
+
+| Модуль | Что делает |
+|---|---|
+| **Collectors** | Сбор балансов со всех кошельков на главный |
+| **Перевод нативных токенов** | Между кошельками, суммой или процентом от баланса |
+| **Перевод ERC-20** | То же для токенов |
+| **KAVA → биржа** | Нативный KAVA на CEX через Cosmos SDK (`kava1…` → `0x…`) |
+| **Relay Bridge** | Мост между сетями через Relay Link, с прогрессом в БД |
+
+### Биржи
+
+| Биржа | Вывод | Балансы | Субаккаунты | Спот |
+|---|:---:|:---:|:---:|:---:|
+| OKX | ✅ | ✅ | ✅ | ✅ |
+| Binance | ✅ | ✅ | ✅ | — |
+| Bitget | ✅ | — | ✅ | — |
+| MEXC | ✅ | — | — | — |
+
+Несколько аккаунтов на биржу настраиваются в `config/cex_settings.py` —
+см. [docs/MULTIPLE_EXCHANGE_ACCOUNTS.md](docs/MULTIPLE_EXCHANGE_ACCOUNTS.md).
+
+### Проекты
+
+| Проект | Что делает |
+|---|---|
+| **Dune Analytics** | Проверка кошельков по дашбордам |
+| **Fhenix** | Краны ghostchain и Alchemy (Sepolia) |
+| **LiteForge Testnet** | Кран zkLTC, мост, свапы, NFT-минты, домены ZNS |
+| **Sahara AI** | Клейм Knowledge Drop и вывод на биржу |
+| **SafePal X1** | Проверка права на клейм аппаратного кошелька |
+| **xStocks DeFi** | Регистрация, GM, рефералы, поинты *(на паузе)* |
+| **Neura** | Статистика по аккаунтам |
+
+### Twitter
+
+Проверка валидности аккаунтов и автоматическое выполнение заданий
+(лайки, репосты, комментарии) с сохранением прогресса в БД.
+
+### Инструменты
+
+| Инструмент | Что делает |
+|---|---|
+| **Генерация кошельков** | EVM и Solana, включая «красивые» адреса (Python или Rust) |
+| **Конвертер ключей** | Мнемоника ↔ приватный ключ ↔ адрес |
+| **Генератор паролей** | Криптостойкие пароли по заданным правилам |
+| **Генератор никнеймов** | Правдоподобные ники под регистрации |
+| **Генератор имён** | Имена и фамилии: RU / UA / ENG |
+| **Проверка прокси** | Доступность, скорость, геолокация, доступ к сервисам |
+| **Возраст Discord** | Дата регистрации аккаунтов по токенам |
+| **Проверка почт** | Валидация ящиков по IMAP |
+| **Загрузка с Pinterest** | Случайные картинки под аватарки |
+| **Polygon zkEVM → Base** | Свап всех токенов в USDC через Layerswap |
+| **zkSync Era → Base** | Свап USDC/USDT в USDC через Rhino.fi |
+
+### Бэкапы
+
+Локальные ZIP-архивы с ротацией, синхронизация на SFTP-сервер и live-режим
+с шифрованием (Fernet + PBKDF2). Подробности —
+[docs/MODULE_AUTO_BACKUP.md](docs/MODULE_AUTO_BACKUP.md).
+
+---
+
+## Конфигурация
+
+Настройки разложены по файлам: общие — в одном месте, специфичные для модуля —
+рядом с его именем.
+
+```
+config/
+├── modules/
+│   ├── general_config.py   ← потоки, задержки, ретраи, капча, главные кошельки
+│   ├── cfg_backup.py       ← локальные бэкапы и SFTP
+│   ├── cfg_cex.py          ← правила вывода с бирж
+│   ├── cfg_transfer.py     ← переводы нативных токенов
+│   ├── cfg_transfer_erc20.py
+│   ├── cfg_twitter.py
+│   ├── cfg_password.py     ← генератор паролей
+│   ├── cfg_generators.py   ← генераторы ников и имён
+│   ├── cfg_nice_address.py ← маски «красивых» адресов
+│   └── …                   ← по одному файлу на модуль
+├── cex_settings.py         ← API-ключи бирж (создаётся при первом запуске, не в git)
+├── networks.py             ← RPC-эндпоинты и параметры сетей
+├── token_address_erc20.py  ← адреса токенов по сетям
+└── menu_config.py          ← состав меню: что показывать, в каком порядке
+```
+
+Чаще всего правят `config/modules/general_config.py`:
+
+```python
+NUM_THREADS = 5                    # параллельных аккаунтов
+SLEEP_BETWEEN_ACTIONS = [2, 4]     # пауза между действиями, сек
+DELAY_BETWEEN_ACCOUNTS = [3, 5]    # пауза между стартом аккаунтов, сек
+RETRY_COUNT = 15                   # попыток при ошибке (смена прокси/RPC)
+SHUFLE_ACCOUNTS = True             # перемешивать аккаунты при запуске
+CAPTCHA_SERVICE = 'yescaptcha'     # 2captcha | anticaptcha | capsolver | yescaptcha | capmonster
+```
+
+> **Капча:** ключи сервисов пустые по умолчанию — впишите свой в
+> `general_config.py`, иначе модули с капчей сообщат, что сервис не настроен.
+
+### Отключить ненужные пункты меню
+
+В `config/menu_config.py` у любого пункта поставьте `enabled=False` — он исчезнет
+из меню. Порядок разделов задаётся списком `MAIN_MENU_ORDER`.
+
+---
+
+## Что происходит при запуске
+
+`python main.py` выполняет по порядку:
+
+1. **Проверка зависимостей** — при нехватке предложит установить.
+2. **Подготовка окружения** — создаёт недостающие каталоги и шаблоны конфигов.
+3. **Веб-панель** — если включена (по умолчанию **выключена**), поднимается в фоне.
+4. **Проверка обновлений** — сравнивает вашу версию с GitHub. Если согласитесь
+   обновиться, программа отложит ваши правки (`git stash`), выполнит `git pull`
+   и **вернёт правки обратно**. При конфликте покажет, какие файлы разошлись.
+5. **Бэкап** — автоматическая копия перед началом работы.
+6. **Проверка конфигурации** — ищет очевидные ошибки в настройках.
+7. **Выбор профиля данных** — если файлов `data_*.csv` несколько.
+
+---
+
+## Веб-панель
+
+В комплекте есть локальная веб-панель (aiohttp): live-логи, просмотр баз в
+`db/`, скачивание отчётов, редактирование конфигов из браузера.
+
+**По умолчанию выключена.** Включение — в `config/modules/general_config.py`:
+
+```python
+WEB_ENABLED = True
+```
+
+Адрес и порт — в `config/modules/cfg_web.py` (по умолчанию `127.0.0.1:8765`).
+Первый вход открывает `/register` и создаёт root-пользователя.
+
+> ⚠️ **Панель показывает содержимое `data/` и `db/`, то есть ваши приватные
+> ключи.** Не меняйте `WEB_HOST` на `0.0.0.0` — это откроет доступ всей
+> локальной сети без шифрования.
+
+---
+
+## Дополнительные зависимости
+
+Нужны только для конкретных модулей — остальное работает без них.
+
+| Модуль | Требуется | Установка |
+|---|---|---|
+| DeBank, Dune, xStocks | Chromium для Playwright | `python -m playwright install chromium` |
+| LiteForge (обход Vercel) | Patchright + Chromium | `pip install patchright && python -m patchright install chromium` |
+| zkSync Lite → Era | Node.js 18+ | `cd modules/zksync_lite/swap/node_helper && npm install` |
+| Красивые адреса (Rust) | Cargo | [rustup.rs](https://rustup.rs) |
+
+---
+
+## Поддерживаемые сети
+
+**Mainnet (23):** Ethereum, Base, Arbitrum One, Arbitrum Nova, Optimism,
+Soneium, Polygon, BNB Smart Chain, Sahara AI, Avalanche C-Chain, Core DAO,
+Kava, Fantom, Gravity Alpha, Zora, Abstract, Somnia, Linea, zkSync Era,
+Monad, Manta Pacific, ApeChain, Polygon zkEVM.
+
+**Testnet (6):** Sepolia, Pharos, Neura, Nexus, ARC, LiteForge.
+
+**Не-EVM:** Solana, Eclipse.
+
+Свою сеть можно добавить в `config/networks.py` — формат виден по соседним
+записям. У каждой сети список RPC: при ошибке модули перебирают их по кругу.
+
+---
+
+## Структура проекта
+
+```
+ETHmachine/
+├── main.py              ← точка входа, маршрутизация меню
+├── config/              ← всё, что правит пользователь
+├── modules/
+│   ├── ui/              ← общий терминальный UI: меню, панели, ввод
+│   ├── data_manager.py  ← единый доступ к data/data.csv
+│   ├── proxy_manager.py ← разбор и ротация прокси
+│   ├── simple_logger.py ← логи и прогресс-бары
+│   ├── eth/  sol/  cex/  twitter/  …
+│   └── backup/          ← локальные и SFTP бэкапы
+├── web/                 ← веб-панель (aiohttp + jinja2)
+├── tests/               ← pytest
+├── docs/                ← документация по модулям
+└── data/  db/  result/  log/  backups/     ← создаются при первом запуске
+```
+
+---
+
+## Безопасность
+
+- `data/`, `db/`, `result/`, `log/`, `backups/` и `config/cex_settings.py`
+  исключены из git — приватные ключи не уедут в репозиторий случайным `git add`.
+- Никогда не публикуйте `data/data.csv` и не выкладывайте бэкапы: в них
+  приватные ключи, мнемоники и пароли.
+- API-ключи бирж выдавайте с минимальными правами и белым списком IP.
+- Веб-панель держите на `127.0.0.1`.
+- Перед крупными операциями делайте бэкап через меню **Backup**.
+
+---
+
+## Разработка
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Тесты не ходят в сеть и не трогают пользовательские данные: проверяются
+импорты всех модулей, целостность меню, соответствие конфигов тому, что
+импортирует код, и вёрстка UI.
+
+Конвенции для новых модулей — в [AGENTS.md](AGENTS.md): структура модуля,
+работа с БД, статусы задач, логирование, возобновляемость.
+
+---
+
+## Документация
+
+- [Полный индекс](docs/README.md)
+- [Twitter: задания](docs/MODULE_TWITTER_TASKS.md)
+- [Вывод с OKX](docs/MODULE_OKX_WITHDRAW.md) · [Binance](docs/MODULE_BINANCE_WITHDRAW.md) · [Bitget](docs/MODULE_BITGET_WITHDRAW.md) · [MEXC](docs/MODULE_MEXC_WITHDRAW.md)
+- [Несколько аккаунтов на бирже](docs/MULTIPLE_EXCHANGE_ACCOUNTS.md)
+- [Бэкапы](docs/MODULE_AUTO_BACKUP.md) · [Live-синхронизация](docs/LIVE_BACKUP_QUICKSTART.md)
+- [Проверка прокси](docs/MODULE_CHECK_PROXY.md)
+
+---
+
+## Обновление
+
+Из меню обновления при запуске — программа сама отложит ваши настройки,
+подтянет новую версию и вернёт настройки на место.
+
+Вручную:
+
+```bash
+git pull
+pip install -r requirements.txt
+```
+
+Формат `data/data.csv`, пути баз в `db/` и имена настроек не меняются между
+версиями: после обновления ничего перенастраивать не нужно.
+
+---
+
+## Поддержать автора
+
+Если проект оказался полезен:
+
+```
+ERC-20: 0xa24fbbd57720ec580395aedba3ad37f6a6067727
+```
+
+<img src="assets/usdt.jpg" alt="Донат" width="220">
+
+---
+
+## Лицензия
+
+См. [LICENSE.txt](LICENSE.txt).
+
+**Автор:** [@DenisHumen](https://t.me/DenisHumen) · [GitHub](https://github.com/DenisHumen)

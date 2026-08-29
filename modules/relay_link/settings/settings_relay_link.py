@@ -1,61 +1,17 @@
 # ========================================================================================
 # НАСТРОЙКИ RELAY LINK
 # ========================================================================================
+# Пользовательские ручки модуля лежат в config/modules/cfg_relay.py (SUM_TO_RELAY, GAS).
+# Здесь — только техническая карта сетей для Relay API. Файл сохранён по старому пути,
+# чтобы не ломать импорты, но адреса токенов он больше НЕ хранит.
+#
+# Почему: раньше тут лежала вторая копия таблицы адресов, разошедшаяся с
+# config/token_address_erc20.py (Base USDC был подписан как USDT, а "USDC"
+# 0xA0b86a33...Ca51 стоял сразу в трёх сетях и не существует ни в одной).
+# Две правды про адреса — это перевод средств в никуда, поэтому адреса берём
+# из единственного источника — config/token_address_erc20.py.
 
-# Адреса токенов по сетям
-TOKEN_ADDRESSES = {
-    1: {  # Ethereum
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        "USDC": "0xA0b86a33E6441446FF2EAE9f6c6B0DfEc9E8Ca51"
-    },
-    10: {  # Optimism
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
-        "USDC": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
-    },
-    137: {  # Polygon
-        "MATIC": "0x0000000000000000000000000000000000000000",
-        "USDT": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
-        "USDC": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-    },
-    8453: {  # Base
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "USDC": "0xA0b86a33E6441446FF2EAE9f6c6B0DfEc9E8Ca51"
-    },
-    42161: {  # Arbitrum
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
-        "USDC": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
-    },
-    42170: {  # Arbitrum Nova
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
-        "USDC": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
-    },
-    1868: {  # Soneium
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "USDC": "0xA0b86a33E6441446FF2EAE9f6c6B0DfEc9E8Ca51"
-    },
-    2741: {  # Abstract
-        "ETH": "0x0000000000000000000000000000000000000000"
-    },
-    169: {  # Manta Pacific Mainnet
-        "ETH": "0x0000000000000000000000000000000000000000"
-    },
-    59144: {  # Linea
-        "ETH": "0x0000000000000000000000000000000000000000",
-        "USDT": "0xA219439258ca9da29E9Cc4cE5596924745e12B93",
-        "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff"
-    },
-    792703809: {  # Solana
-        "SOL": "11111111111111111111111111111111",
-        "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
-    }
-}
+from config import token_address_erc20
 
 # Сопоставление названий сетей с Chain ID
 NETWORK_MAPPING = {
@@ -145,6 +101,57 @@ NETWORK_SETTINGS = {
     }
 }
 
+# ========================================================================================
+# АДРЕСА ТОКЕНОВ
+# ========================================================================================
+# chain_id Solana в Relay API (свой, не EVM-совместимый).
+_SOLANA_CHAIN_ID = 792703809
+
+# Relay ждёт нулевой адрес как обозначение нативной монеты сети
+NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000"
+# У Solana роль "нулевого адреса" играет System Program
+SOLANA_NATIVE_MINT = "11111111111111111111111111111111"
+
+# chain_id -> имя переменной в config/token_address_erc20.py.
+# Сюда добавляется только имя переменной, сами адреса живут в config/.
+# Сети, которых нет в этом словаре (Arbitrum Nova, Manta, Linea), получают
+# только нативный токен — так честнее, чем подставлять непроверенный адрес.
+_ERC20_CONFIG_VARS = {
+    1: 'ethereum_mainnet',
+    10: 'optimism',
+    137: 'polygon',
+    8453: 'base',
+    42161: 'arbitrum',
+    1868: 'soneium',
+    2741: 'abstract',
+}
+
+
+def _build_token_addresses() -> dict:
+    """Собрать карту chain_id -> {SYMBOL: address} из config/token_address_erc20.py."""
+    result = {}
+
+    for chain_id, settings in NETWORK_SETTINGS.items():
+        native_symbol = settings['native_symbol']
+        native_address = SOLANA_NATIVE_MINT if chain_id == _SOLANA_CHAIN_ID else NATIVE_TOKEN_ADDRESS
+        chain_tokens = {native_symbol: native_address}
+
+        config_var = _ERC20_CONFIG_VARS.get(chain_id)
+        if config_var:
+            for symbol, address in getattr(token_address_erc20, config_var, {}).items():
+                # 'native' — сентинел нативной монеты в config, он уже добавлен выше
+                if not address or address == 'native':
+                    continue
+                chain_tokens.setdefault(symbol.upper(), address)
+
+        result[chain_id] = chain_tokens
+
+    return result
+
+
+# Адреса токенов по сетям (производная от config/token_address_erc20.py)
+TOKEN_ADDRESSES = _build_token_addresses()
+
 # Минимальные суммы для бриджинга
 MINIMUM_BRIDGE_AMOUNTS = {
     "ETH": 0.00017,
@@ -193,6 +200,8 @@ NETWORK_PAIR_MINIMUMS = {
 }
 
 # Настройки времени ожидания
-BALANCE_CHECK_TIMEOUT = 3600  # 1 час в секундах
-BALANCE_CHECK_INTERVAL = 20   # Проверять каждые 30 секунд
-TRANSACTION_TIMEOUT = 300     # 5 минут на подтверждение транзакции
+BALANCE_CHECK_INTERVAL = 20   # Интервал между проверками поступления средств (в секундах)
+# Оставлены для обратной совместимости: общий бюджет ожидания моста считается по
+# WHAITE_TRANSACTION_PENDING * WHAITE_TRANSACTION_PENDING_COUNT из general_config (AGENTS.md §9.4).
+BALANCE_CHECK_TIMEOUT = 3600  # 1 час в секундах (не используется)
+TRANSACTION_TIMEOUT = 300     # 5 минут на подтверждение транзакции (не используется)

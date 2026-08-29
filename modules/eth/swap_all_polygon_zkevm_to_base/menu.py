@@ -4,12 +4,10 @@ from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from colorama import Fore, Style
-from questionary import Choice, select
-
 from modules.simple_logger import (
     logger, log_wallet_task, log_simple, set_auto_progress,
 )
+from modules.ui.module_menu import MenuAction, ModuleMenu
 from modules.eth.swap_all_polygon_zkevm_to_base import (
     database as db, planner, excel_export,
 )
@@ -22,27 +20,6 @@ SWAP_NUM_THREADS = max(1, int(_CFG_NUM_THREADS))
 # В этом модуле прогресс по кошелькам читается из [i/N] в каждой строке —
 # отдельный tqdm-бар не нужен.
 set_auto_progress(False)
-
-
-def _show_stats() -> None:
-    stats = db.get_statistics()
-    sep = f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}"
-    print()
-    print(sep)
-    print(f"{Fore.CYAN}Polygon zkEVM → Base USDC — Swap All{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}DB:{Style.RESET_ALL} {db.DB_PATH}")
-    print(sep)
-    if stats.get("total", 0) == 0:
-        print(f"  {Fore.YELLOW}БД пуста{Style.RESET_ALL}")
-    else:
-        for k, v in stats.items():
-            if k == "total":
-                continue
-            print(f"  {k:<22} {v}")
-        print(f"  {'-' * 40}")
-        print(f"  total                  {stats['total']}")
-    print(sep)
-    print()
 
 
 def _plan_all(records, num_threads: int = PLAN_NUM_THREADS) -> dict:
@@ -264,70 +241,50 @@ def _handle_export() -> None:
     log_simple(f"сохранено: {path}", "success")
 
 
-def _handle_reset() -> None:
-    db.reset_database()
-    logger.success("swap_all_tasks очищена")
-
-
-def _print_info() -> None:
-    print(f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
-║   Polygon zkEVM → Base USDC — Swap All (Layerswap)               ║
-╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
-
-Маршруты Layerswap:
-  {Fore.GREEN}USDC{Style.RESET_ALL} (Polygon zkEVM) → {Fore.GREEN}USDC{Style.RESET_ALL} (Base)
-  {Fore.GREEN}ETH{Style.RESET_ALL}  (Polygon zkEVM) → {Fore.GREEN}ETH{Style.RESET_ALL}  (Base)
-  Прочие токены — пропускаются («skipped»).
-
-Pipeline-режим: для каждого кошелька — план балансов → сразу свап →
-переход к следующему. Если процесс прерван, при повторном запуске
-авто-режима он сначала доделает кошельки с pending-задачами в БД.
-
-Источник балансов: OKLink (web-internal API).
-Источник кошельков: {Fore.YELLOW}data/data.csv{Style.RESET_ALL}.
-БД задач:           {Fore.YELLOW}db/swap_all_polygon_zkevm_to_base.db{Style.RESET_ALL}.
-
-Excel-отчёт:
-  {Fore.YELLOW}result/swap_all_polygon_zkevm_to_base/run_<timestamp>/swap_all_report.xlsx{Style.RESET_ALL}
-""")
+def _info_sections() -> dict:
+    return {
+        "Маршруты Layerswap": [
+            "USDC (Polygon zkEVM) → USDC (Base)",
+            "ETH  (Polygon zkEVM) → ETH  (Base)",
+            "прочие токены пропускаются («skipped»)",
+        ],
+        "Pipeline-режим": [
+            "для каждого кошелька: план балансов → сразу свап → следующий",
+            "после обрыва авто-режим сначала доделает кошельки "
+            "с pending-задачами",
+        ],
+        "Откуда данные": [
+            "балансы — OKLink (web-internal API)",
+            "кошельки — data/data.csv",
+            f"задачи — {db.DB_PATH}",
+        ],
+        "Отчёт": [
+            "result/swap_all_polygon_zkevm_to_base/run_<timestamp>/"
+            "swap_all_report.xlsx",
+        ],
+    }
 
 
 def run_swap_all_polygon_zkevm_to_base() -> None:
-    while True:
-        action = select(
-            "💱 Polygon zkEVM → Base USDC swap-all:",
-            choices=[
-                Choice("🤖 Авто-режим (pipeline + резюм + Excel)", "auto"),
-                Choice("📋 Планирование (баланс + классификация)", "plan"),
-                Choice("▶️  Запуск свапа",                         "run"),
-                Choice("📊 Статистика БД",                         "stats"),
-                Choice("📑 Экспорт Excel-отчёта",                  "export"),
-                Choice("🗑️  Очистить БД",                         "reset"),
-                Choice("📖 Информация",                            "info"),
-                Choice("🔙 Назад",                                  "back"),
-            ],
-            qmark="💱",
-            pointer="👉",
-        ).ask()
-
-        if action in (None, "back"):
-            return
-        if action == "auto":
-            _handle_auto()
-        elif action == "plan":
-            _handle_plan()
-        elif action == "run":
-            _handle_run()
-        elif action == "stats":
-            _show_stats()
-        elif action == "export":
-            _handle_export()
-        elif action == "reset":
-            _handle_reset()
-        elif action == "info":
-            _print_info()
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    ModuleMenu(
+        title="Polygon zkEVM → Base USDC",
+        subtitle="swap-all через Layerswap",
+        icon="💱",
+        actions=[
+            MenuAction("auto", "Авто-режим", _handle_auto,
+                       "план, свап и Excel одной кнопкой", icon="🤖"),
+            MenuAction("plan", "Планирование", _handle_plan,
+                       "снять балансы и создать задачи", icon="📋"),
+            MenuAction("run", "Запуск свапа", _handle_run,
+                       "выполнить незавершённые задачи", icon="▶️"),
+            MenuAction("export", "Экспорт отчёта", _handle_export,
+                       "Excel по результатам прогона", icon="📑"),
+        ],
+        stats=db.get_statistics,
+        stats_title=str(db.DB_PATH),
+        reset=db.reset_database,
+        info=_info_sections,
+    ).run()
 
 
 __all__ = ["run_swap_all_polygon_zkevm_to_base"]

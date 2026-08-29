@@ -1,9 +1,35 @@
 import csv
+from datetime import datetime
 from itertools import cycle
+from pathlib import Path
 import sys
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes
 from solders.keypair import Keypair
 import base58
+
+from modules.simple_logger import logger
+
+# result/result.csv — общая свалка: чекеры балансов и конвертеры открывают её
+# с mode='w' и затирают всё, что там лежало. Поэтому свежие мнемоники и
+# приватники дублируем в отдельный файл запуска, который больше никто не трогает.
+RESULT_CSV = Path('result') / 'result.csv'
+WALLETS_DIR = Path('result') / 'wallets'
+
+def new_wallets_file(prefix):
+    """
+    Уникальный путь под ключи одного запуска генератора.
+
+    Штамп времени в имени: потерянную мнемонику восстановить нечем,
+    поэтому новый запуск не имеет права затирать результат предыдущего.
+    """
+    WALLETS_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = WALLETS_DIR / f"{prefix}_{stamp}.csv"
+    attempt = 1
+    while path.exists():
+        attempt += 1
+        path = WALLETS_DIR / f"{prefix}_{stamp}_{attempt}.csv"
+    return path
 
 def mnemonic_to_private_key(mnemonic):
     """
@@ -34,27 +60,37 @@ def sol_generate_wallets(num_wallets):
     """
     Generate Solana wallets and save them to a CSV file with a progress bar.
     Then verify that mnemonic/private key import gives the same address.
+
+    Возвращает путь к файлу запуска с ключами (result/wallets/...).
     """
     spinner_cycle = cycle(["|", "/", "-", "\\"])  # Spinner animation
     bar_length = 30  # Length of the progress bar
 
+    wallets_path = new_wallets_file('sol_wallets')
+
     # Clear the file and write the header
-    with open('result/result.csv', mode='w', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key"])  # Add header
 
     # Stage 1: Generation
     completed_wallets = 0
     wallets = []
-    with open('result/result.csv', mode='a', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
+    with open(RESULT_CSV, mode='a', newline='', encoding="utf-8") as shared_file, \
+         open(wallets_path, mode='a', newline='', encoding="utf-8") as wallets_file:
+        writers = [csv.writer(shared_file), csv.writer(wallets_file)]
         for i in range(num_wallets):
             try:
                 # Генерация мнемоники
                 mnemonic = Bip39MnemonicGenerator().FromWordsNumber(12)
                 priv_key, pub_key = mnemonic_to_private_key(mnemonic)
                 address = pub_key
-                writer.writerow([mnemonic, priv_key, address]) 
+                # Порядок колонок строго по заголовку mnemonic,wallet_address,private_key:
+                # раньше адрес и приватник шли местами наоборот, и до финальной
+                # перезаписи файл читался неверно (а при обрыве — оставался таким).
+                for writer in writers:
+                    writer.writerow([mnemonic, address, priv_key])
                 wallets.append((mnemonic, address, priv_key))
 
                 # Update progress bar
@@ -101,12 +137,16 @@ def sol_generate_wallets(num_wallets):
         )
     print()  # Move to the next line after the progress bar is complete
 
-    # Перезаписываем файл с отметками
-    with open('result/result.csv', mode='w', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["mnemonic", "wallet_address", "private_key", "check"])  # Исправлено: порядок заголовков
-        for row in results:
-            writer.writerow(row)
+    # Перезаписываем файлы с отметками
+    for path in (RESULT_CSV, wallets_path):
+        with open(path, mode='w', newline='', encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["mnemonic", "wallet_address", "private_key", "check"])  # Исправлено: порядок заголовков
+            for row in results:
+                writer.writerow(row)
+
+    logger.success(f"Ключи сохранены в {wallets_path} (копия в {RESULT_CSV})")
+    return wallets_path
 
 # Пример вызова:
 # sol_generate_wallets(100)

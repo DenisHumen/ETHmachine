@@ -22,9 +22,25 @@ def _ensure_dir() -> None:
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _connect() -> sqlite3.Connection:
+    """Соединение с включённым WAL (AGENTS §5.1).
+
+    Веб-дашборд открывает этот же файл в режиме `mode=ro`, а горячий
+    rollback-journal делает такое открытие невозможным: восстановление требует
+    записи. Свойство персистентное и идемпотентное, схему не трогает.
+    На сетевых дисках WAL недоступен — тогда остаёмся в journal-режиме.
+    """
+    conn = sqlite3.connect(str(DB_FILE))
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
+    return conn
+
+
 def init_database() -> None:
     _ensure_dir()
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
         cur.execute(
             """
@@ -66,7 +82,7 @@ def create_tasks(wallets: List[Dict[str, Optional[str]]]) -> int:
         return 0
     init_database()
     inserted = 0
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
         for w in wallets:
             addr = (w.get("wallet_address") or "").strip()
@@ -91,7 +107,7 @@ def create_tasks(wallets: List[Dict[str, Optional[str]]]) -> int:
 def get_pending_tasks() -> List[Dict[str, Any]]:
     """Задачи в статусе pending или failed (для retry)."""
     init_database()
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
@@ -115,7 +131,7 @@ def update_task_success(
     nfts: Dict[str, Any],
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
         cur.execute(
             """
@@ -148,7 +164,7 @@ def update_task_success(
 
 def update_task_failed(address: str, error_message: str) -> None:
     now = datetime.now().isoformat(timespec="seconds")
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
         cur.execute(
             """
@@ -166,7 +182,7 @@ def update_task_failed(address: str, error_message: str) -> None:
 
 def get_all_results() -> List[Dict[str, Any]]:
     init_database()
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
@@ -196,7 +212,7 @@ def get_all_results() -> List[Dict[str, Any]]:
 
 def get_task_statistics() -> Dict[str, int]:
     init_database()
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
 
         def _count(where: str = "") -> int:
@@ -227,7 +243,7 @@ def all_tasks_completed() -> bool:
 
 def reset_database() -> int:
     init_database()
-    with _db_lock, sqlite3.connect(str(DB_FILE)) as conn:
+    with _db_lock, _connect() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM zksync_lite_tasks")
         deleted = cur.rowcount

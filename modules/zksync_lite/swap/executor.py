@@ -184,13 +184,21 @@ class SwapExecutor:
             pass
         pool = ProxyPool(proxy, reserve_proxy,
                          label=f"[{wallet_address}] ")
+        # Прокси покрывает ТОЛЬКО HTTP-вызовы Layerswap. Транзакции zkSync Lite
+        # идут через node-хелпер (signer.js), который прокси не поддерживает, —
+        # поэтому не пишем в лог «прокси активна» без уточнения: пользователь
+        # должен знать, что часть трафика уходит с реального IP.
         if not pool.current:
             logger.warning(f"[{wallet_address}] прокси не указана — идём напрямую")
         elif pool.has_reserve():
-            logger.info(f"[{wallet_address}] прокси: primary активна, "
-                        f"резерв в наличии")
+            logger.info(f"[{wallet_address}] прокси (только Layerswap API): "
+                        f"primary активна, резерв в наличии")
         else:
-            logger.info(f"[{wallet_address}] прокси: primary активна (без резерва)")
+            logger.info(f"[{wallet_address}] прокси (только Layerswap API): "
+                        f"primary активна (без резерва)")
+        if pool.current:
+            logger.warning(f"[{wallet_address}] запросы zkSync Lite идут напрямую: "
+                           f"node-хелпер не поддерживает прокси")
 
         # 1. account-info + ChangePubKey
         info = self.signer.account_info(priv)
@@ -275,6 +283,25 @@ class SwapExecutor:
         decimals = int(task["decimals"])
         scale = Decimal(10) ** decimals
         target_token = (task.get("target_token") or SUPPORTED_PAIRS[token]).strip()
+
+        # Идемпотентность (AGENTS §14.3). Ctrl-C или обрыв сети во время
+        # 20-минутного ожидания оставляют задачу в awaiting_arrival, и
+        # `list_pending_for_wallet` вернёт её следующему запуску. Но Lite-перевод
+        # на deposit_address уже сделан: баланс на Lite нулевой, и проверка
+        # «реальный баланс = 0» ниже пометила бы задачу терминальным skipped —
+        # деньги в мосте стали бы невидимыми. Если кошелёк успели пополнить,
+        # то ушёл бы второй перевод. Поэтому при наличии tx только дожидаемся.
+        prior_tx = (task.get("lite_tx_hash") or "").strip()
+        prior_swap = (task.get("layerswap_swap_id") or "").strip()
+        if prior_tx:
+            if not prior_swap:
+                raise RuntimeError(
+                    f"Lite-перевод {prior_tx} отправлен, но swap_id не сохранён — "
+                    f"повторно не отправляем, проверьте перевод вручную")
+            logger.info(f"[{wallet}] {token}: Lite tx {prior_tx} уже отправлен — "
+                        f"возобновляем ожидание прибытия (swap {prior_swap})")
+            self._await_arrival(task, pool, wallet, prior_swap, target_token)
+            return
 
         # 1) Чекнём реальный баланс на Lite — данные в balance-БД могут быть устаревшими.
         try:
@@ -462,6 +489,16 @@ class SwapExecutor:
             pass
 
         # 11) Ждём Layerswap COMPLETED + Era баланс
+        self._await_arrival(task, pool, wallet, swap_id, target_token)
+
+    def _await_arrival(self, task: Dict[str, Any], pool: ProxyPool, wallet: str,
+                       swap_id: str, target_token: str) -> None:
+        """Ожидание прибытия средств на Era по уже созданному swap_id.
+
+        Вынесено отдельно, чтобы повторный запуск мог дождаться ранее
+        отправленного Lite-перевода, а не создавать новый свап (см. проверку
+        идемпотентности в `_run_layerswap_task`).
+        """
         swap_db.update_task(task["id"], status=swap_db.STATUS_AWAITING_ARRIVAL)
         deadline = time.monotonic() + ARRIVAL_TIMEOUT_SEC
         last_status = None

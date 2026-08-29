@@ -1,148 +1,122 @@
-"""LiteForge testnet (litvm_testnet) — submenu проекта, список пресетов."""
-from colorama import Fore, Style
-from questionary import select
+"""LiteForge testnet — навигация по пресетам проекта.
 
-from config.menu_config import SubMenu, MenuItem, build_submenu_choices
+Своих задач у этого меню нет: оно только показывает список пресетов и
+передаёт управление выбранному. Поэтому здесь ``ui.show_items``, а не
+``ModuleMenu`` — статистики, справки и очистки базы у навигации не бывает.
 
+Новый пресет добавляется в двух местах: пункт в ``LITVM_TESTNET_SUBMENU``
+и строка в ``_HANDLERS`` с тем же ``key``.
+"""
+from __future__ import annotations
 
-# Пресеты внутри проекта. Сюда добавляются новые активности (swap, bridge,
-# контракты, daily-action и т.п.) — для каждого свой `key` и соответствующая
-# ветка в `litvm_testnet_menu()` ниже.
+from importlib import import_module
+
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY, MenuItem, SubMenu
+
 LITVM_TESTNET_SUBMENU = SubMenu(
-    key='litvm_testnet',
-    label='LiteForge — выберите пресет',
-    description='',
-    icon='🟢',
-    qmark='🟢',
-    pointer='👉',
+    key="litvm_testnet",
+    label="LiteForge testnet",
+    description="Выберите пресет",
+    icon="⚒️",
     items=[
         MenuItem(
-            key='faucet',
-            label='Faucet (zkLTC)',
-            description='Запрос крана на liteforge.hub.caldera.xyz',
-            icon='🚰',
-            enabled=True,
+            key="faucet",
+            label="Кран zkLTC",
+            description="запросить тестовые zkLTC на Caldera Hub",
+            icon="🚰",
         ),
         MenuItem(
-            key='bridge',
-            label='Bridge (Sepolia ⇄ LiteForge)',
-            description='Перенос zkLTC между сетями через ERC20Inbox',
-            icon='🌉',
-            enabled=True,
+            key="bridge",
+            label="Мост Sepolia ⇄ LiteForge",
+            description="перенести zkLTC между Sepolia и LiteForge",
+            icon="🌉",
         ),
         MenuItem(
-            key='lester_minter',
-            label='Lester Minter (ERC-20 фабрика)',
-            description='Деплой случайных ERC-20 на lester-labs.com/launch',
-            icon='🪙',
-            enabled=True,
+            key="lester_minter",
+            label="Lester Minter",
+            description="деплой случайных ERC-20 на lester-labs.com",
+            icon="🪙",
         ),
         MenuItem(
-            key='midas',
-            label='Midas Prediction Market',
-            description='Регистрация, faucets, check-in, ставки на midashand.xyz',
-            icon='🎯',
-            enabled=True,
+            key="midas",
+            label="Midas Prediction Market",
+            description="регистрация, краны, ежедневный вход, ставки",
+            icon="🎯",
         ),
         MenuItem(
-            key='aynilabs',
-            label='Aynilabs (wrap zkLTC)',
-            description='',
-            icon='🪙',
-            enabled=True,
-            badge='Сайт с низким функционалом, будет добавлен новый как только появится на сайте',
-            badge_style='yellow',
+            key="aynilabs",
+            label="Aynilabs",
+            description="обернуть zkLTC в wzkLTC",
+            icon="📦",
+            badge="ПАУЗА",
+            badge_style="warn",
         ),
         MenuItem(
-            key='onmi',
-            label='Onmi.fun (meme-coin launchpad)',
-            description='Создание мем-токенов на bonding-curve (createTokenAndBuy)',
-            icon='🪙',
-            enabled=True,
+            key="onmi",
+            label="Onmi.fun · выпуск токенов",
+            description="выпуск мем-токенов на bonding-curve",
+            icon="🚀",
         ),
         MenuItem(
-            key='onmi_trade',
-            label='Onmi.fun · Wallet trading (buy/sell)',
-            description='Случайные buy/sell мем-токенов между кошельками (live look)',
-            icon='🎲',
-            enabled=True,
+            key="onmi_trade",
+            label="Onmi.fun · торговля",
+            description="случайные покупки и продажи между кошельками",
+            icon="🎲",
         ),
         MenuItem(
-            key='onmi_swap',
-            label='Onmi.fun · Swap (graduated tokens)',
-            description='UniswapV2-style свапы graduated мем-токенов (random-walk)',
-            icon='💱',
-            enabled=True,
+            key="onmi_swap",
+            label="Onmi.fun · свапы",
+            description="обмен graduated-токенов по UniswapV2",
+            icon="💱",
         ),
         MenuItem(
-            key='onmi_liquidity',
-            label='Onmi.fun · Liquidity (add / withdraw all)',
-            description='Маленькие LP-добавления + одна кнопка вывести всё',
-            icon='💧',
-            enabled=True,
+            key="onmi_liquidity",
+            label="Onmi.fun · ликвидность",
+            description="добавить ликвидность или вывести всё сразу",
+            icon="💧",
         ),
         MenuItem(
-            key='zns_bio',
-            label='ZNS.bio · Регистрация .lit доменов',
-            description='Регистрация случайных никнеймов в TLD .lit на ZNS Connect',
-            icon='🪪',
-            enabled=True,
+            key="zns_bio",
+            label="ZNS.bio · домены .lit",
+            description="случайные никнеймы в зоне .lit",
+            icon="🪪",
         ),
-        MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
+        MenuItem(key=BACK_KEY, label="Назад", description="", icon="←"),
     ],
 )
+
+# Импорт ленивый: тянуть web3 и patchright ради показа списка незачем.
+_HANDLERS: dict[str, tuple[str, str]] = {
+    "faucet": ("modules.litvm_testnet.faucet", "run_litvm_faucet"),
+    "bridge": ("modules.litvm_testnet.bridge", "run_litvm_bridge"),
+    "lester_minter": ("modules.litvm_testnet.lester_minter", "run_litvm_minter"),
+    "midas": ("modules.litvm_testnet.midas", "run_litvm_midas"),
+    "aynilabs": ("modules.litvm_testnet.aynilabs", "run_litvm_aynilabs"),
+    "onmi": ("modules.litvm_testnet.onmi", "run_litvm_onmi"),
+    "onmi_trade": ("modules.litvm_testnet.onmi.trade", "run_litvm_onmi_trade"),
+    "onmi_swap": ("modules.litvm_testnet.onmi.swap", "run_litvm_onmi_swap"),
+    "onmi_liquidity": ("modules.litvm_testnet.onmi.liquidity",
+                       "run_litvm_onmi_liquidity"),
+    "zns_bio": ("modules.litvm_testnet.zns_bio", "run_litvm_zns_bio"),
+}
 
 
 def litvm_testnet_menu() -> None:
     """Главное меню проекта LiteForge — выбор пресета."""
     while True:
-        action = select(
-            "🟢 LiteForge testnet — выберите пресет:",
-            choices=build_submenu_choices(LITVM_TESTNET_SUBMENU),
-            qmark=LITVM_TESTNET_SUBMENU.qmark,
-            pointer=LITVM_TESTNET_SUBMENU.pointer,
-        ).ask()
-
-        if action is None or action == 'back':
+        action = ui.show_items(
+            "⚒️ LiteForge testnet — выберите пресет",
+            LITVM_TESTNET_SUBMENU.items,
+        )
+        if action in (None, BACK_KEY):
             return
 
-        if action == 'faucet':
-            from modules.litvm_testnet.faucet import run_litvm_faucet
-            run_litvm_faucet()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'bridge':
-            from modules.litvm_testnet.bridge import run_litvm_bridge
-            run_litvm_bridge()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'lester_minter':
-            from modules.litvm_testnet.lester_minter import run_litvm_minter
-            run_litvm_minter()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'midas':
-            from modules.litvm_testnet.midas import run_litvm_midas
-            run_litvm_midas()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'aynilabs':
-            from modules.litvm_testnet.aynilabs import run_litvm_aynilabs
-            run_litvm_aynilabs()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'onmi':
-            from modules.litvm_testnet.onmi import run_litvm_onmi
-            run_litvm_onmi()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'onmi_trade':
-            from modules.litvm_testnet.onmi.trade import run_litvm_onmi_trade
-            run_litvm_onmi_trade()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'onmi_swap':
-            from modules.litvm_testnet.onmi.swap import run_litvm_onmi_swap
-            run_litvm_onmi_swap()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'onmi_liquidity':
-            from modules.litvm_testnet.onmi.liquidity import run_litvm_onmi_liquidity
-            run_litvm_onmi_liquidity()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'zns_bio':
-            from modules.litvm_testnet.zns_bio import run_litvm_zns_bio
-            run_litvm_zns_bio()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+        target = _HANDLERS.get(action)
+        if target is None:
+            continue
+        module_name, entry_point = target
+        getattr(import_module(module_name), entry_point)()
+
+
+__all__ = ["LITVM_TESTNET_SUBMENU", "litvm_testnet_menu"]

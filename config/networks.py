@@ -138,7 +138,7 @@ NETWORKS = {
         'symbol': 'SOMI',
         'tx_url': "https://explorer.somnia.network/tx/",
         'type': 'mainnet'
-    },    
+    },
     '🚀 Linea': {
         'rpc_urls': ['https://linea.drpc.org', 'https://1rpc.io/linea'],
         'symbol': 'ETH',
@@ -154,7 +154,11 @@ NETWORKS = {
     '🚀 MONAD': {
         'rpc_urls': ['https://infra.originstake.com/monad/evm'],
         'symbol': 'MON',
-        'tx_url': "https://pacific-explorer.manta.network/tx/",
+        # Здесь по ошибке (копипаста из Manta Pacific ниже) стоял explorer Manta,
+        # из-за чего каждая ссылка на транзакцию MONAD вела в чужую сеть.
+        # RPC выше отдаёт chain_id 0x8f (143) — это mainnet, поэтому берём
+        # mainnet-explorer из документации Monad, а не testnet-овый monadexplorer.com.
+        'tx_url': "https://monadscan.com/tx/",
         'type': 'mainnet'
     },
     '🚀 Manta Pacific Mainnet': {
@@ -258,8 +262,8 @@ def get_network_display_name(network_name: str):
     значение Choice по-прежнему должно быть оригинальным ключом сети.
 
     Возвращает либо строку (если сеть не закрыта), либо FormattedText
-    (для закрытых сетей) — обе формы корректно принимаются questionary.Choice.
-    Без обёртки questionary рендерит ANSI-escape байты литерально (^[[41m...).
+    (для закрытых сетей) — обе формы корректно принимает меню из modules/ui.
+    Без обёртки ANSI-escape байты рендерятся литерально (^[[41m...).
     """
     if network_name not in CLOSED_NETWORKS:
         return network_name
@@ -334,3 +338,17 @@ somnia = NETWORKS['🚀 Somnia']['rpc_urls']
 
 # Provide uppercase alias for Base
 BASE = base
+
+# Тестнет-алиасы. Модули вывода с бирж (okx/mexc/binance_withdraw) собирают словарь
+# chain_mapping целиком, ещё до вызова .get(), поэтому отсутствие любого из этих имён
+# роняло AttributeError на ЛЮБОЙ сети, а не только на тестнете: вывод с OKX, MEXC и
+# Binance не работал вообще. Bitget уцелел лишь потому, что тестнетов в его словаре нет.
+sepolia = NETWORKS['🚀 Sepolia']['rpc_urls']
+pharos_testnet = NETWORKS['🚀 Pharos Testnet']['rpc_urls']
+
+# Kite и MegaETH в NETWORKS не заведены, а публичный RPC подбирать наугад нельзя.
+# Пустой список — честный вариант: перебор RPC просто не находит рабочего узла и
+# get_working_web3_connection возвращает None с понятной ошибкой в логе.
+# Чтобы включить сеть — добавьте её в NETWORKS и замените [] на её rpc_urls.
+kite_testnet = []
+mega_eth_testnet = []

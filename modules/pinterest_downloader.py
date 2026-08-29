@@ -21,11 +21,21 @@ from rich.console import Console
 
 from modules.simple_logger import log_simple, log_task
 from modules.proxy_manager import ProxyManager, parse_proxy
-from config.modules.cfg_pinterest import (
-    PINTEREST_EMAIL, PINTEREST_PASSWORD,
-    PINTEREST_MAX_IMAGES, PINTEREST_DOWNLOAD_DELAY, PINTEREST_IMAGE_QUALITY,
-    PINTEREST_SEARCH_QUERIES,
-)
+# config/modules/cfg_pinterest.py содержит учётные данные, поэтому лежит
+# в .gitignore и создаётся при первом запуске main.py. В свежем клоне его
+# ещё нет — берём значения по умолчанию, чтобы модуль импортировался.
+try:
+    from config.modules.cfg_pinterest import (
+        PINTEREST_DOWNLOAD_DELAY, PINTEREST_EMAIL, PINTEREST_IMAGE_QUALITY,
+        PINTEREST_MAX_IMAGES, PINTEREST_PASSWORD, PINTEREST_SEARCH_QUERIES,
+    )
+except ImportError:
+    PINTEREST_EMAIL = ''
+    PINTEREST_PASSWORD = ''
+    PINTEREST_MAX_IMAGES = 500
+    PINTEREST_DOWNLOAD_DELAY = [0.2, 0.6]
+    PINTEREST_IMAGE_QUALITY = 'originals'
+    PINTEREST_SEARCH_QUERIES: list = []
 
 console = Console()
 
@@ -804,43 +814,19 @@ def create_zip_archive(files: List[str]) -> Optional[str]:
 
 def pinterest_downloader_menu():
     """Меню Pinterest Downloader — вызывается из main.py."""
-    from questionary import text, confirm
+    from modules.ui import ui
 
-    console.print("\n[bold magenta]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]")
-    console.print("[bold cyan]  📌 Pinterest Random Image Downloader[/]")
-    console.print("[bold magenta]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n")
+    ui.print_lines(ui.header("Pinterest", "скачивание случайных картинок"))
 
-    count_str = text(
-        "Сколько картинок скачать?",
-        default="10",
-        qmark="📌",
-    ).ask()
-
-    if count_str is None:
+    # ask_int сам проверяет границы — ручной разбор строки больше не нужен.
+    count = ui.ask_int("Сколько картинок скачать", minimum=1,
+                       maximum=PINTEREST_MAX_IMAGES, default=10)
+    if count is None:
         return
-
-    try:
-        count = int(count_str)
-        if count <= 0:
-            raise ValueError
-    except ValueError:
-        log_simple("Некорректное число.", status="error", account_name="Pinterest")
-        return
-
-    if count > PINTEREST_MAX_IMAGES:
-        console.print(f"[bold yellow]⚠️  Максимум {PINTEREST_MAX_IMAGES} картинок за раз.[/]")
-        count = PINTEREST_MAX_IMAGES
 
     downloaded = download_pinterest_images(count)
 
-    if downloaded:
-        should_zip = confirm(
-            "Собрать скачанные картинки в ZIP архив?",
-            default=True,
-            qmark="📦",
-        ).ask()
-
-        if should_zip:
-            create_zip_archive(downloaded)
+    if downloaded and ui.confirm("Собрать картинки в ZIP-архив?", default=True):
+        create_zip_archive(downloaded)
 
     console.print(f"\n[bold green]✅ Завершено![/] Файлы в: [underline]{RESULT_DIR}[/]\n")

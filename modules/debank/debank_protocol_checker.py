@@ -1,11 +1,13 @@
-"""
-DeBank Protocol Checker
-Проверка DeFi-позиций (стейкинг, лендинг, locked, LP и т.д.) через DeBank
-Использует Playwright для перехвата portfolio/project_list API
+"""DeBank Protocol Checker — DeFi-позиции: стейкинг, лендинг, LP, locked.
+
+Данные снимаются через браузер (Playwright): открывается профиль кошелька
+на debank.com и перехватывается ответ ``portfolio/project_list``.
+
+Загрузка кошельков и прокси, выбор источника кошельков и панели прогресса
+общие с ``debank_checker`` — здесь только то, что относится к позициям.
 """
 
 import re
-import sys
 import json
 import asyncio
 import time
@@ -17,13 +19,6 @@ from urllib.parse import urlparse
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
-from rich.text import Text
-from rich.table import Table
-from rich.console import Group
-from questionary import Choice, select
-
-project_root = Path(__file__).parent.parent.parent
-sys.path.append(str(project_root))
 
 from config.modules.general_config import (
     NUM_THREADS, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
@@ -38,10 +33,16 @@ from modules.debank.database import (
     get_protocol_task_statistics
 )
 from modules.debank.debank_checker import (
-    load_proxies, parse_proxy_for_playwright,
-    load_wallet_rows, SOURCE_PRIVATE_KEYS, chains_from_body, USED_CHAINS_PATH,
-    DATA_WAIT_TIMEOUT, MAX_ATTEMPTS, gradient_color
+    choose_wallet_source, load_proxies, parse_proxy_for_playwright,
+    progress_panel, task_stats_panel, top_wallets_panel, wallet_proxy_map,
+    chains_from_body, gradient_color, USED_CHAINS_PATH, DATA_WAIT_TIMEOUT,
+    MAX_ATTEMPTS,
 )
+from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.menu_model import BACK_KEY, MenuItem, render_items
+
+project_root = Path(__file__).parent.parent.parent
 
 console = Console()
 MAX_CONCURRENT = NUM_THREADS
@@ -216,7 +217,7 @@ PROJECT_LIST_PATH = '/portfolio/project_list'
 
 
 def watch_protocol_api(page) -> dict:
-    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки страницы."""
+    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки."""
     state = {'chains': None, 'projects': None}
 
     async def handle_response(response):
@@ -232,7 +233,7 @@ def watch_protocol_api(page) -> dict:
             elif path == PROJECT_LIST_PATH:
                 state['projects'] = await response.json()
         except Exception:
-            # Тело ответа могло стать недоступным — дождёмся следующего запроса.
+            # Тело ответа могло стать недоступным — дождёмся следующего.
             pass
 
     page.on('response', handle_response)
@@ -276,8 +277,8 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                     page = await browser.new_page()
                     state = watch_protocol_api(page)
 
-                    # Не networkidle: профиль тянет данные десятками запросов и
-                    # тишины в сети может не наступить вовсе — ждём сами данные.
+                    # Не networkidle: профиль тянет данные десятками запросов
+                    # и тишины в сети может не наступить вовсе.
                     await page.goto(
                         f'https://debank.com/profile/{wallet}',
                         wait_until='domcontentloaded',
@@ -289,11 +290,12 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                     is_last = attempt == MAX_ATTEMPTS - 1
 
                     if state['chains'] is None:
-                        # Нет даже списка сетей — блокировка, капча или мёртвый прокси.
+                        # Нет даже списка сетей — блокировка, капча или прокси.
                         last_error = 'DeBank не отдал данные профиля'
                     elif protocols_ready(state) or is_last:
-                        # Пустой кошелёк — тоже успех: сетей нет, значит и позиций нет.
-                        positions = parse_protocol_data(state['projects']) if state['projects'] else []
+                        # Пустой кошелёк — успех: сетей нет, значит и позиций нет.
+                        positions = (parse_protocol_data(state['projects'])
+                                     if state['projects'] else [])
                         return {
                             'wallet': wallet,
                             'positions': positions,
@@ -317,72 +319,15 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
             'total_usd': 0, 'error': last_error}
 
 
-def create_protocol_panel(total: int, success: int, failed: int, logs: list) -> Panel:
-    """Панель прогресса для Protocol Checker"""
-    processed = success + failed
-    percent = (processed / total * 100) if total > 0 else 0
-
-    bar_width = 40
-    filled = int(bar_width * percent / 100)
-    bar_filled = "━" * filled
-    bar_empty = "─" * (bar_width - filled)
-
-    success_rate = (success / processed * 100) if processed > 0 else 100
-    bar_style = "bright_green" if success_rate >= 80 else "yellow" if success_rate >= 50 else "red"
-
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column("L1", style="dim")
-    table.add_column("V1")
-    table.add_column("L2", style="dim")
-    table.add_column("V2")
-    table.add_row(
-        "✅ Успешно:", Text(str(success), style="bold green"),
-        "❌ Ошибки:", Text(str(failed), style="bold red")
-    )
-    table.add_row(
-        "📊 Всего:", Text(str(total), style="bold"),
-        "⚡ Параллельно:", Text(str(MAX_CONCURRENT), style="bold cyan")
-    )
-
-    header = Text()
-    header.append("\n🔗 ", style="bold")
-    header.append("DeBank Protocol Checker\n", style="bold magenta")
-
-    progress_bar = Text()
-    progress_bar.append(bar_filled, style=f"bold {bar_style}")
-    progress_bar.append(bar_empty, style="dim")
-    progress_bar.append(f" {percent:.1f}%\n", style=f"bold {bar_style}")
-
-    processed_text = Text()
-    processed_text.append("Обработано: ", style="dim")
-    processed_text.append(f"{processed}/{total}\n\n", style="bold")
-
-    logs_section = Text()
-    logs_section.append("📝 Последние события:\n", style="bold")
-    for ts, msg, lvl in logs[-8:]:
-        logs_section.append(f"  {ts} ", style="dim")
-        style = {"SUCCESS": "green", "ERROR": "red", "WARNING": "yellow", "INFO": "cyan"}.get(lvl, "white")
-        logs_section.append(f"{msg}\n", style=style)
-    if not logs:
-        logs_section.append("  Ожидание...\n", style="dim")
-
-    content = Group(header, progress_bar, processed_text, table, Text(""), logs_section)
-
-    return Panel(
-        content,
-        title="[bold bright_magenta]🔗 DEBANK PROTOCOL CHECKER[/bold bright_magenta]",
-        subtitle="[dim]ETHmachine[/dim]",
-        border_style="bright_magenta",
-        padding=(1, 2)
-    )
+def protocol_panel(total: int, success: int, failed: int, logs: list) -> Panel:
+    """Панель хода проверки позиций — общий блок с проверкой балансов."""
+    return progress_panel("🔗", "DeBank · DeFi-позиции", "bright_magenta",
+                          total, success, failed, logs)
 
 
-async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None) -> dict:
-    """Асинхронная обработка кошельков — сбор DeFi-позиций.
-
-    ``proxy_map`` — прокси из строки самого кошелька в data.csv; для кошельков
-    без своего прокси берётся общий пул по кругу.
-    """
+async def process_wallets_protocols_async(wallets: list,
+                                         proxy_map: dict = None) -> dict:
+    """Асинхронная обработка кошельков — сбор DeFi-позиций"""
     from playwright.async_api import async_playwright
 
     results = {}
@@ -397,7 +342,7 @@ async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None)
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     if not proxies:
-        console.print("[yellow][!] Прокси не найдены, запросы пойдут напрямую[/yellow]")
+        logger.warning("Прокси не найдены — запросы пойдут напрямую")
 
     logs.append((time.strftime("%H:%M:%S"), f"Запуск {total} кошельков ({MAX_CONCURRENT} параллельно)", "INFO"))
     if paired:
@@ -407,7 +352,7 @@ async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None)
         logs.append((time.strftime("%H:%M:%S"),
                      f"Общий пул прокси: {len(proxies)} (round-robin)", "INFO"))
 
-    live = Live(create_protocol_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
+    live = Live(protocol_panel(total, 0, 0, logs), console=console, refresh_per_second=2)
     live.start()
 
     try:
@@ -461,12 +406,9 @@ async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None)
                     update_protocol_task_status(wallet, 'failed', str(e)[:100])
                     logs.append((time.strftime("%H:%M:%S"), f"[{short}] ❌ {str(e)[:30]}", "ERROR"))
 
-                live.update(create_protocol_panel(total, success, failed, logs))
+                live.update(protocol_panel(total, success, failed, logs))
 
-            # Очередь и пул воркеров вместо создания всех задач заранее: раньше
-            # между стартами ждали DELAY_BETWEEN_ACCOUNTS последовательно, и на
-            # тысячах кошельков одна только раздача задач растягивалась на часы,
-            # а реальная параллельность была в разы ниже MAX_CONCURRENT.
+            # Очередь и пул воркеров: см. комментарий в debank_checker.
             queue = asyncio.Queue()
             for item in enumerate(wallets):
                 queue.put_nowait(item)
@@ -478,7 +420,7 @@ async def process_wallets_protocols_async(wallets: list, proxy_map: dict = None)
                     except asyncio.QueueEmpty:
                         return
                     await process_wallet(idx, wallet)
-                    # Пауза между кошельками одного воркера, чтобы не бить DeBank пачкой.
+                    # Пауза между кошельками одного воркера.
                     await asyncio.sleep(random.uniform(*DELAY_BETWEEN_ACCOUNTS))
 
             workers = [asyncio.create_task(worker())
@@ -558,7 +500,7 @@ def save_protocols_xlsx(wallets: list):
 
     all_protocols = get_all_protocols()
     if not all_protocols:
-        console.print("[yellow][!] Нет данных о протоколах для экспорта[/yellow]")
+        logger.warning("В базе нет позиций — экспортировать нечего")
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -589,7 +531,7 @@ def save_protocols_xlsx(wallets: list):
         }
 
     if not wallet_data:
-        console.print(f"[yellow][!] Нет позиций >= ${MIN_VALUE_USD:.2f} для экспорта[/yellow]")
+        logger.warning(f"Нет позиций дороже ${MIN_VALUE_USD:.2f} — экспортировать нечего")
         return None
 
     # Порядок кошельков: сначала из файла, потом остальные
@@ -683,149 +625,93 @@ def save_protocols_xlsx(wallets: list):
     ws.auto_filter.ref = ws.dimensions
 
     wb.save(str(filepath))
-    console.print(f"[green][v] Протоколы сохранены: {filepath}[/green]")
-    console.print(f"[dim]   Кошельков: {len(all_wallets)} | Протоколов: {len(all_columns)} | "
-                  f"Фильтр: >= ${MIN_VALUE_USD:.2f} | Градиент от ${GRADIENT_MIN_USD:.2f}[/dim]")
+    logger.success(f"Позиции сохранены: {filepath}")
+    logger.info(f"Кошельков: {len(all_wallets)} · колонок: {len(all_columns)} · "
+                f"порог: ${MIN_VALUE_USD:.2f} · градиент от ${GRADIENT_MIN_USD:.2f}")
     return filepath
 
 
 def print_protocol_summary(results: dict):
-    """Вывод итогов проверки протоколов"""
-    success_list = [r for r in results.values() if r['success']]
-    failed_list = [r for r in results.values() if not r['success']]
+    """Итоги проверки DeFi-позиций."""
+    succeeded = [r for r in results.values() if r['success']]
+    failed = [r for r in results.values() if not r['success']]
+    total_usd = sum(r.get('total_usd', 0) for r in succeeded)
 
-    total_positions = sum(len(r['positions']) for r in success_list)
-    total_usd = sum(r.get('total_usd', 0) for r in success_list)
+    protocols_found = sorted({
+        position['protocol_name'] for r in succeeded for position in r['positions']
+    })
 
-    protocols_found = set()
-    for r in success_list:
-        for pos in r['positions']:
-            protocols_found.add(pos['protocol_name'])
-
-    console.print("\n" + "=" * 60)
-    console.print("[bold magenta]🔗 ИТОГИ ПРОВЕРКИ ПРОТОКОЛОВ[/bold magenta]")
-    console.print("=" * 60)
-    console.print(f"[green]✅ Успешно: {len(success_list)}[/green]")
-    console.print(f"[red]❌ Ошибки: {len(failed_list)}[/red]")
-    console.print(f"[cyan]🔗 Протоколов найдено: {len(protocols_found)}[/cyan]")
-    console.print(f"[cyan]📋 Всего позиций: {total_positions}[/cyan]")
-    console.print(f"[yellow]💰 Общая стоимость: ${total_usd:,.2f}[/yellow]")
-    console.print("=" * 60)
+    ui.print_lines(ui.stats_panel("Итоги проверки позиций", {
+        "успешно": len(succeeded),
+        "с ошибкой": len(failed),
+        "протоколов": len(protocols_found),
+        "позиций": sum(len(r['positions']) for r in succeeded),
+        "стоимость": f"${total_usd:,.2f}",
+        "total": len(results),
+    }))
 
     if protocols_found:
-        console.print(f"\n[dim]Протоколы: {', '.join(sorted(protocols_found))}[/dim]")
+        # Список бывает длинным — переносим по словам, а не растягиваем рамку.
+        ui.print_lines(ui.panel("Найденные протоколы", [
+            f"  {line}" for line in ui.wrap(", ".join(protocols_found), 62)
+        ]))
 
-    wallets_with_value = sorted(
-        [r for r in success_list if r.get('total_usd', 0) > 0],
-        key=lambda x: x.get('total_usd', 0),
-        reverse=True
-    )
-    if wallets_with_value:
-        console.print("\n[bold magenta]🏆 Топ кошельков по стоимости DeFi:[/bold magenta]")
-        for i, r in enumerate(wallets_with_value[:10], 1):
-            w = r['wallet']
-            console.print(
-                f"  {i}. {w[:10]}...{w[-6:]} → "
-                f"[green]${r['total_usd']:,.2f}[/green] "
-                f"({len(r['positions'])} позиций)"
-            )
+    top = top_wallets_panel("Топ кошельков по стоимости DeFi", results,
+                            "positions", ("позиция", "позиции", "позиций"))
+    if top:
+        ui.print_lines(top)
 
 
 def debank_protocol_menu():
-    """Главное меню DeBank Protocol Checker"""
-    wallet_source = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      Источник кошельков                        ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   📋 Адреса кошельков (колонка wallet_address в data.csv)', 'wallets'),
-            Choice('   🔑 Приватные ключи (колонка private_key в data.csv)', 'private_keys'),
-            Choice('   🔙 Назад', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-
-    if wallet_source == 'back' or not wallet_source:
-        return
-
-    rows = load_wallet_rows(wallet_source)
+    """Меню проверки DeFi-позиций — точка входа из главного меню."""
+    rows = choose_wallet_source()
     if not rows:
-        column = 'private_key' if wallet_source == SOURCE_PRIVATE_KEYS else 'wallet_address'
-        console.print(f"[red]❌ В data.csv не заполнена колонка {column}[/red]")
         return
 
-    wallets = [row['address'] for row in rows]
-    # Прокси кошелька из его же строки data.csv.
-    proxy_map = {row['address']: row['proxy'] for row in rows if row['proxy']}
-
-    if wallet_source == SOURCE_PRIVATE_KEYS:
-        console.print(f"[cyan]🔑 Получено {len(wallets)} адресов из приватных ключей[/cyan]")
-    else:
-        console.print(f"[cyan]📋 Загружено {len(wallets)} кошельков[/cyan]")
+    wallets = [row["address"] for row in rows]
+    proxy_map = wallet_proxy_map(rows)
 
     init_database()
 
-    stats = get_protocol_task_statistics()
-    completed = stats.get('completed', 0)
-    pending = stats.get('pending', 0)
-    failed_count = stats.get('failed', 0)
+    stats = task_stats_panel("Прогресс · позиции", get_protocol_task_statistics())
+    if stats:
+        ui.print_lines(stats)
 
-    if completed > 0 or pending > 0 or failed_count > 0:
-        console.print(f"[dim]БД: ✅ {completed} | ⏳ {pending} | ❌ {failed_count}[/dim]")
-
-    action = select(
-        "\n╔════════════════════════════════════════════════╗\n"
-        "║      DeBank Protocol Checker                   ║\n"
-        "╚════════════════════════════════════════════════╝",
-        choices=[
-            Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
-            Choice('   🔄 Начать заново (сброс БД)', 'reset'),
-            Choice('   📊 Экспорт результатов в XLSX', 'export'),
-            Choice('   🔙 Назад', 'back')
-        ],
-        qmark='🛠️ ',
-        pointer='👉'
-    ).ask()
-
-    if action == 'back' or not action:
+    action = ui.menu("Проверка DeFi-позиций DeBank", render_items([
+        MenuItem("continue", "Продолжить проверку",
+                 "взять из базы незавершённые кошельки", icon="▶️"),
+        MenuItem("reset", "Начать заново",
+                 "очистить базу и проверить все кошельки", icon="🔄"),
+        MenuItem("export", "Экспорт в XLSX",
+                 f"позиции дороже ${MIN_VALUE_USD:.2f} из базы", icon="📄"),
+        MenuItem(BACK_KEY, "Назад", "", icon="←"),
+    ]))
+    if action in (None, BACK_KEY):
         return
 
-    if action == 'export':
+    if action == "export":
         save_protocols_xlsx(wallets)
         return
 
-    if action == 'reset':
+    if action == "reset":
         reset_protocols_database()
-        console.print("[yellow]🔄 База данных протоколов сброшена[/yellow]")
-        create_protocol_tasks(wallets)
-    else:
-        create_protocol_tasks(wallets)
+        logger.warning("База позиций очищена")
+    create_protocol_tasks(wallets)
 
     pending_tasks = get_pending_protocol_tasks()
     if not pending_tasks:
-        console.print("[yellow][!] Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
+        logger.info("Все кошельки уже проверены — для повторной проверки "
+                    "выберите «Начать заново»")
         save_protocols_xlsx(wallets)
         return
 
     wallets_to_check = [t['wallet_address'] for t in pending_tasks]
-    console.print(f"[cyan]📋 Задач к выполнению: {len(wallets_to_check)}[/cyan]")
+    logger.info(f"📋 Задач к выполнению: {len(wallets_to_check)}")
 
     results = process_wallets_protocols(wallets_to_check, proxy_map)
-
     print_protocol_summary(results)
-
     save_protocols_xlsx(wallets)
-
-    console.print("\n[bold green]✅ Проверка протоколов DeBank завершена![/bold green]\n")
-
-    try:
-        results_list = list(results.values())
-        success_count = len([r for r in results_list if r['success']])
-        total_usd = sum(r.get('total_usd', 0) for r in results_list if r['success'])
-    except Exception:
-        pass
+    logger.success("Проверка DeFi-позиций DeBank завершена")
 
 
-if __name__ == "__main__":
-    debank_protocol_menu()
+__all__ = ["debank_protocol_menu"]

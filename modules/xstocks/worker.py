@@ -236,7 +236,7 @@ async def run_registration(max_workers: int = None) -> list[dict]:
     total = len(wallets)
     logger.log(f"Регистрация: {total} кошельков | {workers} потоков", "cycle")
 
-    # Счётчик завершённых задач (для диагностики)
+    # Счётчик завершённых задач — для отметок о ходе работы в логе.
     completed_counter = {"value": 0}
 
     async def _tracked_task(i, w):
@@ -244,22 +244,13 @@ async def run_registration(max_workers: int = None) -> list[dict]:
         result = await _process_registration(semaphore, w, i, total, proxy_mgr, workers)
         completed_counter["value"] += 1
         done = completed_counter["value"]
-        # Логировать каждые 50 задач и последнюю
+        # Отмечаем каждые 50 задач и последнюю — иначе лог тонет в деталях.
         if done % 50 == 0 or done == total:
-            print(f"  [DIAG] Завершено задач: {done}/{total}", flush=True)
+            logger.log(f"Завершено задач: {done}/{total}", "info")
         return result
 
-    print(f"  [DIAG] Создание {total} задач...", flush=True)
     tasks = [_tracked_task(i, w) for i, w in indexed]
-    print(f"  [DIAG] {len(tasks)} задач создано, запускаем gather...", flush=True)
-
-    try:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-    except BaseException as e:
-        print(f"  [DIAG] !!! asyncio.gather вызвал BaseException: {type(e).__name__}: {e}", flush=True)
-        raise
-
-    print(f"  [DIAG] gather завершён, результатов: {len(results)}, завершено задач: {completed_counter['value']}", flush=True)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Подсчёт результатов с логированием ошибок
     success = 0
@@ -284,16 +275,15 @@ async def run_registration(max_workers: int = None) -> list[dict]:
     if exceptions > 5:
         logger.log(f"... и ещё {exceptions - 5} исключений", "error")
     if error_types:
-        print(f"  [DIAG] Типы исключений: {error_types}", flush=True)
+        logger.log(f"Типы исключений: {error_types}", "warning")
 
     logger.stats_block({
-        "Всего": total,
-        "Успешно": success,
-        "Неудачно": failed,
-        "Исключений": exceptions,
-    })
+        "всего": total,
+        "успешно": success,
+        "неудачно": failed,
+        "исключений": exceptions,
+    }, title="Итог регистрации")
 
-    print(f"  [DIAG] run_registration завершён", flush=True)
     return [r for r in results if isinstance(r, dict)]
 
 
@@ -323,10 +313,10 @@ async def run_connect_sol(max_workers: int = None) -> list[dict]:
     success = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
 
     logger.stats_block({
-        "Всего": len(wallets),
-        "Solana подключён": success,
-        "Не подключён": len(results) - success,
-    })
+        "всего": len(wallets),
+        "подключено": success,
+        "не подключено": len(results) - success,
+    }, title="Итог подключения Solana")
 
     return [r for r in results if isinstance(r, dict)]
 
@@ -361,10 +351,10 @@ async def run_gm_once(max_workers: int = None) -> list[dict]:
     success = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
 
     logger.stats_block({
-        "Всего": len(wallets),
-        "GM успешно": success,
-        "GM неудачно": len(results) - success,
-    })
+        "всего": len(wallets),
+        "отметились": success,
+        "не отметились": len(results) - success,
+    }, title="Итог отметки GM")
 
     return [r for r in results if isinstance(r, dict)]
 

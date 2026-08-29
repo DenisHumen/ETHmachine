@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import csv
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,8 +19,6 @@ from modules.zksync_lite.swap import swap_database as swap_db
 from modules.zksync_lite.swap.layerswap_client import (
     LayerswapClient, LayerswapError, SUPPORTED_PAIRS,
 )
-
-DATA_CSV = Path(__file__).resolve().parents[3] / "data" / "data.csv"
 
 # Минимальные «экономические» пороги (~$0.15). Если Layerswap min выше — берётся он.
 THRESHOLDS_HUMAN: Dict[str, Decimal] = {
@@ -99,37 +96,39 @@ def _effective_max(token: str) -> Optional[Decimal]:
 
 
 
-def load_wallet_credentials(csv_path: Path = DATA_CSV) -> Dict[str, Dict[str, str]]:
-    """Читает data.csv → {wallet_address_lower: {'private_key':..., 'proxy':...}}.
+def load_wallet_credentials(csv_path: Optional[Path] = None
+                            ) -> Dict[str, Dict[str, str]]:
+    """{wallet_address_lower: {'private_key', 'proxy', 'reserve_proxy'}}.
 
-    Если адрес не указан в CSV, его выводим из приватника.
+    Идём через `data_manager.load_data` (AGENTS §12.1), а не читаем CSV сами:
+    иначе игнорировался бы профиль данных, который пользователь выбрал при
+    старте (`data_*.csv`), и планирование шло бы по чужому набору кошельков.
+
+    `csv_path` оставлен для явного указания файла (ручные прогоны/тесты).
+    Если адрес не указан в CSV, выводим его из приватника.
     """
     from eth_account import Account
 
+    from modules.data_manager import load_data
+
     out: Dict[str, Dict[str, str]] = {}
-    if not csv_path.exists():
-        return out
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            pk = (row.get("private_key") or "").strip()
-            if not pk:
+    for row in load_data(csv_path):
+        pk = (row.get("private_key") or "").strip()
+        if not pk:
+            continue
+        if not pk.startswith("0x"):
+            pk = "0x" + pk
+        address = (row.get("wallet_address") or "").strip().lower()
+        if not address:
+            try:
+                address = Account.from_key(pk).address.lower()
+            except Exception:
                 continue
-            if not pk.startswith("0x"):
-                pk = "0x" + pk
-            address = (row.get("wallet_address") or "").strip().lower()
-            if not address:
-                try:
-                    address = Account.from_key(pk).address.lower()
-                except Exception:
-                    continue
-            proxy = (row.get("proxy") or "").strip() or None
-            reserve = (row.get("reserve_proxy") or "").strip() or None
-            out[address] = {
-                "private_key": pk,
-                "proxy": proxy or "",
-                "reserve_proxy": reserve or "",
-            }
+        out[address] = {
+            "private_key": pk,
+            "proxy": (row.get("proxy") or "").strip(),
+            "reserve_proxy": (row.get("reserve_proxy") or "").strip(),
+        }
     return out
 
 

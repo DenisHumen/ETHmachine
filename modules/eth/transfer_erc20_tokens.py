@@ -19,6 +19,7 @@
 import sys
 import os
 import csv
+import math
 import time
 import random
 import sqlite3
@@ -31,7 +32,7 @@ from pathlib import Path
 from itertools import cycle
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from modules.simple_logger import logger, log_wallet_task
+from modules.simple_logger import logger, log_wallet_task, set_auto_progress
 
 # Настройка путей для импорта
 project_root = Path(__file__).parent.parent.parent
@@ -317,19 +318,19 @@ def finalize_token_stats():
     global TOKEN_TRANSFER_STATS
     with _stats_lock:
         TOKEN_TRANSFER_STATS["end_time"] = datetime.now()
-    
+
     # Рассчитываем время работы
     if TOKEN_TRANSFER_STATS["start_time"]:
         duration = TOKEN_TRANSFER_STATS["end_time"] - TOKEN_TRANSFER_STATS["start_time"]
         duration_str = str(duration).split('.')[0]
     else:
         duration_str = "Неизвестно"
-    
+
     # Рассчитываем процент успешных транзакций
     success_rate = 0
     if TOKEN_TRANSFER_STATS["total_transactions_attempted"] > 0:
         success_rate = (TOKEN_TRANSFER_STATS["total_transactions_success"] / TOKEN_TRANSFER_STATS["total_transactions_attempted"]) * 100
-    
+
     # Отправляем статистику
     if TELEGRAM_LOG_LEVEL_transfer_token >= 1:
         stats_message = f"""
@@ -358,7 +359,7 @@ def finalize_token_stats():
 🚨 <b>Ошибки:</b> {len(TOKEN_TRANSFER_STATS['errors'])}
 ✅ <b>Успешные tx:</b> {len(TOKEN_TRANSFER_STATS['successful_txs'])}
         """
-        
+
 
         # Отправляем файл результатов если есть
         result_file = "result/token_transfer_result.csv"
@@ -369,7 +370,7 @@ def get_network_rpc(network):
     """Получение RPC URL для сети"""
     from config.networks import get_network_rpc_urls
     import random
-    
+
     rpc_urls = get_network_rpc_urls(network)
     if not rpc_urls:
         raise Exception(f"Неизвестная сеть: {network}")
@@ -735,59 +736,97 @@ def get_token_symbol(w3, token_address):
         logger.warning(f"Не удалось получить символ токена: {e}")
         return "TOKEN"
 
+# Значения transfer_amount без суффикса, о которых уже предупредили.
+# Предупреждаем один раз на уникальное значение, иначе в многопоточном режиме
+# лог засоряется одинаковой строкой от каждого воркера.
+_BARE_AMOUNT_WARNED: set = set()
+_BARE_AMOUNT_LOCK = Lock()
+
+
+def _warn_bare_amount(raw):
+    """Однократно предупреждает, что значение без суффикса — это КОЛИЧЕСТВО.
+
+    До исправления такая запись трактовалась как процент от баланса, поэтому
+    пользователь, у которого в data.csv лежит '90', должен заметить смену
+    смысла до того, как уйдёт транзакция."""
+    with _BARE_AMOUNT_LOCK:
+        if raw in _BARE_AMOUNT_WARNED:
+            return
+        _BARE_AMOUNT_WARNED.add(raw)
+    logger.warning(
+        f"⚠️  transfer_amount='{raw}' без суффикса → трактуем как КОЛИЧЕСТВО ТОКЕНОВ "
+        f"(так описано в config/modules/cfg_transfer_erc20.py). "
+        f"Если нужен процент от баланса — допишите '%': '{raw}%'"
+    )
+
+
+def _parse_amount_bounds(spec):
+    """Разбирает 'X' или 'X-Y' в (lo, hi). Бросает ValueError на любом мусоре.
+
+    Явная ошибка принципиальна: молчаливый fallback здесь означал бы отправку
+    не той суммы, а это чужие деньги."""
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("нет числа перед суффиксом")
+
+    parts = [p.strip() for p in spec.split('-')]
+    if len(parts) == 1:
+        lo_str = hi_str = parts[0]
+    elif len(parts) == 2:
+        lo_str, hi_str = parts
+    else:
+        raise ValueError("ожидается число или диапазон вида 'мин-макс'")
+
+    try:
+        lo, hi = float(lo_str), float(hi_str)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "границы не являются числами (десятичный разделитель — точка, не запятая)"
+        ) from None
+
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError("границы должны быть конечными числами")
+    if lo < 0 or hi < 0:
+        raise ValueError("отрицательное значение недопустимо")
+    # Перевёрнутый диапазон ('20-10') не запрещаем: random.uniform работает в любом
+    # порядке, и раньше такая запись тоже отрабатывала — не ломаем чужие конфиги.
+    return lo, hi
+
+
 def parse_amount_range(amount_str):
     """
-    Парсит строку с диапазоном для amount токенов.
-    Поддерживает:
-    - "10-20%" - процент от баланса токена
-    - "10-20token" - фиксированное количество токенов
-    - "10%" - фиксированный процент
-    - "10token" - фиксированное количество
+    Парсит значение transfer_amount из data/data.csv.
+
+    Грамматика — ровно та, что описана в шапке config/modules/cfg_transfer_erc20.py:
+        "10-20%"   → 10–20 % от баланса токена
+        "90%"      → 90 % от баланса токена
+        "1-3token" → 1–3 токена (абсолютное количество)
+        "5token"   → 5 токенов
+        "10-20"    → 10–20 токенов: без суффикса это КОЛИЧЕСТВО, а не процент
+
+    Возвращает (lo, hi, 'PERCENT' | 'FIXED').
+
+    Бросает ValueError на всём, что не разобралось. Раньше любая ошибка разбора
+    молча превращалась в (100, 100, 'PERCENT') — то есть опечатка в одной ячейке
+    CSV означала «отправить весь баланс». Вызывающий обязан пропустить кошелёк.
     """
-    try:
-        amount_str = amount_str.strip()
-        
-        # Проверяем, есть ли в строке "%"
-        if amount_str.endswith('%'):
-            # Процентное значение
-            percent_str = amount_str[:-1].strip()
-            if '-' in percent_str:
-                parts = percent_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'PERCENT'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'PERCENT'
-            else:
-                val = float(percent_str)
-                return val, val, 'PERCENT'
-        elif amount_str.lower().endswith('token'):
-            # Фиксированное количество токенов
-            token_str = amount_str[:-5].strip()  # Убираем 'token'
-            if '-' in token_str:
-                parts = token_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'FIXED'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'FIXED'
-            else:
-                val = float(token_str)
-                return val, val, 'FIXED'
-        else:
-            # Если нет суффикса, считаем процентами по умолчанию
-            if '-' in amount_str:
-                parts = amount_str.split('-')
-                if len(parts) == 2:
-                    return float(parts[0]), float(parts[1]), 'PERCENT'
-                else:
-                    val = float(parts[0])
-                    return val, val, 'PERCENT'
-            else:
-                val = float(amount_str)
-                return val, val, 'PERCENT'
-    except Exception:
-        return 100, 100, 'PERCENT'  # По умолчанию 100%
+    if amount_str is None:
+        raise ValueError("значение не задано")
+    raw = str(amount_str).strip()
+    if not raw:
+        raise ValueError("значение пустое")
+
+    if raw.endswith('%'):
+        lo, hi = _parse_amount_bounds(raw[:-1])
+        return lo, hi, 'PERCENT'
+
+    if raw.lower().endswith('token'):
+        lo, hi = _parse_amount_bounds(raw[:-5])
+        return lo, hi, 'FIXED'
+
+    lo, hi = _parse_amount_bounds(raw)
+    _warn_bare_amount(raw)
+    return lo, hi, 'FIXED'
 
 def apply_trim_to_amount(amount):
     """Применяет обрезку к количеству токенов"""
@@ -825,9 +864,9 @@ def validate_wallet_format(wallet_value, expected_type, row_index):
     """Проверяет формат кошелька"""
     if not wallet_value or not isinstance(wallet_value, str):
         return False, f"Пустое значение кошелька"
-    
+
     wallet_value = wallet_value.strip()
-    
+
     if expected_type == 0:  # Приватный ключ
         if wallet_value.startswith('0x'):
             if len(wallet_value) == 66:
@@ -847,7 +886,7 @@ def validate_wallet_format(wallet_value, expected_type, row_index):
                     return False, f"Неверный формат приватного ключа (не hex)"
             else:
                 return False, f"Неверная длина приватного ключа (ожидается 64 символа, получено {len(wallet_value)})"
-    
+
     elif expected_type == 1:  # Адрес кошелька
         if wallet_value.startswith('0x') and len(wallet_value) == 42:
             try:
@@ -857,13 +896,13 @@ def validate_wallet_format(wallet_value, expected_type, row_index):
                 return False, f"Неверный формат адреса кошелька (не hex)"
         else:
             return False, f"Неверный формат адреса кошелька (должен начинаться с 0x и быть длиной 42 символа, получено {len(wallet_value)})"
-    
+
     return False, f"Неизвестный тип кошелька: {expected_type}"
 
 def validate_token_transfer_data(transfer_data):
     """Проверяет данные переводов токенов на корректность"""
     errors = []
-    
+
     for idx, row in enumerate(transfer_data, start=1):
         # Проверяем from_wallet (всегда должен быть приватный ключ)
         is_valid, error_msg = validate_wallet_format(row.get('from_wallet', ''), 0, idx)
@@ -875,11 +914,22 @@ def validate_token_transfer_data(transfer_data):
         if not is_valid:
             wallet_type_name = "приватный ключ" if TYPE_VALUE_TO_WALLET_TOKEN == 0 else "адрес кошелька"
             errors.append(f"Строка {idx}, поле 'to_wallet' (ожидается {wallet_type_name}): {error_msg}")
-        
-        # Проверяем наличие поля amount
-        if not row.get('amount', '').strip():
+
+        # Проверяем не только наличие, но и разбор amount: опечатка в transfer_amount
+        # раньше молча означала «отправить 100% баланса», поэтому ловим её до старта,
+        # а не в момент, когда кошелёк уже подключился к RPC.
+        raw_amount = row.get('amount', '').strip()
+        if not raw_amount:
             errors.append(f"Строка {idx}, поле 'amount': отсутствует количество для перевода")
-    
+        else:
+            try:
+                parse_amount_range(raw_amount)
+            except ValueError as e:
+                errors.append(
+                    f"Строка {idx}, поле 'amount': некорректное значение '{raw_amount}' — {e}. "
+                    f"Допустимые формы: '10-20%', '90%', '1-3token', '5token', '10-20'"
+                )
+
     return errors
 
 def get_to_wallet_address(to_wallet_value):
@@ -916,7 +966,7 @@ def append_token_result_csv(row):
                     need_header = True
         except FileNotFoundError:
             need_header = True
-        
+
         with open(filename, "a", encoding="utf-8", newline='') as f:
             writer = csv.DictWriter(f, fieldnames=header)
             if need_header:
@@ -1079,25 +1129,39 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
             update_token_stats(success=False, error_msg=error_msg)
             return
 
-        # Рассчитываем количество токенов для отправки
-        amount_from, amount_to, amount_type = parse_amount_range(amount)
+        # Рассчитываем количество токенов для отправки.
+        # Неразобранный transfer_amount — это опечатка в data/data.csv, а не повод
+        # отправить весь баланс: кошелёк пропускаем с явной ошибкой.
+        try:
+            amount_from, amount_to, amount_type = parse_amount_range(amount)
+        except ValueError as e:
+            error_msg = f"некорректный transfer_amount='{amount}': {e}"
+            _log(error_msg, status="error")
+            _update_token_task(
+                task_id, status="failed",
+                error_message=f"[{from_acc.address[:10]}…] {error_msg}",
+            )
+            update_token_stats(success=False, error_msg=error_msg)
+            return
 
+        # Итоговую сумму логируем всегда (в т.ч. в многопоточном режиме) —
+        # пользователь должен видеть, как именно понят transfer_amount, до отправки.
         if amount_type == 'PERCENT':
             percent = random.uniform(amount_from, amount_to)
             send_amount_raw = int(token_balance * percent / 100)
-            if not MULTI_THREADING_TOKEN:
-                logger.info(f"  Процент:      {percent:.2f}% от баланса токена")
+            _log(f"сумма: {percent:.2f}% от баланса {token_symbol_actual} (transfer_amount='{amount}')")
         else:
             amount_tokens = random.uniform(amount_from, amount_to)
             amount_tokens = apply_trim_to_amount(amount_tokens)
             send_amount_raw = int(amount_tokens * (10 ** token_decimals))
-            if not MULTI_THREADING_TOKEN:
-                logger.info(f"  Количество:   {amount_tokens:.6f} {token_symbol_actual}")
+            _log(f"сумма: {amount_tokens:.6f} {token_symbol_actual} (transfer_amount='{amount}')")
 
         if send_amount_raw > token_balance:
             send_amount_raw = token_balance
-            if not MULTI_THREADING_TOKEN:
-                logger.warning(f"⚠️ Запрошенное количество больше баланса, будет отправлен весь баланс")
+            _log(
+                "запрошенное количество больше баланса — будет отправлен весь баланс",
+                status="warning",
+            )
 
         if send_amount_raw <= 0:
             error_msg = (
@@ -1313,22 +1377,35 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
                 status="error",
             )
 
-        # Записываем результат
-        append_token_result_csv({
-            "datetime": dt_str,
-            "from_wallet": from_priv,
-            "from_address": from_acc.address,
-            "to_wallet": to_wallet_value,
-            "to_address": to_address,
-            "token_symbol": token_symbol_actual,
-            "token_address": token_address,
-            "amount_sent": send_amount_formatted,
-            "tx_hash": tx_hash_hex,
-            "explorer_link": f"{explorer_url}{tx_hash_hex}",
-        })
+        # Успех — ТОЛЬКО подтверждённая транзакция со status == 1.
+        # Реверт и «висит в pending» не двигают токены, поэтому не должны попадать
+        # ни в result-CSV, ни в счётчик успешных: иначе CSV расходится с ончейном
+        # и с БД (там уже пишется реальный tx_status_final).
+        succeeded = (tx_status_final == "completed")
 
-        # Обновляем статистику
-        update_token_stats(success=True, amount=send_amount_formatted, tx_hash=tx_hash_hex)
+        if succeeded:
+            append_token_result_csv({
+                "datetime": dt_str,
+                "from_wallet": from_priv,
+                "from_address": from_acc.address,
+                "to_wallet": to_wallet_value,
+                "to_address": to_address,
+                "token_symbol": token_symbol_actual,
+                "token_address": token_address,
+                "amount_sent": send_amount_formatted,
+                "tx_hash": tx_hash_hex,
+                "explorer_link": f"{explorer_url}{tx_hash_hex}",
+            })
+            update_token_stats(success=True, amount=send_amount_formatted, tx_hash=tx_hash_hex)
+        else:
+            if tx_status_final == "failed":
+                fail_reason = f"tx отклонена сетью (reverted): {tx_hash_hex}"
+            else:
+                fail_reason = (
+                    f"tx не подтверждена за {WHAITE_TRANSACTION_PENDING_COUNT} попыток: {tx_hash_hex}"
+                )
+            update_token_stats(success=False, error_msg=fail_reason)
+
         _update_token_task(
             task_id,
             status=tx_status_final or "pending",
@@ -1347,7 +1424,9 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
         except Exception as e:
             logger.warning(f"Не удалось прочитать итоговый баланс получателя: {e}")
 
-        if not MULTI_THREADING_TOKEN:
+        # Итоговый «зелёный» блок только для реально прошедшей транзакции —
+        # для реверта/pending он вводил бы в заблуждение.
+        if not MULTI_THREADING_TOKEN and succeeded:
             logger.success("=" * 60)
             logger.success(f"{explorer_url}{tx_hash_hex}")
             logger.success(f"from_wallet ({from_acc.address}) - {send_amount_formatted:.6f} {token_symbol_actual}")
@@ -1368,15 +1447,15 @@ def transfer_erc20_tokens(from_priv, to_wallet_value, network, token_address, to
 def check_token_balances_for_loop(transfer_data, network, token_address, token_symbol, proxies):
     """Проверяет балансы токенов для принятия решения о продолжении цикла"""
     logger.info(f"🔍 Проверка балансов токенов {token_symbol.upper()}...")
-    
+
     # Генерируем случайные пороговые значения
     min_from_balance = random.uniform(expected_balance_from_wallet_token[0], expected_balance_from_wallet_token[1])
     max_to_balance = random.uniform(expected_balance_to_wallet_token[0], expected_balance_to_wallet_token[1])
-    
+
     logger.info(f"Проверка балансов: минимальный from_wallet = {min_from_balance:.6f} {token_symbol.upper()}, максимальный to_wallet = {max_to_balance:.6f} {token_symbol.upper()}")
-    
+
     valid_wallets = []
-    
+
     for row in transfer_data:
         session = None
         w3 = None
@@ -1423,7 +1502,7 @@ def check_token_balances_for_loop(transfer_data, network, token_address, token_s
             if session:
                 try: session.close()
                 except Exception: pass
-    
+
     return valid_wallets
 
 def process_token_transfers_loop(transfer_data, proxies, network, delay_between, token_address, token_symbol):
@@ -1431,23 +1510,23 @@ def process_token_transfers_loop(transfer_data, proxies, network, delay_between,
     if not transfer_data:
         logger.error("Нет данных для циклической обработки")
         return
-    
+
     # Инициализируем статистику
     init_token_stats(network, token_symbol, True)
 
     logger.info(f"🔄 Запуск циклической обработки переводов токенов {token_symbol.upper()}")
     logger.info(f"Количество циклов: {loop_transfer_count_token}")
     logger.info(f"Задержка между циклами: {sleep_time_between_loops_token[0]}-{sleep_time_between_loops_token[1]} сек")
-    
+
     for cycle in range(loop_transfer_count_token):
         try:
             logger.info(f"\n{'='*60}")
             logger.info(f"🔄 ЦИКЛ {cycle + 1}/{loop_transfer_count_token}")
             logger.info(f"{'='*60}")
-            
+
             # Проверяем балансы и фильтруем подходящие кошельки
             valid_wallets = check_token_balances_for_loop(transfer_data, network, token_address, token_symbol, proxies)
-            
+
             if not valid_wallets:
                 logger.warning(f"❌ Цикл {cycle + 1}: Нет подходящих кошельков для отправки токенов")
                 _bump_stats(cycles_completed=1)
@@ -1456,15 +1535,15 @@ def process_token_transfers_loop(transfer_data, proxies, network, delay_between,
                     logger.info(f"⏳ Ожидание {sleep_time} сек до следующего цикла...")
                     time.sleep(sleep_time)
                 continue
-            
+
             logger.info(f"✅ Найдено {len(valid_wallets)} подходящих кошельков для цикла {cycle + 1}")
-            
+
             # Обрабатываем валидные кошельки
             successful_in_cycle = 0
             for idx, row in enumerate(valid_wallets):
                 try:
                     logger.info(f"\n[Цикл {cycle + 1}] [{idx+1}/{len(valid_wallets)}] Обработка кошелька {row['from_wallet'][:10]}...")
-                    
+
                     transfer_erc20_tokens(
                         from_priv=row['from_wallet'],
                         to_wallet_value=row['to_wallet'],
@@ -1475,7 +1554,7 @@ def process_token_transfers_loop(transfer_data, proxies, network, delay_between,
                         proxy=None,
                         delay_between=delay_between
                     )
-                    
+
                     successful_in_cycle += 1
                     _bump_stats(wallets_processed=1)
 
@@ -1489,26 +1568,26 @@ def process_token_transfers_loop(transfer_data, proxies, network, delay_between,
 
             _bump_stats(cycles_completed=1)
             logger.info(f"✅ Цикл {cycle + 1} завершен. Успешно обработано: {successful_in_cycle}/{len(valid_wallets)} кошельков")
-            
+
             # Отправляем уведомление о завершении цикла
             if TELEGRAM_LOG_LEVEL_transfer_token >= 1:
-            
+
             # Задержка между циклами
                 pass
             if cycle < loop_transfer_count_token - 1:
                 sleep_time = random.randint(sleep_time_between_loops_token[0], sleep_time_between_loops_token[1])
                 logger.info(f"⏳ Ожидание {sleep_time} сек до следующего цикла...")
                 time.sleep(sleep_time)
-                
+
         except KeyboardInterrupt:
             logger.warning(f"\n⚠️ Прерывание пользователем на цикле {cycle + 1}")
             break
         except Exception as e:
             logger.error(f"❌ Ошибка в цикле {cycle + 1}: {e}")
             _bump_stats(cycles_completed=1)
-    
+
     logger.info(f"\n🏁 Циклическая обработка завершена. Выполнено циклов: {TOKEN_TRANSFER_STATS['cycles_completed']}")
-    
+
     # Завершаем статистику
     finalize_token_stats()
 
@@ -1517,10 +1596,10 @@ def process_token_transfers_normal(transfer_data, proxies, network, delay_betwee
     # Проверяем, включена ли циклическая обработка
     if loop_transfer_enable_token:
         return process_token_transfers_loop(transfer_data, proxies, network, delay_between, token_address, token_symbol)
-    
+
     # Инициализируем статистику
     init_token_stats(network, token_symbol, False)
-    
+
     # Валидация данных
     validation_errors = validate_token_transfer_data(transfer_data)
     if validation_errors:
@@ -1531,17 +1610,17 @@ def process_token_transfers_normal(transfer_data, proxies, network, delay_betwee
         return
 
     logger.success("✅ Валидация данных прошла успешно")
-    
+
     # Обработка в зависимости от режима многопоточности
     if MULTI_THREADING_TOKEN:
         return process_token_transfers_multithreaded(transfer_data, proxies, network, delay_between, token_address, token_symbol)
-    
+
     # Однопоточная обработка
     total_wallets = len(transfer_data)
     for idx, row in enumerate(transfer_data):
         try:
             logger.info(f"\n[{idx+1}/{total_wallets}] Обработка кошелька {row['from_wallet'][:10]}...")
-            
+
             transfer_erc20_tokens(
                 from_priv=row['from_wallet'],
                 to_wallet_value=row['to_wallet'],
@@ -1552,7 +1631,7 @@ def process_token_transfers_normal(transfer_data, proxies, network, delay_betwee
                 proxy=None,
                 delay_between=delay_between
             )
-            
+
             _bump_stats(wallets_processed=1)
 
             # Задержка между транзакциями
@@ -1638,9 +1717,10 @@ def process_token_transfers_multithreaded(transfer_data, proxies, network, delay
 
 
 def choose_token_for_network(network):
-    """Выбор токена для конкретной сети через choice"""
-    from questionary import select, Choice
-    
+    """Выбор токена для конкретной сети."""
+    from modules.ui import ui
+    from modules.ui.menu_model import BACK_KEY
+
     network_mapping = {
         '🚀 Base': base,
         '🚀 Arbitrum One': arbitrum,
@@ -1649,74 +1729,63 @@ def choose_token_for_network(network):
         '🚀 Kava': kava,
         '🚀 Pharos Testnet': pharos_testnet,
     }
-    
+
     network_tokens = network_mapping.get(network)
     if not network_tokens:
         print(f"{Fore.RED}Сеть {network} не поддерживается для переводов токенов{Style.RESET_ALL}")
         return None, None
-    
-    print(f"\n{Fore.CYAN}Выберите токен для сети {network}:{Style.RESET_ALL}")
-    
-    # Создаем список выборов для questionary
-    choices = []
-    tokens_list = list(network_tokens.items())
-    
-    for symbol, address in tokens_list:
-        # Упрощаем отображение символа
+
+    options = []
+    for symbol, address in network_tokens.items():
+        # Символ в списке показываем коротко, без скобок и уточнений.
         display_symbol = symbol.split(' ')[0].split('(')[0]
-        choices.append(Choice(f"{display_symbol} - {symbol}", (display_symbol.lower(), address)))
-    
-    choices.append(Choice('🔙 Назад', None))
-    
+        options.append((f"{display_symbol} — {symbol}",
+                        (display_symbol.lower(), address)))
+
     try:
-        selected = select(
-            "Выберите токен:",
-            choices=choices,
-            qmark='💎',
-            pointer='👉'
-        ).ask()
-        
-        if selected is None:
+        selected = ui.choose(f"Какой токен переводим в сети {network}?",
+                             options)
+
+        if selected in (None, BACK_KEY):
             return None, None
-            
+
         token_symbol, token_address = selected
         print(f"{Fore.GREEN}Выбран токен: {token_symbol.upper()} ({token_address[:10]}...){Style.RESET_ALL}")
         return token_symbol, token_address
-        
+
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Операция отменена пользователем{Style.RESET_ALL}")
         return None, None
 
 def run_transfer_erc20_tokens():
     """Главная функция запуска модуля переводов ERC-20 токенов"""
+    # В логах уже есть счётчик [i/N] (log_wallet_task), поэтому авто-tqdm выключаем —
+    # иначе пользователь видит двойную индикацию прогресса.
+    set_auto_progress(False)
     try:
-        from questionary import Choice, select
-        from colorama import Fore
+        from modules.ui import ui
+        from modules.ui.menu_model import BACK_KEY
         from modules.data_manager import get_transfer_rows
         from config.modules.cfg_transfer_erc20 import expected_completion_time_token
 
-        print(Fore.GREEN + f"\n\n💎 МОДУЛЬ ПЕРЕВОДОВ ТОКЕНОВ ERC-20")
-        print(Fore.GREEN + f"Данные читаются из data/data.csv:")
-        print(Fore.YELLOW + f"  private_key      → from_wallet (отправитель)")
-        print(Fore.YELLOW + f"  evm_cex_address  → to_wallet (получатель)")
-        print(Fore.YELLOW + f"  transfer_amount  → amount (10-20token / 50-80% / 5token / 90%)\n")
-        print(Fore.YELLOW + "Токен выбирается из меню при запуске для выбранной сети!")
-        
-        # Выбор типа сети
-        network_type = select(
-            "Select network type:",
-            choices=[
-                Choice('🌐 Mainnet', 'mainnet'),
-                Choice('🔧 Testnet', 'testnet'),
-                Choice('🔙 Back', 'back')
+        ui.print_lines(ui.info_panel("Перевод токенов ERC-20", {
+            "Данные из data/data.csv": [
+                f"private_key      {ui.glyphs.arrow} отправитель",
+                f"evm_cex_address  {ui.glyphs.arrow} получатель",
+                f"transfer_amount  {ui.glyphs.arrow} 10-20token, 50-80%, "
+                f"5token или 90%",
             ],
-            qmark='🛠️',
-            pointer='👉'
-        ).ask()
-        
-        if network_type == 'back':
+            "Токен": ["выбирается ниже, отдельно для каждой сети"],
+        }))
+
+        network_type = ui.choose("Какой тип сети?", [
+            ("🌐 Mainnet", "mainnet"),
+            ("🔧 Testnet", "testnet"),
+        ])
+
+        if network_type in (None, BACK_KEY):
             return
-        
+
         # Ограничиваем выбор сетей только теми, которые поддерживают токены
         supported_networks = [
             '🚀 Base',
@@ -1730,27 +1799,23 @@ def run_transfer_erc20_tokens():
             available_networks = [n for n in supported_networks if 'Testnet' not in n]
         else:
             available_networks = [n for n in supported_networks if 'Testnet' in n]
-        
+
         if not available_networks:
             print(Fore.RED + f"Нет поддерживаемых сетей для типа {network_type}")
             return
-        
-        # Выбор сети
-        network = select(
-            "Which network do you want to use for token transfer?",
-            choices=[Choice(get_network_display_name(n), n) for n in available_networks] + [Choice('🔙 Back', 'back')],
-            qmark='🛠️',
-            pointer='👉'
-        ).ask()
-        
-        if network == 'back':
+
+        network = ui.choose("В какой сети переводим токены?", [
+            (get_network_display_name(n), n) for n in available_networks
+        ])
+
+        if network in (None, BACK_KEY):
             return
-        
+
         # Выбор токена для выбранной сети
         token_result = choose_token_for_network(network)
         if not token_result or token_result[0] is None:
             return
-        
+
         selected_token_symbol, selected_token_address = token_result
 
         # Чтение данных из data/data.csv через data_manager
@@ -1759,16 +1824,16 @@ def run_transfer_erc20_tokens():
         if not transfer_data:
             print(Fore.RED + "Нет данных для перевода: заполните private_key, evm_cex_address и transfer_amount в data/data.csv.")
             return
-        
+
         print(Fore.GREEN + f"Найдено {len(transfer_data)} записей для обработки с токеном {selected_token_symbol.upper()}")
-        
+
         # Получаем прокси и вычисляем задержки
         proxies = get_proxy_list()
         delay_between = expected_completion_time_token / len(transfer_data) if len(transfer_data) > 1 else 0
-        
+
         # Запускаем обработку
         process_token_transfers_normal(transfer_data, proxies, network, delay_between, selected_token_address, selected_token_symbol)
-        
+
     except Exception as e:
         print(Fore.RED + f"Ошибка в модуле переводов токенов ERC-20: {e}")
         import traceback

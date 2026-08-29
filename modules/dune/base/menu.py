@@ -1,52 +1,65 @@
 """Меню Dune Base Network Analytics чекера."""
-from colorama import Fore, Style
-from questionary import Choice, select
+from __future__ import annotations
 
-from modules.dune.base.checker import (
-    export_results_xlsx,
-    print_run_statistics,
-    run_base_checker,
-)
+from modules.dune.base.checker import export_results_xlsx, run_base_checker
 from modules.dune.base.database import (
-    DB_FILE,
-    all_tasks_completed,
-    get_task_statistics,
-    get_total_tasks_count,
-    init_database,
-    reset_database,
+    DB_FILE, all_tasks_completed, get_task_statistics, get_total_tasks_count,
+    init_database, reset_database,
 )
 from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.module_menu import MenuAction, ModuleMenu
+
+_STATS_TITLE = f"Прогресс · {DB_FILE.name}"
 
 
-# ───────────────────────── Helpers ─────────────────────────
+# ── Статистика и справка ─────────────────────────────────────────────────
 
-def _show_db_stats() -> None:
-    s = get_task_statistics()
-    sep = f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}"
-    print()
-    print(sep)
-    print(f"{Fore.CYAN}DUNE BASE CHECKER — СТАТИСТИКА ИЗ БД{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}DB:{Style.RESET_ALL} {DB_FILE}")
-    print(sep)
-
-    if s["total"] == 0:
-        print(f"  {Fore.YELLOW}Нет данных в БД{Style.RESET_ALL}")
-        print(sep)
-        return
-
-    print(f"  Всего кошельков:    {s['total']}")
-    print(f"  Проверено:          {Fore.GREEN}{s['completed']}{Style.RESET_ALL}")
-    print(f"  Ожидают:            {Fore.YELLOW}{s['pending']}{Style.RESET_ALL}")
-    print(f"  Ошибки:             {Fore.RED}{s['failed']}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}")
-    print(f"  ✅ В Ranking:        {Fore.GREEN}{s['found_ranking']}{Style.RESET_ALL}")
-    print(f"  ✅ В Volume:         {Fore.GREEN}{s['found_volume']}{Style.RESET_ALL}")
-    print(f"  ✅ Найдено всего:    {Fore.GREEN}{s['found_any']}{Style.RESET_ALL}")
-    print(sep)
-    print()
+def _stats() -> dict:
+    """Состояние базы в порядке жизненного цикла задачи."""
+    raw = get_task_statistics()
+    return {
+        "проверено": raw["completed"],
+        "ожидают": raw["pending"],
+        "ошибка": raw["failed"],
+        "есть в ranking": raw["found_ranking"],
+        "есть в volume": raw["found_volume"],
+        "найдено всего": raw["found_any"],
+        "total": raw["total"],
+    }
 
 
-# ───────────────────────── Actions ─────────────────────────
+def _info() -> dict:
+    return {
+        "Как это работает": [
+            "Для каждого кошелька поднимается свой Chromium со своим прокси, "
+            "открывается публичный дашборд и адрес вводится в поиск обеих "
+            "таблиц: Top 2,500,000 Wallet Ranking и то же самое по объёму.",
+            "API-ключ Dune не нужен: Cloudflare обходит patchright, окно "
+            "браузера уводится за пределы экрана — визуально ничего не "
+            "появляется.",
+            "Адрес берётся из private_key выбранного data/data*.csv; если "
+            "ключа нет — из wallet_address. Прокси берётся из той же строки.",
+            "Прогон можно прервать Ctrl+C и продолжить позже: обработаются "
+            "только оставшиеся задачи со статусом «ожидают» и «ошибка».",
+        ],
+        "Настройки (config/modules/general_config.py)": [
+            "NUM_THREADS — сколько браузеров работает одновременно",
+            "SLEEP_BETWEEN_ACTIONS — пауза между кошельками в одном потоке",
+            "DELAY_BETWEEN_ACCOUNTS — разброс старта потоков",
+            "RETRY_COUNT — попытки при сетевых ошибках и сбоях разбора",
+        ],
+        "Где что лежит": [
+            "Дашборд:",
+            "https://dune.com/nvthao/base-network-analytics-dashboard",
+            f"База задач: db/{DB_FILE.name}",
+            "Задачи и результаты: таблица check_tasks",
+            "Отчёт: result/dune/dune_base_<время>.xlsx",
+        ],
+    }
+
+
+# ── Действия ─────────────────────────────────────────────────────────────
 
 def _handle_start() -> None:
     init_database()
@@ -54,32 +67,22 @@ def _handle_start() -> None:
 
     if total > 0:
         if all_tasks_completed():
-            print(
-                f"\n{Fore.YELLOW}БД содержит {total} задач, все выполнены на 100%."
-                f"{Style.RESET_ALL}"
+            logger.info(
+                f"В базе {total} задач и все выполнены — очищаем перед новым прогоном"
             )
-            print(f"{Fore.YELLOW}Автоматическая очистка БД...{Style.RESET_ALL}")
             deleted = reset_database()
-            logger.success(f"Очищено {deleted} задач из БД")
+            logger.success(f"Очищено задач: {deleted}")
         else:
-            print(f"\n{Fore.CYAN}В БД найдено {total} задач.{Style.RESET_ALL}")
-            _show_db_stats()
-            action = select(
-                "Что делать с существующей БД?",
-                choices=[
-                    Choice("▶️  Продолжить работу по текущей БД", "continue"),
-                    Choice("🗑️  Очистить БД и начать заново", "reset"),
-                    Choice("🔙 Назад", "back"),
-                ],
-                qmark="📊",
-                pointer="👉",
-            ).ask()
-
+            ui.print_lines(ui.stats_panel(_STATS_TITLE, _stats()))
+            action = ui.choose(f"В базе {total} задач — что с ними делать?", [
+                ("▶️ Продолжить с места остановки", "continue"),
+                ("🗑️ Очистить базу и начать заново", "reset"),
+            ])
             if action in (None, "back"):
                 return
             if action == "reset":
                 deleted = reset_database()
-                logger.success(f"Очищено {deleted} задач из БД")
+                logger.success(f"Очищено задач: {deleted}")
 
     try:
         run_base_checker()
@@ -87,120 +90,30 @@ def _handle_start() -> None:
         logger.error(f"Сбой Dune Base checker: {exc}")
 
 
-def _handle_clear() -> None:
-    init_database()
-    total = get_total_tasks_count()
-    if total == 0:
-        print(f"{Fore.YELLOW}БД уже пуста{Style.RESET_ALL}")
-        return
-
-    confirm = select(
-        f"Удалить {total} задач из БД?",
-        choices=[
-            Choice("Да, очистить", "yes"),
-            Choice("Нет, отмена", "no"),
-        ],
-        qmark="⚠️",
-    ).ask()
-
-    if confirm == "yes":
-        deleted = reset_database()
-        logger.success(f"Очищено {deleted} задач из БД")
-    else:
-        print(f"{Fore.YELLOW}Отменено{Style.RESET_ALL}")
-
-
 def _handle_export() -> None:
-    init_database()
-    total = get_total_tasks_count()
-    if total == 0:
-        print(f"{Fore.YELLOW}Нет данных для экспорта{Style.RESET_ALL}")
-        return
-    _show_db_stats()
     path = export_results_xlsx()
     if path:
-        print(f"\n{Fore.GREEN}Файл сохранён: {path}{Style.RESET_ALL}")
+        logger.success(f"Файл сохранён: {path}")
 
 
-def _handle_stats() -> None:
-    init_database()
-    _show_db_stats()
-    print_run_statistics()
-
-
-def _print_info() -> None:
-    text = f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
-║      Dune → Base Network Analytics Wallet Checker               ║
-╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
-
-Дашборд:  https://dune.com/nvthao/base-network-analytics-dashboard
-
-Чекер для каждого кошелька из выбранного {Fore.YELLOW}data/data*.csv{Style.RESET_ALL}
-открывает публичный дашборд через локальный Chromium (без API-ключа,
-обход Cloudflare выполняется библиотекой {Fore.YELLOW}patchright{Style.RESET_ALL}) и вводит
-адрес в строку поиска каждой из двух таблиц:
-
-  • Top 2,500,000 Wallet Ranking
-  • Top 2,500,000 Wallets Ranking by Volume
-
-Окно браузера размещается вне экрана — визуально ничего не появляется.
-
-Источник адресов: поле {Fore.YELLOW}private_key{Style.RESET_ALL} (конвертируется в EVM-адрес).
-Если private_key пуст, используется поле {Fore.YELLOW}wallet_address{Style.RESET_ALL}.
-У каждого кошелька свой {Fore.YELLOW}proxy{Style.RESET_ALL} из той же строки CSV.
-
-Для КАЖДОГО кошелька поднимается свой свежий Chromium со своим прокси:
-1) запуск браузера → 2) подключение прокси → 3) переход на дашборд →
-4) поиск адреса → 5) запись результата в БД → 6) закрытие браузера.
-
-Все настройки берутся из {Fore.YELLOW}config/modules/general_config.py{Style.RESET_ALL}:
-
-  NUM_THREADS              — количество параллельных браузеров (по 1 кошельку каждый)
-  SLEEP_BETWEEN_ACTIONS    — пауза между кошельками в одном потоке
-  DELAY_BETWEEN_ACCOUNTS   — стаггер между стартом потоков
-  RETRY_COUNT              — попытки при сетевых/парсинг ошибках
-
-Состояние и результаты:  {Fore.YELLOW}db/dune_base_checker.db{Style.RESET_ALL}
-Excel выгрузки:          {Fore.YELLOW}result/dune/dune_base_*.xlsx{Style.RESET_ALL}
-
-Можно прервать (Ctrl+C) и продолжить позже — обработаются только
-оставшиеся pending/failed задачи.
-"""
-    print(text)
-
-
-# ───────────────────────── Menu ─────────────────────────
-
-def base_menu():
+def base_menu() -> None:
     """Меню действий для проекта Base в Dune."""
-    while True:
-        action = select(
-            "🟦 Dune → Base — выберите действие:",
-            choices=[
-                Choice("▶️  Запуск чекера                    🌟 Проверка/продолжение по БД", "start"),
-                Choice("📊 Статистика                        🌟 Что лежит в БД", "stats"),
-                Choice("📥 Экспорт результатов в Excel       🌟 Из БД в result/dune/*.xlsx", "export"),
-                Choice("🗑️  Очистка базы данных              🌟 Сброс всех задач", "clear_db"),
-                Choice("📖 Информация                        🌟 Описание модуля и настроек", "info"),
-                Choice("🔙 Назад", "back"),
-            ],
-            qmark="🟦",
-            pointer="👉",
-        ).ask()
+    ModuleMenu(
+        title="Dune · Base Network Analytics",
+        subtitle="поиск кошельков в топе дашборда",
+        icon="🟦",
+        actions=[
+            MenuAction("start", "Запуск чекера", _handle_start,
+                       "проверить новые кошельки и добить незавершённые",
+                       icon="▶️"),
+            MenuAction("export", "Экспорт результатов", _handle_export,
+                       "Excel по данным из базы", icon="📑"),
+        ],
+        stats=_stats,
+        stats_title=_STATS_TITLE,
+        reset=reset_database,
+        info=_info,
+    ).run()
 
-        if action in (None, "back"):
-            return
 
-        if action == "start":
-            _handle_start()
-        elif action == "stats":
-            _handle_stats()
-        elif action == "export":
-            _handle_export()
-        elif action == "clear_db":
-            _handle_clear()
-        elif action == "info":
-            _print_info()
-
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+__all__ = ["base_menu"]

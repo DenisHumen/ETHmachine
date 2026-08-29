@@ -1,224 +1,62 @@
-# 👥 Модуль Binance Subaccount
+# Балансы и субаккаунты Binance
 
-## 📖 Описание
+`modules/cex/binance/binance_SubAccount.py` — просмотр балансов и сбор
+средств с субаккаунтов на основной аккаунт.
 
-Модуль для управления субаккаунтами на бирже Binance. Обеспечивает автоматический сбор средств с субаккаунтов на основной аккаунт, мониторинг балансов и управление переводами между аккаунтами.
+| Меню | Функция |
+|---|---|
+| `CEX → Binance → Балансы` | `get_balances_binance()` |
+| `CEX → Binance → Сбор с субаккаунтов` | `subaccount_collector_binance()` |
 
-## 🎯 Основные функции
+Есть и третья точка входа, `check_binance_subaccounts_and_balances()` —
+из меню она не вызывается.
 
-### `get_subaccounts_list()`
+Аккаунт выбирается через `select_binance_account()` — см.
+[MULTIPLE_EXCHANGE_ACCOUNTS.md](MULTIPLE_EXCHANGE_ACCOUNTS.md).
+Нужны `api_key` и `api_secret`; passphrase у Binance нет.
 
-- Получение списка всех субаккаунтов
-- Отображение статуса каждого аккаунта
-- Подсчет активных субаккаунтов
+---
 
-### `get_subaccount_balance(email)`
+## Используемые эндпоинты
 
-- Проверка баланса конкретного субаккаунта
-- Получение данных по всем активам
-- Фильтрация положительных балансов
+| Действие | Эндпоинт |
+|---|---|
+| Баланс основного аккаунта | `GET /api/v3/account` |
+| Список субаккаунтов | `GET /sapi/v1/sub-account/list` |
+| Баланс субаккаунта | `GET /sapi/v1/sub-account/assets` |
+| Перевод на основной | `POST /sapi/v1/sub-account/universalTransfer` |
 
-### `get_main_account_balance()`
+Перевод идёт со `SPOT` на `SPOT`, поле `toEmail` оставлено пустым — для
+Binance это и означает основной аккаунт. Успехом считается ответ с
+`tranId`.
 
-- Мониторинг баланса основного аккаунта
-- Проверка spot балансов
-- Отслеживание изменений
+Подпись — HMAC-SHA256 от query-строки, ключ передаётся в заголовке
+`X-MBX-APIKEY`.
 
-### `transfer_from_subaccount_to_main()`
+> `/sapi/v1/sub-account/*` доступны только основному аккаунту и только
+> если у ключа включены соответствующие права. Право на вывод для этого
+> модуля не нужно: переводы между своими аккаунтами не покидают биржу.
 
-- Перевод средств с субаккаунта на основной
-- Universal Transfer API
-- Подтверждение успешных операций
+---
 
-### `collect_all_subaccount_balances()`
+## Что показывает сборщик
 
-- Массовый сбор средств со всех субаккаунтов
-- Автоматическая обработка всех активов
-- Детальная статистика операций
+`subaccount_collector_binance()` печатает баланс основного аккаунта
+**до** и **после** сбора, чтобы разницу было видно сразу и не приходилось
+сверять цифры вручную. Позиции с ненулевым `locked` расписываются на
+свободную и заблокированную части — заблокированное не переводится.
 
-## ⚙️ Настройки API
+---
 
-```python
-# config/cex_settings.py
-binance_api_key = "your_api_key"
-secret_key = "your_secret_key"
-```
+## Результат
 
-## 🔧 Параметры клиента
+`result/binance_balances.csv`, колонки:
+`Account Name, Account Type, Asset, Free, Locked, Total`.
 
-```python
-class BinanceClient:
-    def __init__(self, api_key, secret_key, testnet=False):
-        self.base_url = "https://api.binance.com"  # Production
-        # self.base_url = "https://testnet.binance.vision"  # Testnet
-```
+Файл перезаписывается при каждом запуске.
 
-## 📊 Результаты и логи
+---
 
-- **Логи ошибок**: `log/binance_subaccount_errors.log`
-- **Полные логи**: `log/binance_subaccount_full.log`
-- **Ротация**: 10 MB для ошибок, 50 MB для полных логов
-- **Хранение**: 7 дней для ошибок, 3 дня для полных логов
+## Смежное
 
-## 🔄 Алгоритм работы
-
-1. **Получение субаккаунтов**
-   - Запрос к `/sapi/v1/sub-account/list`
-   - Парсинг списка email адресов
-   - Проверка статуса каждого аккаунта
-
-2. **Проверка балансов**
-   - Для каждого субаккаунта запрос `/sapi/v1/sub-account/assets`
-   - Фильтрация положительных балансов
-   - Определение активов для перевода
-
-3. **Выполнение переводов**
-   - Universal Transfer API (`/sapi/v1/sub-account/universalTransfer`)
-   - Перевод SPOT → SPOT
-   - Отслеживание transaction ID
-
-4. **Статистика результатов**
-   - Подсчет успешных переводов
-   - Учет неудачных операций
-   - Итоговый отчет
-
-## 💰 Поддерживаемые активы
-
-- **Все криптовалюты** доступные на Binance
-- **Spot балансы** субаккаунтов
-- **Основные токены**: BTC, ETH, BNB, USDT
-- **Альткоины** и токены DeFi
-- **Стейблкоины**: USDT, USDC, BUSD
-
-## 🚀 Использование
-
-1. **Настройка API**
-   ```python
-   client = BinanceClient(api_key, secret_key)
-   ```
-
-2. **Получение субаккаунтов**
-   ```python
-   subaccounts = client.get_subaccounts_list()
-   ```
-
-3. **Проверка баланса**
-   ```python
-   balance = client.get_subaccount_balance(email)
-   ```
-
-4. **Сбор средств**
-   ```python
-   client.collect_all_subaccount_balances()
-   ```
-
-## 🔒 Безопасность
-
-- **HMAC-SHA256 подпись** всех запросов
-- **Timestamp validation** для предотвращения replay-атак
-- **API key permissions** с правами на субаккаунты
-- **SSL/TLS шифрование** всех соединений
-- **Детальное логирование** для аудита
-
-## ⚡ Производительность
-
-- **Последовательная обработка** субаккаунтов
-- **Оптимизированные API вызовы**
-- **Таймауты 30 секунд** для стабильности
-- **Автоматические повторы** при временных сбоях
-- **Цветовая индикация** прогресса
-
-## 🛠️ Диагностика ошибок
-
-### Типичные ошибки
-
-1. **Недостаточные права API**
-   ```
-   Error: Permission denied for sub-account operations
-   Solution: Включить права на субаккаунты в API настройках
-   ```
-
-2. **Неверный email субаккаунта**
-   ```
-   Error: Sub-account not found
-   Solution: Проверить правильность email адреса
-   ```
-
-3. **Недостаточный баланс**
-   ```
-   Error: Insufficient balance for transfer
-   Solution: Проверить доступный баланс на субаккаунте
-   ```
-
-4. **Rate limits**
-   ```
-   Error: Too many requests
-   Solution: Увеличить паузы между запросами
-   ```
-
-### Отладочная информация
-
-- **Подробные логи** всех API запросов
-- **Response данные** от сервера
-- **Статусы переводов** в реальном времени
-- **Ошибки валидации** параметров
-
-## 📈 Мониторинг
-
-- **Real-time статус** операций переводов
-- **Прогресс обработки** субаккаунтов
-- **Цветные индикаторы** успеха/ошибок
-- **Подсчет статистики** операций
-- **Логирование результатов**
-
-## 🔧 Настройки переводов
-
-### Universal Transfer параметры
-
-```python
-transfer_params = {
-    'fromEmail': 'subaccount@email.com',
-    'toEmail': '',  # Пустое = основной аккаунт
-    'fromAccountType': 'SPOT',
-    'toAccountType': 'SPOT',
-    'asset': 'USDT',
-    'amount': '100.50'
-}
-```
-
-### Поддерживаемые типы аккаунтов
-
-- **SPOT** - Spot торговля
-- **USDT_FUTURE** - USDT фьючерсы
-- **COIN_FUTURE** - Coin фьючерсы
-- **MARGIN** - Маржинальная торговля
-- **ISOLATED_MARGIN** - Изолированная маржа
-
-## 📋 Пример использования
-
-```python
-# Инициализация клиента
-client = BinanceClient(api_key, secret_key)
-
-# Получение списка субаккаунтов
-subaccounts = client.get_subaccounts_list()
-print(f"Найдено {len(subaccounts)} субаккаунтов")
-
-# Проверка баланса первого субаккаунта
-if subaccounts:
-    email = subaccounts[0]['email']
-    balance = client.get_subaccount_balance(email)
-    print(f"Баланс {email}: {balance}")
-
-# Автоматический сбор всех средств
-client.collect_all_subaccount_balances()
-```
-
-## 🎨 Визуальные индикаторы
-
-- 🔄 **Желтый** - Начало процесса
-- ✅ **Зеленый** - Успешные операции
-- ❌ **Красный** - Ошибки
-- ⚠️ **Желтый** - Предупреждения
-- 💰 **Золотой** - Информация о балансах
-- 📊 **Синий** - Статистика и прогресс
+Вывод на кошельки — [MODULE_BINANCE_WITHDRAW.md](MODULE_BINANCE_WITHDRAW.md).

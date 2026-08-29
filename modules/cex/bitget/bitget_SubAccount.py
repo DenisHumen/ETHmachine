@@ -138,7 +138,9 @@ class BitgetClient:
             if method.upper() == 'GET':
                 resp = self.session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
             elif method.upper() == 'POST':
-                resp = self.session.post(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT)
+                # Отдаём ровно ту строку, по которой считалась подпись: json=data заставил бы
+                # requests пересобрать тело с пробелами после ':' и ',', и подпись бы не сошлась
+                resp = self.session.post(url, headers=headers, data=body, timeout=REQUEST_TIMEOUT)
             else:
                 raise ValueError("Unsupported HTTP method")
 

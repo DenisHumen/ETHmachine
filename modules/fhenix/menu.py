@@ -1,47 +1,43 @@
-"""Fhenix submenu — выбор модуля внутри проекта."""
-from colorama import Fore, Style
-from questionary import select
+"""Fhenix — выбор крана внутри проекта.
 
-from config.menu_config import SubMenu, MenuItem, build_submenu_choices
+Хаб из двух пунктов: собственного состояния у него нет, поэтому ModuleMenu
+здесь избыточен — достаточно списка пунктов из UI-набора.
+"""
+from __future__ import annotations
 
+from modules.ui import BACK_KEY, MenuItem, SubMenu, ui
 
 FHENIX_SUBMENU = SubMenu(
-    key='fhenix',
-    label='Fhenix — выберите модуль',
-    description='',
-    icon='🟢',
-    qmark='🟢',
-    pointer='👉',
+    key="fhenix",
+    label="Fhenix",
+    description="",
+    icon="🟢",
     items=[
-        MenuItem(key='ghost_faucet', label='Ghost Faucet (Sepolia)',
-                 description='Запрос крана на ghostchain.io/faucet/ethereum-sepolia',
-                 icon='🚰', enabled=True),
-        MenuItem(key='alchemy_faucet', label='Alchemy Faucet (Base Sepolia)',
-                 description='Запрос крана на alchemy.com/faucets/base-sepolia',
-                 icon='🚰', enabled=True),
-        MenuItem(key='back', label='Назад', description='', icon='🔙', enabled=True),
+        MenuItem(key="ghost_faucet", label="Ghost Faucet",
+                 description="тестовый ETH сети Sepolia", icon="🚰"),
+        MenuItem(key="alchemy_faucet", label="Alchemy Faucet",
+                 description="тестовый ETH сети Base Sepolia", icon="🚰"),
+        MenuItem(key=BACK_KEY, label="Назад", description="", icon="←"),
     ],
 )
 
 
-def fhenix_menu():
+def fhenix_menu() -> None:
     """Главное меню проекта Fhenix."""
     while True:
-        action = select(
-            "🟢 Fhenix — выберите модуль:",
-            choices=build_submenu_choices(FHENIX_SUBMENU),
-            qmark=FHENIX_SUBMENU.qmark,
-            pointer=FHENIX_SUBMENU.pointer,
-        ).ask()
-
-        if action is None or action == 'back':
+        action = ui.show_items("🟢 Fhenix — выберите кран",
+                               FHENIX_SUBMENU.items)
+        if action in (None, BACK_KEY):
             return
 
-        if action == 'ghost_faucet':
+        if action == "ghost_faucet":
             from modules.fhenix.ghost_faucet import run_ghost_faucet
+
             run_ghost_faucet()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
-        elif action == 'alchemy_faucet':
+        elif action == "alchemy_faucet":
             from modules.fhenix.alchemy_faucet import run_alchemy_faucet
+
             run_alchemy_faucet()
-            input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+
+
+__all__ = ["fhenix_menu", "FHENIX_SUBMENU"]

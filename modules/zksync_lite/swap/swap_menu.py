@@ -1,196 +1,153 @@
-"""Меню «zkSync Lite → Era swap» — отдельный sub-menu в zksync_lite."""
+"""Меню «zkSync Lite → Era swap» — отдельное подменю внутри zksync_lite."""
 from __future__ import annotations
 
-from colorama import Fore, Style
-from questionary import Choice, select
-
 from modules.simple_logger import logger
+from modules.ui import ui
+from modules.ui.module_menu import MenuAction, ModuleMenu
 from modules.zksync_lite.swap import planner, swap_database
 
 
-def _show_stats() -> None:
-    stats = swap_database.get_statistics()
-    sep = f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}"
-    print()
-    print(sep)
-    print(f"{Fore.CYAN}zkSync Lite → Era — СВОПЫ (БД){Style.RESET_ALL}")
-    print(f"{Fore.CYAN}DB:{Style.RESET_ALL} {swap_database.DB_PATH}")
-    print(sep)
-    if stats.get("total", 0) == 0:
-        print(f"  {Fore.YELLOW}БД пуста{Style.RESET_ALL}")
-    else:
-        for k, v in stats.items():
-            if k == "total":
-                continue
-            print(f"  {k:<22} {v}")
-        print(f"  {'-'*40}")
-        print(f"  total                  {stats['total']}")
-    print(sep)
-    print()
+def _failure_lines(failures: list) -> list[str]:
+    """Провалы в одном формате: кошелёк, токен, маршрут и причина."""
+    return [f"{f['wallet']}  {f['token']}  ({f['route']}): {f['error']}"
+            for f in failures]
+
+
+def _run_executor(*, stop_on_failure: bool) -> None:
+    """Запуск свопов по pending-задачам.
+
+    Общая часть авто-режима и обычного запуска: раньше этот блок был
+    скопирован дважды и различался единственным флагом.
+    """
+    pending = swap_database.get_statistics().get("pending", 0)
+    if pending == 0:
+        logger.warning("Нет pending-задач — сначала выполните «Планирование»")
+        return
+
+    logger.info(f"Стартуем executor: {pending} pending-задач")
+    # Импорт лениво: без установленных node_modules меню не должно падать.
+    try:
+        from modules.zksync_lite.swap.executor import SwapExecutor
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"executor import: {exc}")
+        return
+    try:
+        executor = SwapExecutor(stop_on_failure=stop_on_failure)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"executor init: {exc}")
+        return
+
+    try:
+        result = executor.run_all()
+    except KeyboardInterrupt:
+        logger.warning("Прервано пользователем — прогресс сохранён в БД")
+        return
+
+    ui.print_lines(ui.panel("Свопы завершены", [
+        f"итог по кошелькам: {result['results']}",
+        f"статистика БД:     {result['stats']}",
+    ]))
+    if result["failures"]:
+        ui.print_lines(ui.panel(
+            f"Провалы ({len(result['failures'])})",
+            _failure_lines(result["failures"]),
+            color=ui.theme.FG_ERR,
+        ))
 
 
 def _handle_plan(*, dry_run: bool) -> None:
-    print(f"\n{Fore.CYAN}Планирование задач свопа из balance-БД…{Style.RESET_ALL}\n")
+    logger.info("Планирование задач свопа из balance-БД")
     summary = planner.plan_tasks(reset=False, dry_run=dry_run)
-    print(f"  кошельков всего:           {summary['total_wallets']}")
-    print(f"  кошельков с задачами:      {summary['wallets_with_tasks']}")
-    print(f"  пропущено (нет приватника):{summary['skipped_no_priv']}")
-    print(f"  пропущено (мало баланса):  {summary['skipped_no_balance']}")
-    print(f"  создано задач:             {Fore.GREEN}{summary['created']}{Style.RESET_ALL}")
-    print(f"  по токенам:                {summary['by_token']}")
-    print(f"  по маршрутам:              {summary['by_route']}")
+
+    ui.print_lines(ui.panel(
+        "Превью плана" if dry_run else "План создан",
+        [
+            f"кошельков всего:            {summary['total_wallets']}",
+            f"кошельков с задачами:       {summary['wallets_with_tasks']}",
+            f"пропущено (нет приватника): {summary['skipped_no_priv']}",
+            f"пропущено (мало баланса):   {summary['skipped_no_balance']}",
+            f"создано задач:              {summary['created']}",
+            f"по токенам:                 {summary['by_token']}",
+            f"по маршрутам:               {summary['by_route']}",
+        ],
+    ))
+
     if dry_run and summary.get("preview"):
-        print(f"\n{Fore.YELLOW}Превью первых 20 задач:{Style.RESET_ALL}")
-        for p in summary["preview"][:20]:
-            print(f"   {p['wallet']}  {p['token']:<5} {p['amount']:<14} → {p['route']}")
+        ui.print_lines(ui.panel("Первые 20 задач", [
+            f"{p['wallet']}  {p['token']:<5} {p['amount']:<14} → {p['route']}"
+            for p in summary["preview"][:20]
+        ]))
 
 
-def _handle_auto() -> None:
-    """Полный авто-режим: спланировать новые задачи + запустить всё без подтверждений."""
-    print(f"\n{Fore.CYAN}Авто-режим: планирование…{Style.RESET_ALL}")
-    summary = planner.plan_tasks(reset=False, dry_run=False)
-    print(f"  created: {Fore.GREEN}{summary['created']}{Style.RESET_ALL} | "
-          f"wallets_with_tasks: {summary['wallets_with_tasks']} | "
-          f"by_token: {summary['by_token']}")
+def _handle_plan_real() -> None:
+    _handle_plan(dry_run=False)
 
-    stats = swap_database.get_statistics()
-    pending = stats.get("pending", 0)
-    if pending == 0:
-        print(f"{Fore.YELLOW}Нет pending задач (нечего свопить).{Style.RESET_ALL}")
-        return
 
-    print(f"\n{Fore.CYAN}Авто-режим: запускаем {pending} задач{Style.RESET_ALL}\n")
-    try:
-        from modules.zksync_lite.swap.executor import SwapExecutor
-    except Exception as e:
-        logger.error(f"executor import: {e}")
-        return
-    try:
-        ex = SwapExecutor(stop_on_failure=False)
-    except Exception as e:
-        logger.error(f"executor init: {e}")
-        return
-    try:
-        result = ex.run_all()
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Прервано пользователем{Style.RESET_ALL}")
-        return
-    print(f"\n{Fore.GREEN}=== Авто-режим завершён ==={Style.RESET_ALL}")
-    print(f"  итоги:        {result['stats']}")
-    if result["failures"]:
-        print(f"\n{Fore.RED}Провалы ({len(result['failures'])}):{Style.RESET_ALL}")
-        for f in result["failures"]:
-            print(f"  • {f['wallet']}  {f['token']}  ({f['route']}): {f['error']}")
+def _handle_plan_dry() -> None:
+    _handle_plan(dry_run=True)
 
 
 def _handle_run() -> None:
-    stats = swap_database.get_statistics()
-    pending = stats.get("pending", 0)
-    if pending == 0:
-        print(f"{Fore.YELLOW}Нет pending задач — сначала выполните «Планирование».{Style.RESET_ALL}")
-        return
-    print(f"\n{Fore.CYAN}Стартуем executor: {pending} pending задач{Style.RESET_ALL}\n")
-    # Импорт лениво — чтобы меню не падало, если node_modules не поставлены
-    try:
-        from modules.zksync_lite.swap.executor import SwapExecutor
-    except Exception as e:
-        logger.error(f"executor import: {e}")
-        return
-    try:
-        ex = SwapExecutor(stop_on_failure=True)
-    except Exception as e:
-        logger.error(f"executor init: {e}")
-        return
-    try:
-        result = ex.run_all()
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Прервано пользователем{Style.RESET_ALL}")
-        return
-    print(f"\n{Fore.GREEN}=== Готово ==={Style.RESET_ALL}")
-    print(f"  итог по кошелькам: {result['results']}")
-    print(f"  статистика БД:     {result['stats']}")
-    if result["failures"]:
-        print(f"\n{Fore.RED}Провалы:{Style.RESET_ALL}")
-        for f in result["failures"]:
-            print(f"  • {f['wallet']}  {f['token']}  ({f['route']}): {f['error']}")
+    _run_executor(stop_on_failure=True)
 
 
-def _handle_reset() -> None:
-    swap_database.reset_database()
-    logger.success("swap_tasks очищена")
+def _handle_auto() -> None:
+    """План новых задач и сразу запуск — без подтверждений на каждом шаге."""
+    logger.info("Авто-режим: планирование")
+    summary = planner.plan_tasks(reset=False, dry_run=False)
+    logger.info(f"создано {summary['created']} задач для "
+                f"{summary['wallets_with_tasks']} кошельков: "
+                f"{summary['by_token']}")
+    # Ошибка отдельной задачи не должна останавливать весь прогон.
+    _run_executor(stop_on_failure=False)
 
 
-def _print_info() -> None:
-    print(f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
-║              zkSync Lite → Era — миграция средств                ║
-╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
-
-Маршруты:
-  {Fore.GREEN}Layerswap{Style.RESET_ALL}        ETH → ETH, USDT → USDT
-  {Fore.YELLOW}Manual withdraw{Style.RESET_ALL}  USDC, DAI — вывод в L1, бридж в Era вручную
-
-Пороги (~$0.15): ETH ≥ 0.00005, USDT/USDC/DAI ≥ 0.15.
-Сначала исполняются стейблы, ETH — последним (для запаса газа Lite).
-Резерв ETH на газ: 0.00003 ETH × (кол-во операций + 2).
-
-Авто-режим: один пункт меню — план (только новые) + запуск без
-подтверждений; при ошибке отдельной задачи не останавливаемся,
-просто двигаемся дальше с баннером.
-
-Перед запуском:
-  1. Запустить «zkSync Lite Balance Checker», чтобы наполнить
-     {Fore.YELLOW}db/zksync_lite_balance.db{Style.RESET_ALL}.
-  2. В этом меню — «Планирование» (создаст {Fore.YELLOW}db/zksync_lite_swap.db{Style.RESET_ALL}).
-  3. «Запуск свопов».
-
-При первой задаче: если у аккаунта нет ChangePubKey, он будет
-выполнен автоматически (комиссия в ETH).
-
-При фейле задачи — баннер с подробностями. Остальные задачи
-кошелька помечаются «skipped», работа переходит на следующий
-кошелёк.
-
-Ожидание прихода в Era — до 20 минут на пару Layerswap. Сверка
-по eth_getBalance / balanceOf на {Fore.YELLOW}https://mainnet.era.zksync.io{Style.RESET_ALL}.
-""")
+def _info_sections() -> dict:
+    return {
+        "Маршруты": [
+            "Layerswap — ETH → ETH, USDT → USDT",
+            "ручной вывод — USDC и DAI уходят в L1, бридж в Era вручную",
+        ],
+        "Пороги и порядок": [
+            "минимум ~$0.15: ETH ≥ 0.00005, USDT/USDC/DAI ≥ 0.15",
+            "сначала стейблы, ETH последним — чтобы остался газ в Lite",
+            "резерв ETH на газ: 0.00003 × (число операций + 2)",
+        ],
+        "Порядок запуска": [
+            "1. «zkSync Lite Balance Checker» — наполнить "
+            "db/zksync_lite_balance.db",
+            "2. «Планирование» — создаст db/zksync_lite_swap.db",
+            "3. «Запуск свопов»",
+        ],
+        "Что происходит по ходу": [
+            "нет ChangePubKey — он выполнится автоматически (комиссия в ETH)",
+            "при фейле задачи остальные задачи кошелька идут в «skipped»,",
+            "работа переходит к следующему кошельку",
+            "приход в Era — до 20 минут на пару Layerswap",
+        ],
+    }
 
 
 def zksync_lite_swap_menu() -> None:
-    while True:
-        action = select(
-            "💱 zkSync Lite → Era — выберите действие:",
-            choices=[
-                Choice("🤖 Авто-режим (план + запуск, без подтверждений)", "auto"),
-                Choice("📋 Планирование (создать задачи из balance-БД)", "plan"),
-                Choice("👁️  Превью плана (dry-run, без записи в БД)",   "dry"),
-                Choice("▶️  Запуск свопов",                              "run"),
-                Choice("📊 Статистика swap-БД",                          "stats"),
-                Choice("🗑️  Очистить swap-БД",                          "reset"),
-                Choice("📖 Информация",                                  "info"),
-                Choice("🔙 Назад",                                       "back"),
-            ],
-            qmark="💱",
-            pointer="👉",
-        ).ask()
-
-        if action in (None, "back"):
-            return
-        if action == "auto":
-            _handle_auto()
-        elif action == "plan":
-            _handle_plan(dry_run=False)
-        elif action == "dry":
-            _handle_plan(dry_run=True)
-        elif action == "run":
-            _handle_run()
-        elif action == "stats":
-            _show_stats()
-        elif action == "reset":
-            _handle_reset()
-        elif action == "info":
-            _print_info()
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+    ModuleMenu(
+        title="zkSync Lite → Era",
+        subtitle="миграция средств",
+        icon="💱",
+        actions=[
+            MenuAction("auto", "Авто-режим", _handle_auto,
+                       "план и запуск без подтверждений", icon="🤖"),
+            MenuAction("plan", "Планирование", _handle_plan_real,
+                       "создать задачи из balance-БД", icon="📋"),
+            MenuAction("dry", "Превью плана", _handle_plan_dry,
+                       "dry-run, в БД ничего не пишется", icon="👁️"),
+            MenuAction("run", "Запуск свопов", _handle_run,
+                       "выполнить pending-задачи", icon="▶️"),
+        ],
+        stats=swap_database.get_statistics,
+        stats_title=str(swap_database.DB_PATH),
+        reset=swap_database.reset_database,
+        info=_info_sections,
+    ).run()
 
 
 __all__ = ["zksync_lite_swap_menu"]

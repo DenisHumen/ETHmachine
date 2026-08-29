@@ -1,4 +1,4 @@
 # ========================================================================================
 # НАСТРОЙКИ ФУНКЦИИ LAST TX
 # ========================================================================================
-ETHER_SCAN_API_KEY_v2 = "3BUFCPHAMDA41F4WRZ529SF5J8BS9QZJGZ"  # https://etherscan.io/apidashboard
+ETHER_SCAN_API_KEY_v2 = ""  # https://etherscan.io/apidashboard

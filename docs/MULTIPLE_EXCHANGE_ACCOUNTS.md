@@ -1,183 +1,159 @@
-# 🏢 Система множественных аккаунтов бирж
+# Несколько аккаунтов на бирже
 
-## 📖 Описание
+Каждая биржа в проекте описывается **списком** аккаунтов, а не одной
+парой ключей. Перед работой модуль спрашивает, с каким аккаунтом
+работать — или выбирает сам, если активный один.
 
-Новая система позволяет настроить и использовать несколько аккаунтов для каждой биржи, а также выбирать между ними при запуске модулей.
+**Конфиг:** `config/cex_settings.py`
+**Селектор:** `modules/cex/exchange_selector.py`
 
-## 🔧 Настройка
+`config/cex_settings.py` не входит в git и создаётся при первом запуске
+шаблоном из `modules/bootstrap.py`.
 
-### 1. Конфигурация аккаунтов в `config/cex_settings.py`
+---
+
+## Как описываются аккаунты
 
 ```python
-# Пример настройки для OKX
+# OKX — https://www.okx.com/ru/account/my-api
+# Поставьте 1, если депозиты приходят на Торговый аккаунт вместо Финансового.
+OKX_EU_TYPE = 0
+
 OKX_ACCOUNTS = [
     {
         'name': 'OKX Main',
-        'api_key': 'your_api_key_here',
-        'api_secret': 'your_api_secret_here', 
-        'passphrase': 'your_passphrase_here',
+        'api_key': '',
+        'api_secret': '',
+        'passphrase': '',
         'type': OKX_EU_TYPE,
-        'enabled': True,  # Активировать этот аккаунт
-    },
-    {
-        'name': 'OKX Trading',
-        'api_key': 'another_api_key',
-        'api_secret': 'another_api_secret',
-        'passphrase': 'another_passphrase', 
-        'type': OKX_EU_TYPE,
-        'enabled': True,
+        'enabled': False,
     },
 ]
-```
 
-### 2. Поддерживаемые биржи
+BINANCE_ACCOUNTS = [
+    {
+        'name': 'Binance Main',
+        'api_key': '',
+        'api_secret': '',
+        'enabled': False,
+    },
+]
 
-- **OKX** - `OKX_ACCOUNTS`
-- **Binance** - `BINANCE_ACCOUNTS`
-- **Bitget** - `BITGET_ACCOUNTS`
-- **MEXC** - `MEXC_ACCOUNTS`
+BITGET_ACCOUNTS = [
+    {
+        'name': 'Bitget Main',
+        'api_key': '',
+        'api_secret': '',
+        'passphrase': '',
+        'enabled': False,
+    },
+]
 
-## 🚀 Использование
-
-### 1. Проверка конфигурации
-
-При запуске `main.py` автоматически выполняется проверка:
-
-```python
-from modules.config_validator import validate_configuration
-
-if not validate_configuration():
-    print("❌ Обнаружены проблемы в конфигурации!")
-    exit(1)
-```
-
-### 2. Выбор биржи и аккаунта
-
-```python
-from modules.exchange_selector import select_exchange_account
-
-# Выбор биржи через интерактивное меню
-exchange_name, account = select_exchange_account()
-
-if exchange_name and account:
-    print(f"Выбрана биржа: {exchange_name}")
-    print(f"Аккаунт: {account['name']}")
-    print(f"API Key: {account['api_key']}")
-```
-
-### 3. Интеграция в модули бирж
-
-Обновленные модули автоматически предлагают выбор аккаунта:
-
-```python
-def mexc_withdraw():
-    # Выбор аккаунта MEXC
-    exchange_name, selected_account = select_exchange_account()
-    
-    if exchange_name == 'MEXC' and selected_account:
-        api_key = selected_account['api_key']
-        api_secret = selected_account['api_secret']
-        # Работа с выбранным аккаунтом
-```
-
-## ⚠️ Проверки валидатора
-
-### Критические ошибки (остановят выполнение):
-
-- ❌ Отсутствие файлов `config/modules/cfg_*.py` или `config/cex_settings.py`
-- ❌ Неверная структура настроек в конфигурационных файлах
-- ❌ Синтаксические ошибки в Python файлах
-
-### Предупреждения (не останавливают выполнение):
-
-- ⚠️ Отсутствие настроенных аккаунтов бирж
-- ⚠️ Пустые файлы данных (`proxy.csv`, `walletss.txt`, `private_keys.txt`)
-- ⚠️ Неполные настройки аккаунтов (пустые API ключи)
-- ⚠️ Неправильные значения параметров в `config.py`
-
-## 📁 Структура файлов
-
-```
-config/
-├── cex_settings.py     # Настройки аккаунтов бирж
-├── config.py           # Основная конфигурация
-└── rpc.py              # RPC настройки
-
-modules/
-├── exchange_selector.py    # Модуль выбора биржи
-├── config_validator.py     # Валидатор конфигурации
-└── cex/
-    ├── okx/
-    ├── binance/
-    ├── bitget/
-    └── mexc/
-
-data/
-├── proxy.csv           # Прокси
-├── walletss.txt        # Кошельки
-└── private_keys.txt    # Приватные ключи
-```
-
-## 🔄 Обратная совместимость
-
-Старые переменные (`mexc_api_key`, `binance_api_key`, etc.) поддерживаются автоматически через первый активный аккаунт:
-
-```python
-# Автоматически берется из первого активного аккаунта
-mexc_api_key = MEXC_ACCOUNTS[0]['api_key'] if MEXC_ACCOUNTS[0]['enabled'] else ""
-```
-
-## 📝 Пример полной настройки
-
-```python
-# config/cex_settings.py
-
-# Множественные аккаунты MEXC
 MEXC_ACCOUNTS = [
     {
-        'name': 'MEXC Personal',
-        'api_key': 'mx0vglR0vJshjETdzL',
-        'api_secret': '9a11f39898c64ff0959347b00fc306fd',
-        'enabled': True,
-    },
-    {
-        'name': 'MEXC Business', 
-        'api_key': 'mx1234567890abcdef',
-        'api_secret': 'abcdef1234567890abcdef1234567890',
-        'enabled': True,
-    },
-]
-
-# Множественные аккаунты OKX
-OKX_ACCOUNTS = [
-    {
-        'name': 'OKX Main',
-        'api_key': '62540323-2e3c-4fef-8bcf-70afe3ef8a21',
-        'api_secret': '96F046C783898844FC2485AC7AD07CA4',
-        'passphrase': 'Ltybc2019$',
-        'type': 0,
-        'enabled': True,
+        'name': 'MEXC Main',
+        'api_key': '',
+        'api_secret': '',
+        'enabled': False,
     },
 ]
 ```
 
-При запуске модуля пользователь увидит:
+Чтобы добавить второй аккаунт — скопируйте словарь в тот же список,
+поменяйте `name` и ключи, поставьте `enabled=True`.
 
+### Поля
+
+| Поле | Кому нужно | Комментарий |
+|---|---|---|
+| `name` | всем | подпись в меню выбора и в логах |
+| `api_key`, `api_secret` | всем | — |
+| `passphrase` | OKX, Bitget | у Binance и MEXC такого поля нет |
+| `enabled` | всем | `False` — аккаунт не появится в выборе |
+| `type` | OKX | лежит в шаблоне, но модули читают не его, а константу `OKX_EU_TYPE` на уровне файла |
+
+`OKX_EU_TYPE = 0` заставляет `okx_withdraw` перед выводом перевести
+остаток с торгового счёта на финансовый. Поставьте `1`, если депозиты у
+вас и так приходят на торговый — перевод тогда не нужен.
+
+---
+
+## Как выбирается аккаунт
+
+`ExchangeSelector` считает аккаунт активным, если у него
+`enabled=True` **и** непустой `api_key`. Дальше:
+
+| Ситуация | Что произойдёт |
+|---|---|
+| Ни одного активного | ошибка с подсказкой заполнить `config/cex_settings.py` |
+| Ровно один активный | выбирается автоматически, в лог пишется имя |
+| Несколько активных | интерактивный список |
+
+Каждый модуль зовёт свой селектор, поэтому биржу выбирать не приходится —
+только аккаунт:
+
+```python
+from modules.cex.exchange_selector import (
+    select_okx_account,
+    select_binance_account,
+    select_bitget_account,
+    select_mexc_account,
+)
+
+exchange_name, account = select_okx_account()
+if not account:
+    logger.error("Не выбран аккаунт OKX")
+    return
+
+api_key = account['api_key']
+api_secret = account['api_secret']
+passphrase = account.get('passphrase')   # только OKX и Bitget
 ```
-🏛️ Выберите биржу для работы:
-  🏢 OKX (1 аккаунтов)
-  🏢 MEXC (2 аккаунта)
 
-👤 Выберите аккаунт MEXC:
-  👤 MEXC Personal
-  👤 MEXC Business
+Есть и общий `select_exchange_account()` без привязки к бирже: он
+показывает список бирж, у которых есть активные аккаунты, и уже потом —
+аккаунты выбранной. Если биржа с активными аккаунтами одна, шаг выбора
+биржи пропускается.
+
+При успешном выборе в лог уходит строка вида
+`OKX: OKX Main (API: 1a2b3c4d...)` — ключ обрезается до восьми символов.
+
+---
+
+## Кто использует селекторы
+
+| Модуль | Селектор |
+|---|---|
+| `modules/cex/okx/okx_withdraw.py` | `select_okx_account()` |
+| `modules/cex/okx/okx_SubAccount.py` | `select_okx_account()` |
+| `modules/cex/okx/okx_SpotTrade.py` | `select_okx_account()` |
+| `modules/cex/binance/binance_withdraw.py` | `select_binance_account()` |
+| `modules/cex/binance/binance_SubAccount.py` | `select_binance_account()` |
+| `modules/cex/bitget/bitget_withdraw.py` | `select_bitget_account()` |
+| `modules/cex/bitget/bitget_SubAccount.py` | `select_bitget_account()` |
+| `modules/cex/mexc/mexc_withdraw.py` | `select_mexc_account()` |
+
+---
+
+## Проверка настроек
+
+Валидатор конфигурации при старте программы проверяет структуру
+аккаунтов: у активных должны быть заполнены обязательные поля (для OKX и
+Bitget — включая `passphrase`). Подробности —
+[MODULE_CONFIG_VALIDATOR_NICKNAME.md](MODULE_CONFIG_VALIDATOR_NICKNAME.md).
+
+Проверить селектор отдельно:
+
+```bash
+python modules/cex/exchange_selector.py
 ```
 
-## 🎯 Преимущества новой системы
+---
 
-- ✅ **Множественные аккаунты** - можно настроить несколько аккаунтов для каждой биржи
-- ✅ **Интерактивный выбор** - удобный выбор через questionary
-- ✅ **Проверка конфигурации** - автоматическая валидация при запуске
-- ✅ **Обратная совместимость** - старый код продолжает работать
-- ✅ **Централизованное управление** - все настройки в одном месте
-- ✅ **Безопасность** - проверка корректности API ключей перед использованием
+## Безопасность
+
+- `config/cex_settings.py` исключён из git — держите его только локально.
+- Выдавайте ключам минимум прав. Для балансов и сбора с субаккаунтов
+  право на вывод **не нужно**.
+- Включайте белый список IP на стороне биржи.
+- Адреса вывода добавляйте в белый список биржи заранее.

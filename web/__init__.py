@@ -70,50 +70,57 @@ def _emit(text: str) -> None:
 def _print_banner(host: str, port: int, *, ready: bool) -> None:
     url = _build_url(host, port)
     bind_info = f"{host}:{port}"
-    state = (f"{_G}[ONLINE]{_X}" if ready
-             else f"{_R}[STARTING...]{_X}")
+    exposed = host not in ("127.0.0.1", "localhost", "::1")
 
-    if _supports_unicode():
-        bar = "═" * 60
-        side = "║"
-        glyph = "🌐"
-    else:
-        bar = "=" * 60
-        side = "|"
-        glyph = ">>"
+    try:
+        # Общий UI-набор проекта: рамка и цвета те же, что во всех меню.
+        # Импорт лёгкий — только stdlib внутри.
+        from modules.ui import components, theme
 
-    border = f"{_R}{bar}{_X}"
-    lines = [
-        "",
-        border,
-        f"{_R}{side}{_X}  {_B}{_R}{glyph}  ETHmachine WEB DASHBOARD{_X}",
-        f"{_R}{side}{_X}",
-        f"{_R}{side}{_X}   status : {state}",
-        f"{_R}{side}{_X}   URL    : {_C}{_B}{url}{_X}",
-        f"{_R}{side}{_X}   bind   : {_DIM}{bind_info}{_X}",
-        f"{_R}{side}{_X}",
-        f"{_R}{side}{_X}   {_DIM}First run will open /register for the root user{_X}",
-        f"{_R}{side}{_X}   {_DIM}Disable: WEB_ENABLED=False in config/modules/general_config.py{_X}",
-        border,
-        "",
-    ]
-    for line in lines:
-        _emit(line)
+        state = ("работает" if ready else "запускается…")
+        lines = [
+            f"{theme.FG_MUTED}состояние{theme.RESET}  "
+            f"{(theme.FG_OK if ready else theme.FG_WARN)}{state}{theme.RESET}",
+            f"{theme.FG_MUTED}адрес    {theme.RESET}  "
+            f"{theme.FG_BRAND}{theme.BOLD}{url}{theme.RESET}",
+            f"{theme.FG_MUTED}слушает  {theme.RESET}  {bind_info}",
+            "",
+            f"{theme.FG_MUTED}Первый вход открывает /register — там создаётся"
+            f" учётная запись.{theme.RESET}",
+            f"{theme.FG_MUTED}Выключить: WEB_ENABLED=False в"
+            f" config/modules/general_config.py{theme.RESET}",
+        ]
+        if exposed:
+            lines.insert(3, f"{theme.FG_ERR}Панель доступна не только с этого "
+                            f"компьютера — в ней видны приватные ключи.{theme.RESET}")
+        _emit("")
+        _emit(components.panel("Веб-панель ETHmachine", lines,
+                               color=theme.FG_ERR if exposed else theme.FG_ACCENT))
+        _emit("")
+    except Exception:
+        # UI-набор недоступен — печатаем то же самое простым текстом.
+        _emit("")
+        _emit(f"  Веб-панель ETHmachine: {url}  (слушает {bind_info})")
+        _emit("")
 
     # Дублируем короткую строку через loguru, чтобы баннер точно попал в
     # тот же поток, где пользователь видит остальные логи (и в WS-канал
     # дашборда заодно).
     try:
         from loguru import logger  # type: ignore
-        tag = "ONLINE" if ready else "STARTING"
-        logger.success(f"WEB dashboard [{tag}] -> {url}  (bind {bind_info})")
+        logger.success(
+            f"Веб-панель {'работает' if ready else 'запускается'} -> {url} "
+            f"(слушает {bind_info})"
+        )
     except Exception:
         pass
 
 
 def _print_disabled() -> None:
-    msg = ("\n[web] dashboard disabled (WEB_ENABLED=False in "
-           "config/modules/cfg_web.py)\n\n")
+    # Выключатель живёт в general_config.py; cfg_web.py его только реэкспортирует,
+    # поэтому подсказка должна вести именно туда, где его правят.
+    msg = ("\n[web] панель выключена (WEB_ENABLED=False в "
+           "config/modules/general_config.py)\n\n")
     try:
         sys.stdout.write(f"{_DIM}{msg}{_X}")
     except UnicodeEncodeError:
@@ -130,8 +137,20 @@ def startup(*, autostart: bool = True, force: bool = False,
     When `announce` is True (the default) prints a banner with the URL and
     bind info as soon as the port accepts connections.
     """
+    # Выключатель проверяем ПЕРВЫМ. Иначе пользователь с отключённой панелью
+    # получал стену инструкций по установке aiohttp/jinja2 — зависимостей,
+    # которые ему не нужны.
+    try:
+        from config.modules.cfg_web import WEB_ENABLED as _enabled
+    except Exception:
+        _enabled = False
+    if not _enabled and not force:
+        if announce:
+            _print_disabled()
+        return False
+
     if announce:
-        _emit(f"{_DIM}[web] booting dashboard...{_X}")
+        _emit(f"{_DIM}[web] запуск панели...{_X}")
     result = preflight_check()
     if not result.ok:
         print_instructions(result)

@@ -1,10 +1,16 @@
 import os
 import subprocess
+import sys
 import requests
 from datetime import datetime
 from typing import Tuple
-from questionary import select, Choice
 import textwrap
+
+from modules.simple_logger import logger
+from modules.ui import ui
+
+# Корень репозитория — все git-команды выполняются относительно него.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def check_local_changes() -> bool:
@@ -14,7 +20,7 @@ def check_local_changes() -> bool:
             ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            cwd=PROJECT_ROOT,
         )
         return bool(result.stdout.strip())
     except subprocess.CalledProcessError:
@@ -23,15 +29,16 @@ def check_local_changes() -> bool:
 def stash_local_changes():
     """Сохраняет локальные изменения через git stash"""
     try:
-        print("💾 Сохранение локальных изменений (git stash)...")
+        print("💾 Откладываем локальные изменения (git stash)...")
         result = subprocess.run(
-            ["git", "stash", "push", "-m", f"Auto stash before update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"],
+            ["git", "stash", "push", "--include-untracked",
+             "-m", f"ETHmachine auto stash {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            cwd=PROJECT_ROOT,
         )
         if result.returncode == 0:
-            print("✅ Локальные изменения сохранены")
+            print("✅ Изменения отложены")
             return True
         else:
             print(f"❌ Ошибка при сохранении изменений: {result.stderr}")
@@ -47,7 +54,7 @@ def perform_git_pull() -> Tuple[bool, str]:
             ["git", "pull"],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            cwd=PROJECT_ROOT,
         )
         return result.returncode == 0, result.stdout + result.stderr
     except Exception as e:
@@ -215,83 +222,105 @@ def check_version(repo_name: str):
                     print_row("", "", part, version_col, date_col, changes_col, frame_width)
             first = False
         print_border(frame_width)
-    answer = select(
-        "🛠️ Do you want to update?",
-        choices=[
-            Choice("⚠️ No, continue without updating", "no"),
-            Choice("🆙 Yes, update to the latest version", "yes"),
-        ],
-        qmark="🛠️",
-        pointer="👉"
-    ).ask()
+    answer = ui.menu("Обновиться до последней версии?", [
+        ("⚠️ Нет — продолжить без обновления", "no"),
+        ("🆙 Да — обновиться", "yes"),
+    ])
 
-    if answer == "yes":
-        # Проверяем наличие локальных изменений
-        has_changes = check_local_changes()
-        
-        if has_changes:
-            print("\n⚠️ Обнаружены локальные изменения в файлах!")
-            print("📋 Эти изменения могут помешать обновлению.\n")
-            
-            stash_answer = select(
-                "💾 Сохранить локальные изменения в git stash перед обновлением?",
-                choices=[
-                    Choice("❌ Нет, отменить обновление", "no"),
-                    Choice("💾 Да, сохранить изменения и обновить", "stash"),
-                ],
-                qmark="💾",
-                pointer="👉"
-            ).ask()
-            
-            if stash_answer == "no":
-                print("⚠️ Обновление отменено. Локальные изменения сохранены.")
-                return
-            
-            # Выполняем git stash
-            if not stash_local_changes():
-                print("❌ Не удалось сохранить локальные изменения. Обновление отменено.")
-                return
-        
-        # Выполняем git pull
-        print("\n🆙 Выполнение обновления (git pull)...")
-        success, output = perform_git_pull()
-        
-        if success:
-            print("✅ Обновление успешно завершено!")
-            if has_changes:
-                print("\n📝 Ваши локальные изменения сохранены в git stash.")
-                print("💡 Восстановить их можно командой: git stash pop")
-            print("\n🔄 Перезапуск скрипта...")
-            os.system("python main.py")
-            exit(0)
-        else:
-            print(f"❌ Ошибка при обновлении:\n{output}")
-            if "would be overwritten" in output.lower() or "local changes" in output.lower():
-                print("\n⚠️ Обнаружены конфликты с локальными изменениями.")
-                retry_answer = select(
-                    "💾 Попробовать сохранить изменения через git stash и повторить?",
-                    choices=[
-                        Choice("❌ Нет, отменить", "no"),
-                        Choice("💾 Да, сохранить и повторить", "retry"),
-                    ],
-                    qmark="💾",
-                    pointer="👉"
-                ).ask()
-                
-                if retry_answer == "retry":
-                    if stash_local_changes():
-                        print("\n🔄 Повторная попытка обновления...")
-                        success, output = perform_git_pull()
-                        if success:
-                            print("✅ Обновление успешно завершено!")
-                            print("\n📝 Ваши локальные изменения сохранены в git stash.")
-                            print("💡 Восстановить их можно командой: git stash pop")
-                            print("\n🔄 Перезапуск скрипта...")
-                            os.system("python main.py")
-                            exit(0)
-                        else:
-                            print(f"❌ Повторная попытка не удалась:\n{output}")
-                    else:
-                        print("❌ Не удалось сохранить изменения. Обновление отменено.")
+    if answer != "yes":
+        logger.warning("Продолжаем без обновления")
+        return
+
+    run_update()
+
+
+def run_update() -> None:
+    """Обновление из репозитория с сохранением пользовательских настроек.
+
+    Порядок важен: настройки лежат в отслеживаемых файлах ``config/**``,
+    поэтому ``git pull`` без предварительного stash упрётся в локальные
+    изменения. Раньше stash делался, но никогда не возвращался обратно —
+    после обновления настройки пользователя оказывались сброшены к
+    значениям из репозитория, а его правки — забыты в stash.
+    Теперь изменения возвращаются автоматически (``git stash pop``),
+    а конфликты показываются явно.
+    """
+    stashed = False
+
+    if check_local_changes():
+        print("\n⚠️ Обнаружены локальные изменения (обычно это ваши настройки).")
+        print("📋 Они будут временно отложены и возвращены после обновления.\n")
+
+        answer = ui.menu("Продолжить обновление?", [
+            ("🆙 Да — отложить изменения, обновиться и вернуть их", "yes"),
+            ("❌ Нет — отменить обновление", "no"),
+        ])
+
+        if answer != "yes":
+            print("⚠️ Обновление отменено. Ваши изменения на месте.")
+            return
+
+        if not stash_local_changes():
+            print("❌ Не удалось отложить изменения. Обновление отменено.")
+            return
+        stashed = True
+
+    print("\n🆙 Выполнение обновления (git pull)...")
+    success, output = perform_git_pull()
+
+    if not success:
+        print(f"❌ Ошибка при обновлении:\n{output}")
+        if stashed:
+            _restore_stash(after_failed_update=True)
+        return
+
+    print("✅ Код обновлён.")
+
+    if stashed and not _restore_stash():
+        # Настройки остались в stash — без них перезапускать нельзя,
+        # иначе пользователь пойдёт работать с дефолтным конфигом.
+        return
+
+    print("\n🔄 Перезапуск скрипта...")
+    _restart()
+
+
+def _restore_stash(*, after_failed_update: bool = False) -> bool:
+    """Возвращает отложенные изменения. ``False`` — остались конфликты."""
+    print("♻️  Возвращаем ваши настройки (git stash pop)...")
+    result = subprocess.run(
+        ["git", "stash", "pop"],
+        capture_output=True, text=True, cwd=PROJECT_ROOT,
+    )
+    if result.returncode == 0:
+        print("✅ Настройки на месте.")
+        return True
+
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    print("\n" + "=" * 70)
+    print("⚠️  Не удалось автоматически вернуть настройки.")
+    print("   Ваши изменения НЕ потеряны — они лежат в git stash.")
+    print("=" * 70)
+    print(combined)
+    print()
+    if "conflict" in combined.lower():
+        print("Одни и те же строки изменились и у вас, и в обновлении.")
+        print("Откройте перечисленные файлы, оставьте нужные значения")
+        print("и удалите маркеры <<<<<<< / ======= / >>>>>>>.")
     else:
-        print("⚠️ Continuing without updating.")
+        print("Вернуть изменения вручную: git stash pop")
+    if after_failed_update:
+        print("\nОбновление не применилось, репозиторий остался прежним.")
+    print("Посмотреть, что отложено: git stash list\n")
+    return False
+
+
+def _restart() -> None:
+    """Перезапуск текущим интерпретатором — не полагаемся на PATH."""
+    main_py = os.path.join(PROJECT_ROOT, "main.py")
+    try:
+        subprocess.run([sys.executable, main_py], cwd=PROJECT_ROOT)
+    except Exception as exc:
+        print(f"❌ Не удалось перезапустить автоматически: {exc}")
+        print(f"   Запустите вручную: python {main_py}")
+    sys.exit(0)

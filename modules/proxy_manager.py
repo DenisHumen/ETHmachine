@@ -1,7 +1,13 @@
 import random
+import re
 from typing import Optional, Dict, List
 from modules.simple_logger import logger
 from modules.data_manager import get_proxies
+
+# Схемы, которые реально умеют проксировать requests/PySocks. Всё остальное
+# отклоняем: лучше явно отказать, чем выпустить трафик со сломанной схемой.
+_SUPPORTED_SCHEMES = {'http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'}
+_SCHEME_RE = re.compile(r'^([a-zA-Z][a-zA-Z0-9+.\-]*)://')
 
 
 class ProxyManager:
@@ -34,26 +40,81 @@ class ProxyManager:
 
 
 def parse_proxy(proxy_string: Optional[str]) -> Optional[str]:
-    if not proxy_string:
+    """Нормализует строку прокси в URL scheme://[user:pass@]host:port.
+
+    Это единственный разделяемый парсер прокси в проекте, поэтому важна
+    корректность. Поддерживает host:port, user:pass@host:port,
+    scheme://host:port и scheme://user:pass@host:port для http/https/
+    socks4/socks5, а также пароли с символами ':' и '@'.
+
+    Зачем переписано: старая версия срезала только http/https и жёстко
+    навешивала обратно http://, из-за чего socks5://... превращался в
+    мусор вида http://socks5://...; любая ошибка тихо возвращала None, и
+    один битый прокси в data.csv молча уводил трафик через реальный IP.
+    Теперь при неудаче пишем в лог, ЧТО и ПОЧЕМУ не разобралось.
+    """
+    if not proxy_string or not proxy_string.strip():
+        # Пустое значение — это «прокси не задан», а не ошибка разбора.
         return None
 
-    proxy_string = proxy_string.strip()
-    if proxy_string.startswith('http://'):
-        proxy_string = proxy_string[7:]
-    elif proxy_string.startswith('https://'):
-        proxy_string = proxy_string[8:]
+    raw = proxy_string.strip()
 
-    try:
-        if '@' in proxy_string:
-            auth, addr = proxy_string.split('@', 1)
-            login, password = auth.split(':', 1)
-            ip, port = addr.split(':', 1)
-            return f"http://{login}:{password}@{ip}:{port}"
-        else:
-            ip, port = proxy_string.split(':', 1)
-            return f"http://{ip}:{port}"
-    except Exception:
+    # 1. Схема опциональна. Если её нет — по умолчанию http (так исторически
+    #    выглядели строки пользователей: host:port и user:pass@host:port).
+    scheme = 'http'
+    body = raw
+    m = _SCHEME_RE.match(raw)
+    if m:
+        scheme = m.group(1).lower()
+        body = raw[m.end():]
+        if scheme not in _SUPPORTED_SCHEMES:
+            logger.warning(
+                f"Не удалось разобрать прокси {mask_proxy(raw)}: "
+                f"неизвестная схема '{scheme}'"
+            )
+            return None
+
+    # 2. Отделяем credentials от адреса. Пароль может содержать '@', поэтому
+    #    режем по ПОСЛЕДНЕМУ '@' — адрес host:port всегда справа.
+    auth = None
+    addr = body
+    if '@' in body:
+        auth, addr = body.rsplit('@', 1)
+
+    # 3. Адрес host:port. Порт — крайняя правая часть; host у наших прокси
+    #    (IPv4/hostname) двоеточий не содержит, поэтому режем по последнему ':'.
+    if ':' not in addr:
+        logger.warning(
+            f"Не удалось разобрать прокси {mask_proxy(raw)}: "
+            f"не найден порт (ожидается host:port)"
+        )
         return None
+    host, port = addr.rsplit(':', 1)
+    if not host or not port.isdigit():
+        logger.warning(
+            f"Не удалось разобрать прокси {mask_proxy(raw)}: "
+            f"некорректный host:port"
+        )
+        return None
+
+    # 4. Credentials login:password. Пароль может содержать ':', поэтому
+    #    режем по ПЕРВОМУ ':'.
+    if auth is not None:
+        if ':' not in auth:
+            logger.warning(
+                f"Не удалось разобрать прокси {mask_proxy(raw)}: "
+                f"ожидается login:password перед '@'"
+            )
+            return None
+        login, password = auth.split(':', 1)
+        if not login:
+            logger.warning(
+                f"Не удалось разобрать прокси {mask_proxy(raw)}: пустой логин"
+            )
+            return None
+        return f"{scheme}://{login}:{password}@{host}:{port}"
+
+    return f"{scheme}://{host}:{port}"
 
 
 def get_proxy_dict(proxy_string: Optional[str]) -> Optional[Dict[str, str]]:
@@ -80,10 +141,15 @@ def load_proxies() -> List[str]:
 
 
 def mask_proxy(proxy_string: Optional[str]) -> str:
+    """Прячет credentials, оставляя только host:port — для логов.
+
+    Режем по ПОСЛЕДНЕМУ '@': пароль может содержать '@', и при split('@')[1]
+    в лог утекал кусок пароля вместо адреса.
+    """
     if not proxy_string:
         return "None"
     if '@' in proxy_string:
-        return proxy_string.split('@')[1]
+        return proxy_string.rsplit('@', 1)[1]
     return proxy_string
 
 

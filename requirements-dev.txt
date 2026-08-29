@@ -1,0 +1,7 @@
+# Зависимости только для разработки и тестов.
+# Пользователю ETHmachine они не нужны — ставьте при работе над кодом:
+#   pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest>=8.0.0

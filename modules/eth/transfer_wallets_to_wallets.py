@@ -15,8 +15,8 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from colorama import Fore
 from eth_account import Account
-from questionary import Choice, select
 from web3 import Web3
+from web3.exceptions import TransactionNotFound
 
 from config.modules.general_config import (
     DELAY_BETWEEN_ACCOUNTS,
@@ -35,6 +35,7 @@ from config.modules.cfg_transfer import (
 from config.networks import get_explorer_url, get_network_rpc_urls, get_network_symbol
 from modules.proxy_manager import ProxyManager, parse_proxy
 from modules.simple_logger import logger
+from modules.ui import ui
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATABASE
@@ -109,11 +110,17 @@ def _get_tasks_by_network(network: str) -> List[Dict]:
 
 
 def _get_pending_tasks(network: str) -> List[Dict]:
+    """Задачи, которые нужно обработать в этом запуске.
+
+    'tx_sent' сюда входит намеренно: транзакция уже в сети, но подтверждения
+    мы не дождались — такую задачу нужно до-опросить по её же хэшу
+    (см. _resume_sent_tx), а не отправлять повторно.
+    """
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT * FROM transfer_tasks WHERE network = ? AND status IN ('pending', 'failed') ORDER BY id",
+                "SELECT * FROM transfer_tasks WHERE network = ? AND status IN ('pending', 'failed', 'tx_sent') ORDER BY id",
                 (network,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -184,15 +191,28 @@ def _get_stats_summary(network: str) -> Dict:
             )
             pending = c.fetchone()[0]
             c.execute(
-                "SELECT COALESCE(SUM(CAST(amount_wei AS INTEGER)), 0) FROM transfer_tasks WHERE network = ? AND status = 'completed'",
+                "SELECT COUNT(*) FROM transfer_tasks WHERE network = ? AND status = 'tx_sent'",
                 (network,),
             )
-            total_wei = c.fetchone()[0]
+            unconfirmed = c.fetchone()[0]
+            # Суммируем в Python, а не через SUM(): у SQLite INTEGER знаковый 64-битный,
+            # и сумма wei больше 2^63 (≈9.2 токена) роняет запрос с 'integer overflow'.
+            c.execute(
+                "SELECT amount_wei FROM transfer_tasks WHERE network = ? AND status = 'completed'",
+                (network,),
+            )
+            total_wei = 0
+            for (raw_wei,) in c.fetchall():
+                try:
+                    total_wei += int(raw_wei)
+                except (TypeError, ValueError):
+                    continue  # мусор в колонке не должен ронять всю статистику
             return {
                 "total": total,
                 "completed": completed,
                 "failed": failed,
                 "pending": pending,
+                "unconfirmed": unconfirmed,
                 "total_wei": total_wei,
                 "total_eth": total_wei / 10**18 if total_wei else 0.0,
             }
@@ -380,6 +400,179 @@ _completed_counter = 0
 _completed_lock = Lock()
 
 
+def _normalize_tx_hash(tx_hash_hex: str) -> str:
+    """Хэш всегда в виде 0x… — так его принимают и RPC, и эксплореры."""
+    tx_hash_hex = (tx_hash_hex or "").strip()
+    if tx_hash_hex and not tx_hash_hex.startswith("0x"):
+        tx_hash_hex = "0x" + tx_hash_hex
+    return tx_hash_hex
+
+
+def _tx_is_broadcast(w3: Web3, tx_hash_hex: str) -> bool:
+    """Знает ли сеть про эту транзакцию (мемпул или блок).
+
+    Отвечаем True только при положительном ответе узла: любая другая ситуация
+    трактуется как «не отправлено», иначе задача с так и не ушедшей транзакцией
+    навсегда застряла бы в статусе tx_sent.
+    """
+    try:
+        return w3.eth.get_transaction(tx_hash_hex) is not None
+    except Exception:
+        return False
+
+
+def _poll_tx_receipt(
+    tx_hash_hex: str,
+    rpc_urls: List[str],
+    proxy_str: Optional[str],
+    prefix: str,
+    w3: Optional[Web3] = None,
+) -> Tuple[Optional[Web3], Optional[object]]:
+    """Дождаться receipt уже отправленной транзакции.
+
+    После broadcast единственный безопасный «повтор» — опрос того же хэша:
+    пересборка и повторная отправка означали бы второй перевод средств.
+    Поэтому тут мы только ждём и переживаем падения RPC, переключаясь на
+    другой узел. Возвращает (w3, receipt); receipt=None — не дождались.
+
+    w3 — узел, который принял транзакцию: он узнает её раньше остальных,
+    поэтому опрос начинаем с него.
+    """
+    attempts = max(1, WHAITE_TRANSACTION_PENDING_COUNT)
+    delay = max(1, WHAITE_TRANSACTION_PENDING)
+
+    for i in range(attempts):
+        try:
+            if w3 is None:
+                w3, _ = _get_web3(random.choice(rpc_urls), proxy_str)
+            receipt = w3.eth.get_transaction_receipt(tx_hash_hex)
+            if receipt is not None:
+                return w3, receipt
+        except TransactionNotFound:
+            pass  # ещё в мемпуле — ждём дальше
+        except Exception as e:
+            # Узел отвалился — на следующей итерации возьмём другой RPC.
+            logger.warning(f"{prefix} ⚠️ Ошибка опроса receipt: {str(e)[:120]}")
+            w3 = None
+
+        if i == 0:
+            logger.info(f"{prefix} ⏳ Ожидание подтверждения: {tx_hash_hex}")
+        if i < attempts - 1:
+            time.sleep(delay)
+
+    return w3, None
+
+
+def _confirm_sent_tx(
+    task_id: int,
+    tx_hash_hex: str,
+    send_value: int,
+    from_address: str,
+    to_address: str,
+    rpc_urls: List[str],
+    proxy_str: Optional[str],
+    explorer_url: str,
+    symbol: str,
+    prefix: str,
+    w3: Optional[Web3] = None,
+) -> bool:
+    """Довести до конца уже отправленную транзакцию — только ожидание, без отправки."""
+    global _completed_counter
+
+    full_explorer = f"{explorer_url}{tx_hash_hex}"
+    w3, receipt = _poll_tx_receipt(tx_hash_hex, rpc_urls, proxy_str, prefix, w3=w3)
+
+    if receipt is None:
+        # Средства, возможно, уже ушли. Статус 'tx_sent' + сохранённый хэш нужны,
+        # чтобы следующий запуск дособрал подтверждение, а не отправил перевод дважды.
+        err = f"Не дождались подтверждения, tx: {tx_hash_hex}"
+        logger.warning(f"{prefix} ⏱️ {err}")
+        _update_task(
+            task_id,
+            status="tx_sent",
+            tx_hash=tx_hash_hex,
+            explorer_link=full_explorer,
+            error_message=err,
+        )
+        return False
+
+    if receipt.status != 1:
+        # Откат нативного перевода средства не двигает, поэтому задачу можно
+        # безопасно повторить в следующем запуске.
+        err = f"Транзакция откачена (reverted), tx: {tx_hash_hex}"
+        logger.error(f"{prefix} ❌ {err}")
+        _update_task(
+            task_id,
+            status="failed",
+            tx_hash=tx_hash_hex,
+            explorer_link=full_explorer,
+            error_message=err,
+        )
+        return False
+
+    sent_eth = float(Web3.from_wei(send_value, "ether"))
+
+    logger.success(
+        f"{prefix} ✅ Подтверждено: {sent_eth:.8f} {symbol} | "
+        f"{_short_addr(from_address)} → {_short_addr(to_address)} | "
+        f"{full_explorer}"
+    )
+
+    # --- Wait for balance on target ---
+    if w3 is not None:
+        _wait_for_balance_increase(w3, to_address, prefix, symbol)
+
+    # --- Update DB ---
+    _update_task(
+        task_id,
+        status="completed",
+        amount_wei=str(send_value),
+        amount_eth=f"{sent_eth:.8f}",
+        tx_hash=tx_hash_hex,
+        explorer_link=full_explorer,
+        error_message=None,
+    )
+
+    with _completed_lock:
+        _completed_counter += 1
+
+    # Telegram
+    if TELEGRAM_LOG_LEVEL_transfer >= 2:
+
+        pass
+    return True
+
+
+def _resume_sent_tx(
+    task: Dict,
+    rpc_urls: List[str],
+    explorer_url: str,
+    symbol: str,
+    prefix: str,
+) -> bool:
+    """Задача, чья транзакция уже в сети: проверяем её статус, ничего не отправляя."""
+    tx_hash_hex = _normalize_tx_hash(task.get("tx_hash") or "")
+    try:
+        send_value = int(task.get("amount_wei") or 0)
+    except (TypeError, ValueError):
+        send_value = 0
+
+    logger.info(f"{prefix} 🔁 Транзакция уже отправлена ранее — проверяем статус: {tx_hash_hex}")
+
+    return _confirm_sent_tx(
+        task_id=task["id"],
+        tx_hash_hex=tx_hash_hex,
+        send_value=send_value,
+        from_address=task["from_address"],
+        to_address=task["to_address"],
+        rpc_urls=rpc_urls,
+        proxy_str=task.get("proxy"),
+        explorer_url=explorer_url,
+        symbol=symbol,
+        prefix=prefix,
+    )
+
+
 def _process_single_transfer(
     task: Dict,
     rpc_urls: List[str],
@@ -400,7 +593,15 @@ def _process_single_transfer(
 
     prefix = f"[{task_index}/{total_tasks}]"
 
+    # Транзакция этой задачи уже в сети (прошлый запуск / аварийное завершение).
+    # Пересобирать и отправлять заново нельзя — это дубль перевода средств.
+    if task.get("status") == "tx_sent" and (task.get("tx_hash") or "").strip():
+        return _resume_sent_tx(task, rpc_urls, explorer_url, symbol, prefix)
+
     gas_bump = 10000000000  # стартовый запас 10 gwei, растёт при insufficient funds
+    # Заполняется сразу после broadcast. Непустое значение — стоп-сигнал для
+    # retry-цикла: пересылать уже отправленную транзакцию нельзя.
+    broadcast: Optional[Tuple[str, int, Web3]] = None
 
     for attempt in range(1, RETRY_COUNT + 1):
         rpc_url = random.choice(rpc_urls)
@@ -529,55 +730,57 @@ def _process_single_transfer(
             account = Account.from_key(from_key)
             signed = account.sign_transaction(tx)
             raw = signed.rawTransaction if hasattr(signed, 'rawTransaction') else signed.raw_transaction
-            tx_hash = w3.eth.send_raw_transaction(raw)
-            tx_hash_hex = tx_hash.hex()
+            # Хэш известен ещё до broadcast — он нужен, чтобы опознать транзакцию,
+            # если ответ узла потеряется уже после того, как тот её принял.
+            local_hash = _normalize_tx_hash(signed.hash.hex()) if hasattr(signed, "hash") else ""
 
+            try:
+                tx_hash_hex = _normalize_tx_hash(w3.eth.send_raw_transaction(raw).hex())
+            except Exception:
+                # Отправка «упала», но транзакция могла уйти в сеть (оборванный
+                # ответ, таймаут HTTP). Повторить её — значит перевести средства
+                # дважды, поэтому сначала спрашиваем узел, знает ли он наш хэш.
+                if local_hash and _tx_is_broadcast(w3, local_hash):
+                    logger.warning(
+                        f"{prefix} ⚠️ Ответ RPC потерян, но транзакция уже в сети: {local_hash}"
+                    )
+                    tx_hash_hex = local_hash
+                else:
+                    raise
+
+            broadcast = (tx_hash_hex, send_value, w3)
             logger.info(f"{prefix} 📤 TX отправлена: {tx_hash_hex}")
 
-            # --- Wait for receipt ---
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-
-            if receipt.status != 1:
-                raise ValueError(f"Транзакция откачена (reverted): {tx_hash_hex}")
-
-            sent_eth = float(w3.from_wei(send_value, "ether"))
-            full_explorer = f"{explorer_url}{tx_hash_hex}"
-
-            logger.success(
-                f"{prefix} ✅ Подтверждено: {sent_eth:.8f} {symbol} | "
-                f"{_short_addr(from_address)} → {_short_addr(to_address)} | "
-                f"{full_explorer}"
-            )
-
-            # --- Wait for balance on target ---
-            _wait_for_balance_increase(w3, to_address, prefix, symbol)
-
-            # --- Update DB ---
+            # Факт отправки фиксируем ДО ожидания: если процесс прервётся или
+            # подтверждения не дождёмся, следующий запуск до-опросит этот же
+            # хэш (_resume_sent_tx) вместо повторного перевода средств.
             _update_task(
                 task_id,
-                status="completed",
+                status="tx_sent",
                 amount_wei=str(send_value),
-                amount_eth=f"{sent_eth:.8f}",
+                amount_eth=f"{float(w3.from_wei(send_value, 'ether')):.8f}",
                 tx_hash=tx_hash_hex,
-                explorer_link=full_explorer,
+                explorer_link=f"{explorer_url}{tx_hash_hex}",
                 error_message=None,
             )
-
-            with _completed_lock:
-                _completed_counter += 1
-
-            # Telegram
-            if TELEGRAM_LOG_LEVEL_transfer >= 2:
-
-                pass
-            return True
+            break  # дальше только ожидание — вне retry-цикла
 
         except KeyboardInterrupt:
-            _update_task(task_id, status="failed", error_message="Прервано пользователем")
+            # Статус 'failed' ставим только если денег точно не отправляли:
+            # иначе следующий запуск счёл бы задачу неотправленной и перевёл бы
+            # средства второй раз.
+            if broadcast is None:
+                _update_task(task_id, status="failed", error_message="Прервано пользователем")
             raise
         except Exception as e:
             err_msg = str(e)[:200]
             logger.error(f"{prefix} ❌ Ошибка (попытка {attempt}/{RETRY_COUNT}): {err_msg}")
+
+            if broadcast is not None:
+                # Сюда можно попасть только если упала запись в БД уже после
+                # broadcast. Повторять отправку нельзя ни при каких условиях.
+                logger.error(f"{prefix} ⛔ Транзакция уже отправлена — повтор отменён")
+                return False
 
             # При insufficient funds увеличиваем вычет на 10 gwei для следующей попытки
             if "insufficient funds" in err_msg.lower():
@@ -596,7 +799,25 @@ def _process_single_transfer(
                     pass
                 return False
 
-    return False
+    if broadcast is None:
+        return False
+
+    # Ожидание подтверждения живёт вне retry-цикла: транзакция уже в сети, и
+    # никакой исход ожидания не даёт права отправить её заново.
+    tx_hash_hex, send_value, w3 = broadcast
+    return _confirm_sent_tx(
+        task_id=task_id,
+        tx_hash_hex=tx_hash_hex,
+        send_value=send_value,
+        from_address=from_address,
+        to_address=to_address,
+        rpc_urls=rpc_urls,
+        proxy_str=proxy_str,
+        explorer_url=explorer_url,
+        symbol=symbol,
+        prefix=prefix,
+        w3=w3,
+    )
 
 
 def _wait_for_balance_increase(w3: Web3, address: str, prefix: str, symbol: str):
@@ -651,28 +872,25 @@ def run_transfer(transfer_data: List[Dict], network: str):
             _clear_tasks(network)
             existing = []
         else:
-            pending_count = sum(1 for t in existing if t["status"] in ("pending", "failed"))
+            # Список статусов совпадает с _get_pending_tasks, иначе счётчик
+            # разойдётся с тем, что реально будет обработано.
+            pending_count = sum(1 for t in existing if t["status"] in ("pending", "failed", "tx_sent"))
             completed_count = sum(1 for t in existing if t["status"] == "completed")
 
-            print()
-            print(Fore.YELLOW + "═" * 60)
-            print(Fore.YELLOW + f"  Найдены незавершённые задачи для {network}")
-            print(Fore.YELLOW + f"  ✅ Выполнено: {completed_count} | ⏳ Осталось: {pending_count}")
-            print(Fore.YELLOW + "═" * 60)
-            print()
+            ui.print_lines(ui.panel(
+                f"Незавершённые задачи · {network}",
+                [f"✅ Выполнено: {completed_count}",
+                 f"⏳ Осталось:  {pending_count}"],
+                color=ui.theme.FG_WARN,
+            ))
 
-            choice = select(
-                "Что делать с существующими задачами?",
-                choices=[
-                    Choice("▶️  Продолжить выполнение", "continue"),
-                    Choice("🗑️  Очистить и начать заново", "clear"),
-                    Choice("❌ Отмена", "cancel"),
-                ],
-                qmark="🛠️",
-                pointer="👉",
-            ).ask()
+            choice = ui.menu("Что делать с существующими задачами?", [
+                ("▶️ Продолжить выполнение", "continue"),
+                ("🗑️ Очистить и начать заново", "clear"),
+                ("❌ Отмена", "cancel"),
+            ])
 
-            if choice == "cancel":
+            if choice in (None, "cancel"):
                 return
             elif choice == "clear":
                 _clear_tasks(network)
@@ -751,9 +969,14 @@ def run_transfer(transfer_data: List[Dict], network: str):
                 logger.error(f"Необработанная ошибка потока: {e}")
 
     # --- Statistics ---
-    _save_statistics(network, started_at)
-    stats = _get_stats_summary(network)
-    _print_final_stats(stats, symbol, network, started_at)
+    # Переводы уже выполнены — сбой в подсчёте статистики не должен выглядеть
+    # как провал всего запуска.
+    try:
+        _save_statistics(network, started_at)
+        stats = _get_stats_summary(network)
+        _print_final_stats(stats, symbol, network, started_at)
+    except Exception as e:
+        logger.error(f"Не удалось собрать финальную статистику: {e}")
 
     # Telegram final report
     if TELEGRAM_LOG_LEVEL_transfer >= 1:
@@ -778,6 +1001,11 @@ def _print_final_stats(stats: Dict, symbol: str, network: str, started_at: str):
         print(Fore.GREEN + f"  ❌ Ошибок:     0/{stats['total']}")
     if stats["pending"] > 0:
         print(Fore.YELLOW + f"  ⏳ Осталось:   {stats['pending']}")
+    # Отправленные, но не подтверждённые: средства, скорее всего, ушли — их
+    # нельзя молча приравнивать к ошибкам, иначе пользователь запустит перевод
+    # повторно. Следующий запуск до-опросит эти транзакции по их хэшам.
+    if stats.get("unconfirmed", 0) > 0:
+        print(Fore.YELLOW + f"  ⏱️  Без подтверждения: {stats['unconfirmed']} (проверьте tx в эксплорере)")
     print(Fore.GREEN + f"  💰 Переведено: {stats['total_eth']:.8f} {symbol}")
     print(Fore.GREEN + f"  ⏱️  Время:      {minutes}м {seconds}с")
     success_rate = (stats["completed"] / stats["total"] * 100) if stats["total"] > 0 else 0

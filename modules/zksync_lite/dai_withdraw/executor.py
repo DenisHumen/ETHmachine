@@ -13,9 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from modules.simple_logger import logger
 from modules.zksync_lite.dai_withdraw import database as dai_db
-from modules.zksync_lite.swap.executor import (
-    ProxyPool, _print_banner, BANNER_LINE,
-)
+from modules.zksync_lite.swap.executor import _print_banner
 from modules.zksync_lite.swap.lite_signer import LiteSigner, LiteSignerError
 
 DAI_DECIMALS = 18
@@ -64,13 +62,16 @@ class DaiWithdrawExecutor:
         wallet = task["wallet_address"]
         priv = task["private_key"]
         eth_address = task["eth_address"]
-        proxy = task.get("proxy")
-        reserve = task.get("reserve_proxy")
-        pool = ProxyPool(proxy, reserve, label=f"[{wallet}] ")
-        if pool.has_reserve():
-            logger.info(f"[{wallet}] прокси: primary активна, резерв в наличии")
-        elif pool.current:
-            logger.info(f"[{wallet}] прокси: primary активна (без резерва)")
+        # Весь трафик модуля идёт через node-хелпер (signer.js), а он прокси не
+        # поддерживает. Раньше здесь строился ProxyPool и в лог писалось
+        # «прокси: primary активна» — при том, что ни один запрос через неё не
+        # шёл. Молчать об этом нельзя: для мультиаккаунта это незаявленная
+        # привязка всех кошельков к одному IP.
+        if (task.get("proxy") or "").strip() or (task.get("reserve_proxy") or "").strip():
+            logger.warning(
+                f"[{wallet}] прокси из CSV НЕ применяется: zkSync Lite работает "
+                f"через node-хелпер без поддержки прокси — запросы уходят с "
+                f"реального IP машины")
         else:
             logger.warning(f"[{wallet}] прокси не указана — идём напрямую")
 

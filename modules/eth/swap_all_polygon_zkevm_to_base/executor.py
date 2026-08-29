@@ -369,6 +369,33 @@ class SwapAllExecutor:
         scale = Decimal(10) ** decimals
         is_native = (token == "ETH" and not contract)
 
+        # Идемпотентность (AGENTS §14.3). Ctrl-C во время ожидания оставляет
+        # задачу в awaiting_arrival, и `list_pending_for_wallet` вернёт её
+        # следующему запуску. Но перевод на deposit_address уже сделан: баланс
+        # нулевой, и ветка «zero on-chain balance» ниже пометила бы задачу
+        # терминальным skipped — деньги в мосте стали бы невидимыми. Если
+        # кошелёк успели пополнить, то ещё хуже: ушёл бы второй перевод.
+        # Поэтому при наличии tx мы только дожидаемся прибытия.
+        prior_tx = (task.get("src_tx_hash") or "").strip()
+        prior_swap = (task.get("swap_id") or "").strip()
+        if prior_tx:
+            db.increment_attempts(task["id"])
+            if not prior_swap:
+                db.update_task(
+                    task["id"], status=db.STATUS_FAILED,
+                    error_message=("перевод отправлен, но swap_id не сохранён — "
+                                   "проверьте перевод вручную")[:400])
+                self._wlog(wallet, ctx,
+                           f"⚠️  {token}: есть tx {prior_tx[:14]}… без swap_id — "
+                           f"повторно не отправляем, проверьте вручную", "error")
+                return
+            self._wlog(wallet, ctx,
+                       f"↩️  {token}: перевод {prior_tx[:14]}… уже отправлен, "
+                       f"возобновляем ожидание прибытия", "info")
+            self._await_arrival(task, prior_swap, wallet, token, w3_dst,
+                                 proxies, ctx)
+            return
+
         if token not in SUPPORTED_PAIRS:
             db.update_task(task["id"], status=db.STATUS_SKIPPED,
                             error_message="layerswap route not supported")
@@ -508,10 +535,21 @@ class SwapAllExecutor:
             self._wlog(wallet, ctx, f"receipt wait err: {e}", "warning")
 
         # 8. Polling Layerswap до COMPLETED
+        self._await_arrival(task, swap_id, wallet, token, w3_dst, proxies, ctx)
+
+    def _await_arrival(self, task: Dict[str, Any], swap_id: str, wallet: str,
+                        token: str, w3_dst: Web3,
+                        proxies: Optional[Dict[str, str]],
+                        ctx: Dict[str, Any]) -> None:
+        """Ожидание прибытия средств на Base по уже созданному swap_id.
+
+        Вынесено отдельно, чтобы повторный запуск мог дождаться ранее
+        отправленного перевода, а не создавать новый свап (см. проверку
+        идемпотентности в `_run_task`).
+        """
         db.update_task(task["id"], status=db.STATUS_AWAITING)
         deadline = time.monotonic() + ARRIVAL_TIMEOUT_SEC
         last_status: Optional[str] = None
-        dst_tx: Optional[str] = None
         while time.monotonic() < deadline:
             try:
                 cur = self.layerswap.get_swap(swap_id, proxies=proxies)

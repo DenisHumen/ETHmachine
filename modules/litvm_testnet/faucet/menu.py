@@ -1,26 +1,27 @@
 """LiteForge faucet — меню пресета."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from __future__ import annotations
 
-from colorama import Fore, Style
 from eth_account import Account
-from questionary import Choice, select
 
-from config.modules.general_config import NUM_THREADS
 from config.modules.cfg_litvm_testnet import (
     LITVM_FAUCET_CAPTCHA_SITEKEY,
     LITVM_FAUCET_CAPTCHA_TYPE,
+    LITVM_FAUCET_COOLDOWN_HOURS,
 )
 from modules.captcha.manager import (
     SERVICE_CONFIG_FIELDS,
     configured_services_for_type,
     services_for_captcha_type,
 )
+from modules.core.runner import resolve_threads, run_parallel
 from modules.data_manager import load_data
-from modules.simple_logger import log_simple, set_auto_progress
+from modules.litvm_testnet.database import DB_PATH
 from modules.litvm_testnet.faucet import database as db
 from modules.litvm_testnet.faucet.faucet_client import is_test_sitekey
 from modules.litvm_testnet.faucet.worker import process_wallet
 from modules.litvm_testnet.vercel_bypass import get_client
+from modules.simple_logger import log_simple, set_auto_progress
+from modules.ui.module_menu import MenuAction, ModuleMenu
 
 
 def _check_sitekey_configured() -> bool:
@@ -69,41 +70,6 @@ def _check_captcha_ready(captcha_type: str) -> bool:
             "info",
         )
     return False
-
-
-def _build_menu() -> str | None:
-    return select(
-        "🚰 LiteForge Faucet (testnet zkLTC):",
-        choices=[
-            Choice("▶️  Продолжить", "continue"),
-            Choice("🗑️  Очистить статусы и начать заново", "reset"),
-            Choice("📊 Статистика БД", "stats"),
-            Choice("🔙 Назад", "back"),
-        ],
-        qmark="🚰",
-        pointer="👉",
-    ).ask()
-
-
-def _show_stats() -> None:
-    stats = db.get_statistics()
-    print(f"\n{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}LiteForge Faucet — статистика{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}{'-' * 40}{Style.RESET_ALL}")
-    if not stats or stats.get("total", 0) == 0:
-        print(f"  {Fore.YELLOW}БД пуста{Style.RESET_ALL}")
-    else:
-        for key, val in stats.items():
-            if key == "total":
-                continue
-            print(f"  {key:<22} {val}")
-        print(f"  {Fore.CYAN}{'-' * 40}{Style.RESET_ALL}")
-        print(f"  {'total':<22} {stats.get('total', 0)}")
-
-    avg = db.avg_arrival_seconds()
-    if avg is not None:
-        print(f"  {'avg arrival':<22} {avg:.0f}s")
-    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}\n")
 
 
 def _format_summary(stats: dict) -> str:
@@ -155,36 +121,26 @@ def _partition_by_history(records: list[dict]) -> tuple[list[dict], list[dict]]:
 
 def _run_phase(records: list[dict], start_offset: int, total: int,
                threads: int) -> bool:
-    """Прогоняет батч кошельков (последовательно или через ThreadPoolExecutor).
-
-    `start_offset` — сколько кошельков уже обработано в предыдущих фазах,
-    чтобы лог-индекс `idx/total` оставался сквозным 1..total.
-    Возвращает True, если пользователь нажал Ctrl+C."""
+    """Прогоняет батч кошельков. `start_offset` — сколько кошельков уже
+    обработано в предыдущих фазах, чтобы лог-индекс `idx/total` оставался
+    сквозным 1..total. Возвращает True, если пользователь нажал Ctrl+C."""
     if not records:
         return False
-    if threads <= 1 or len(records) <= 1:
-        for i, rec in enumerate(records, 1):
-            try:
-                process_wallet(rec, start_offset + i, total)
-            except KeyboardInterrupt:
-                log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
-                return True
-        return False
-    with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="litvm-faucet") as ex:
-        futs = [ex.submit(process_wallet, rec, start_offset + i, total)
-                for i, rec in enumerate(records, 1)]
-        try:
-            for fut in as_completed(futs):
-                fut.result()
-        except KeyboardInterrupt:
-            for f in futs:
-                f.cancel()
-            log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
-            return True
+    try:
+        run_parallel(
+            records,
+            lambda index, record: process_wallet(record, index, total),
+            threads=threads,
+            thread_name_prefix="litvm-faucet",
+            start_index=start_offset + 1,
+        )
+    except KeyboardInterrupt:
+        log_simple("⚠ прервано пользователем (состояние сохранено в БД)", "warning")
+        return True
     return False
 
 
-def _run_continue() -> None:
+def _handle_run() -> None:
     if not _check_captcha_ready(LITVM_FAUCET_CAPTCHA_TYPE):
         return
     if not _check_sitekey_configured():
@@ -202,7 +158,7 @@ def _run_continue() -> None:
         return
 
     set_auto_progress(False)
-    threads = max(1, min(int(NUM_THREADS), total))
+    threads = resolve_threads(total=total)
 
     new_wallets, old_wallets = _partition_by_history(records)
     if new_wallets and old_wallets:
@@ -234,35 +190,90 @@ def _run_continue() -> None:
     except Exception:
         pass
 
-    stats = db.get_statistics()
-    summary = _format_summary(stats)
+    summary = _format_summary(db.get_statistics())
     if interrupted:
         log_simple(f"🏁 остановлено · {summary}", "warning")
     else:
         log_simple(f"🏁 готово · {summary}", "success")
 
 
+# ── Экраны меню ─────────────────────────────────────────────────────────
+
+# Статусы faucet_wallet_tasks в порядке жизненного цикла заявки.
+_STATUS_LABELS = {
+    "pending": "ожидают",
+    "in_progress": "в работе",
+    "requested": "заявка принята",
+    "arrived": "zkLTC получены",
+    "cooldown": "кулдаун",
+    "ineligible": "кошелёк не подходит",
+    "failed": "ошибка",
+}
+
+
+def _stats() -> dict:
+    raw = db.get_statistics()
+    ordered = {label: raw.get(status, 0)
+               for status, label in _STATUS_LABELS.items()}
+    # Статус, которого ещё нет в справочнике, лучше показать как есть,
+    # чем молча потерять при подсчёте.
+    for status, count in raw.items():
+        if status != "total" and status not in _STATUS_LABELS:
+            ordered[status] = count
+    avg = db.avg_arrival_seconds()
+    if avg is not None:
+        ordered["зачисление в среднем"] = f"{avg:.0f} с"
+    ordered["total"] = raw.get("total", 0)
+    return ordered
+
+
+def _info() -> dict:
+    return {
+        "Как это работает": [
+            "Кошельки берутся из data/data.csv — нужен только private_key.",
+            "Первыми идут адреса, которые кран ещё ни разу не запрашивали: "
+            "капча и прокси тратятся в первую очередь на них.",
+            f"Для каждого кошелька решается капча ({LITVM_FAUCET_CAPTCHA_TYPE}) "
+            "и отправляется заявка на liteforge.hub.caldera.xyz.",
+            "Успехом считается не ответ сервера, а фактический рост баланса "
+            "zkLTC на кошельке.",
+            "Время ожидания зачисления адаптивное: среднее по последним "
+            "заявкам плюс запас.",
+            f"Кран отдаёт токены раз в {LITVM_FAUCET_COOLDOWN_HOURS} ч на адрес; "
+            "кошельки в кулдауне пропускаются без запроса.",
+        ],
+        "Что нужно настроить": [
+            "LITVM_FAUCET_CAPTCHA_SITEKEY — реальный sitekey со страницы крана, "
+            "публичный тестовый ключ сервисы решать отказываются.",
+            "Ключ хотя бы одного сервиса решения капчи в "
+            "config/modules/general_config.py.",
+            "Прокси в data.csv: сначала proxy, при отказе reserve_proxy.",
+        ],
+        "Где что лежит": [
+            f"База: db/{DB_PATH.name}",
+            "Статусы кошельков: таблица faucet_wallet_tasks",
+            "История заявок и кулдауны: таблица request_history",
+            "«Очистить базу» сбрасывает только статусы — история заявок "
+            "и кулдауны сохраняются.",
+        ],
+    }
+
+
 def run_litvm_faucet() -> None:
     db.init_database()
+    ModuleMenu(
+        title="Кран zkLTC",
+        subtitle="LiteForge testnet",
+        icon="🚰",
+        actions=[
+            MenuAction("run", "Запросить кран", _handle_run,
+                       "пройти по всем кошелькам и дождаться zkLTC", icon="▶️"),
+        ],
+        stats=_stats,
+        stats_title=f"Прогресс · {DB_PATH.name}",
+        reset=db.reset_tasks,
+        info=_info,
+    ).run()
 
-    while True:
-        action = _build_menu()
-        if action is None or action == "back":
-            return
-        if action == "continue":
-            try:
-                _run_continue()
-            except KeyboardInterrupt:
-                pass
-        elif action == "reset":
-            confirm = select(
-                "Очистить статусы задач? (история запросов и кулдауны сохранятся)",
-                choices=[Choice("Нет", False), Choice("Да, очистить", True)],
-                qmark="🗑️",
-            ).ask()
-            if confirm:
-                db.reset_tasks()
-                log_simple("🗑️ статусы очищены, история кулдаунов сохранена", "success")
-        elif action == "stats":
-            _show_stats()
-        input(f"\n{Fore.CYAN}Нажмите Enter для продолжения...{Style.RESET_ALL}")
+
+__all__ = ["run_litvm_faucet"]

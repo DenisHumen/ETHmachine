@@ -1,12 +1,14 @@
 requests==2.32.3
+# web3 6.x тянет lru-dict<1.3.0, у которого нет колёс для Python 3.12+ под Windows,
+# поэтому на чистой машине pip пытается собрать его из исходников и падает без MSVC.
+# Лечится только переходом на web3 7.x (там lru-dict вообще нет), но 7.x ломает код:
+# eth-account>=0.13 убрал SignedTransaction.rawTransaction, а hexbytes>=1.2 убрал
+# префикс 0x из .hex() — то есть поедут хеши в result/*.csv. Пока не тронуто.
 web3==6.13.0
-inquirer==3.4.0
 colorama==0.4.6
 questionary==2.0.1
-python-okx==0.3.8
 mnemonic==0.21
 ecdsa==0.18.0
-cytoolz==1.0.1
 eth-utils==5.2.0
 solders==0.26.0
 bip-utils==2.9.3
@@ -15,19 +17,18 @@ fake-useragent==1.4.0
 aiohttp>=3.9.0
 aiohttp-socks>=0.8.0
 eth-account>=0.10.0
+# secp256k1-подпись для transfer_kava_to_cex (Cosmos). Приходил транзитивно
+# через bip-utils, но модуль импортирует его напрямую — объявляем явно.
+coincurve>=18.0.0
 loguru==0.7.0
 tqdm>=4.66.0
 ccxt==4.5.1
 curl-cffi
 paramiko==3.4.0
 cryptography==41.0.7
-psutil==5.9.8
 rich>=13.0.0
 playwright>=1.40.0
-playwright-stealth>=2.0.0
 patchright>=1.40.0
-tls-client>=1.0.0
-cloudscraper>=1.2.71
 openpyxl
 Pillow>=10.0.0
 

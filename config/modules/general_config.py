@@ -20,7 +20,7 @@ CAPTCHA_SERVICE = 'yescaptcha'  # Выбранный сервис решения
 TWOCAPTCHA_API_KEY = ''     # API ключ для 2Captcha - https://2captcha.com/
 ANTICAPTCHA_API_KEY = ''    # API ключ для Anti-Captcha - https://anti-captcha.com/
 CAPSOLVER_API_KEY = ''      # API ключ для CapSolver - https://www.capsolver.com/
-YESCAPTCHA_API_KEY = '6c2df04e345a1d8936c611b0376b0d9a4f5b78cc54766'     # API ключ для YesCaptcha - https://yescaptcha.com/
+YESCAPTCHA_API_KEY = ''     # API ключ для YesCaptcha - https://yescaptcha.com/
 CAPMONSTER_API_KEY = ''     # API ключ для CapMonster Cloud - https://capmonster.cloud/
 
 # ========================================================================================
