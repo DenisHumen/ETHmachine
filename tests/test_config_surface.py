@@ -13,14 +13,9 @@ import importlib
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
+from tests.conftest import PROJECT_ROOT, project_files
 
 CONFIG_DIR = PROJECT_ROOT / "config"
-SKIP_DIR_PARTS = {
-    "node_modules", ".venv", "venv", "__pycache__", ".git",
-    "build", "dist", "scripts", "tests",
-}
-
 # Генерируется автоматически при первом запуске main.py и лежит в .gitignore,
 # поэтому в чистом клоне его нет.
 GENERATED_CONFIG_MODULES = {
@@ -30,11 +25,7 @@ GENERATED_CONFIG_MODULES = {
 
 
 def _iter_source_files():
-    for path in sorted(PROJECT_ROOT.rglob("*.py")):
-        rel = path.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIR_PARTS for part in rel.parts):
-            continue
-        yield path
+    return project_files()
 
 
 def _collect_config_imports() -> dict[str, set[str]]:

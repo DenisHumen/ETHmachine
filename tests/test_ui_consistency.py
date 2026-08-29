@@ -15,12 +15,7 @@ import ast
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
-
-SKIP_DIR_PARTS = {
-    "node_modules", ".venv", "venv", "__pycache__", ".git",
-    "build", "dist", "scripts", "tests",
-}
+from tests.conftest import PROJECT_ROOT, project_files
 
 # Единственное место, которому questionary положен: сам UI-набор его и
 # оборачивает — ради этого он и существует.
@@ -28,15 +23,8 @@ UI_PACKAGE = ("modules", "ui")
 
 
 def _source_files() -> list:
-    files = []
-    for path in sorted(PROJECT_ROOT.rglob("*.py")):
-        rel = path.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIR_PARTS for part in rel.parts):
-            continue
-        if rel.parts[:2] == UI_PACKAGE:
-            continue
-        files.append(path)
-    return files
+    return [path for path in project_files()
+            if path.relative_to(PROJECT_ROOT).parts[:2] != UI_PACKAGE]
 
 
 SOURCE_FILES = _source_files()

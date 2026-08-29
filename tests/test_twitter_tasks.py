@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
+from tests.conftest import PROJECT_ROOT, project_files
 
 
 class _FakeTwitterClient:
@@ -92,9 +92,7 @@ def test_no_misspelled_twitter_module():
     typo = "ti" + "wtter"  # склеиваем, чтобы сам тест не попал в выборку
     offenders = [
         str(path.relative_to(PROJECT_ROOT))
-        for path in PROJECT_ROOT.rglob("*.py")
-        if "__pycache__" not in path.parts
-        and "tests" not in path.relative_to(PROJECT_ROOT).parts
-        and typo in path.read_text(encoding="utf-8")
+        for path in project_files()
+        if typo in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"остались ссылки на опечатку: {offenders}"

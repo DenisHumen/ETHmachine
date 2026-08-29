@@ -12,20 +12,13 @@ import pkgutil
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
-
-SKIP_DIR_PARTS = {
-    "node_modules", ".venv", "venv", "__pycache__", ".git",
-    "build", "dist", "scripts", "tests",
-}
+from tests.conftest import PROJECT_ROOT, is_project_path, project_files
 
 
 def _iter_module_names() -> list[str]:
     names: list[str] = []
-    for path in sorted(PROJECT_ROOT.rglob("*.py")):
+    for path in project_files():
         rel = path.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIR_PARTS for part in rel.parts):
-            continue
         if rel.name == "main.py":
             continue  # у main.py есть побочные эффекты на импорте
         parts = list(rel.parts)
@@ -58,7 +51,7 @@ def test_no_leftover_backup_files():
         for p in PROJECT_ROOT.rglob("*")
         if p.is_file()
         and p.suffix in {".backup", ".original"}
-        and not any(part in SKIP_DIR_PARTS for part in p.relative_to(PROJECT_ROOT).parts)
+        and is_project_path(p)
     ]
     assert not leftovers, f"лишние артефакты: {leftovers}"
 
@@ -75,7 +68,7 @@ def test_packages_have_init():
         if not pkg_dir.is_dir():
             continue
         rel = pkg_dir.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIR_PARTS for part in rel.parts):
+        if not is_project_path(pkg_dir):
             continue
         if not any(child.suffix == ".py" for child in pkg_dir.iterdir() if child.is_file()):
             continue

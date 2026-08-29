@@ -17,12 +17,7 @@ import re
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
-
-SKIP_DIR_PARTS = {
-    "node_modules", ".venv", "venv", "__pycache__", ".git",
-    "build", "dist", "scripts", "tests",
-}
+from tests.conftest import PROJECT_ROOT, project_files
 
 # ── Колонки data/data.csv ────────────────────────────────────────────────
 
@@ -89,10 +84,8 @@ _TABLE_RE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+([a-zA-Z_0-9]+)", re.IGNOR
 
 
 def _source_files():
-    for path in sorted(PROJECT_ROOT.rglob("*.py")):
+    for path in project_files():
         rel = path.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIR_PARTS for part in rel.parts):
-            continue
         yield path
 
 

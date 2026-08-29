@@ -15,6 +15,32 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+# Каталоги, которые не являются исходниками проекта.
+SKIP_DIR_PARTS = {
+    "node_modules", ".venv", "venv", "__pycache__", ".git",
+    "build", "dist", "scripts", "tests",
+}
+
+
+def is_project_path(path: Path) -> bool:
+    """Путь относится к исходникам, а не к окружению или копии проекта.
+
+    Скрытые каталоги отбрасываются целиком: в ``.claude/worktrees`` лежит
+    полная рабочая копия проекта, и без этого правила обход находил каждый
+    модуль дважды — один раз настоящий, один раз из копии.
+    """
+    rel = path.relative_to(PROJECT_ROOT)
+    parts = rel.parts if path.is_dir() else rel.parts[:-1]
+    return not any(part in SKIP_DIR_PARTS or part.startswith(".")
+                   for part in parts)
+
+
+def project_files(pattern: str = "*.py", root: Path | None = None):
+    """Файлы проекта по маске — без окружений, кешей и рабочих копий."""
+    for path in sorted((root or PROJECT_ROOT).rglob(pattern)):
+        if is_project_path(path):
+            yield path
+
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
