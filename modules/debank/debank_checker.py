@@ -5,8 +5,8 @@ DeBank Balance Checker
 Асинхронная обработка с прокси-ротацией и Rich UI
 """
 
-import csv
 import sys
+import math
 import asyncio
 import time
 import random
@@ -27,6 +27,10 @@ sys.path.append(str(project_root))
 
 from config.modules.general_config import (
     NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
+)
+from config.modules.cfg_debank import (
+    SKIP_SCAM_TOKENS, TRUSTED_CREDIT_SCORE, MIN_VALUE_USD,
+    GRADIENT_MIN_USD, GRADIENT_MAX_USD
 )
 from modules.debank.database import (
     init_database, create_tasks, get_pending_tasks,
@@ -175,6 +179,48 @@ def parse_proxy_for_playwright(proxy_str: str) -> dict:
         return None
 
 
+def is_junk_token(token: dict) -> bool:
+    """Мусорный ли токен по мнению самой DeBank.
+
+    Фарм-кошелькам массово прилетают аирдропы скам-токенов с выдуманной
+    ценой — из-за них тотал раздувался до сотен тысяч долларов на
+    кошельке, где реально лежит доллар. DeBank помечает такие токены,
+    и мы просто им верим.
+    """
+    return bool(SKIP_SCAM_TOKENS
+                and (token.get('is_scam') or token.get('is_suspicious')))
+
+
+def gradient_color(value_usd: float, min_usd: float = GRADIENT_MIN_USD,
+                   max_usd: float = GRADIENT_MAX_USD):
+    """Цвет заливки ячейки: чем дороже позиция, тем насыщеннее зелёный.
+
+    Шкала логарифмическая: на фарм-кошельках почти всё стоит центы, и на
+    линейной шкале разница между $1 и $100 была бы неразличима.
+    ``None`` — сумма ниже порога, заливки нет.
+    """
+    if value_usd < min_usd:
+        return None
+
+    if value_usd >= max_usd:
+        t = 1.0
+    else:
+        log_min = math.log10(max(min_usd, 0.01))
+        log_max = math.log10(max(max_usd, 1.0))
+        log_val = math.log10(max(value_usd, min_usd))
+        span = log_max - log_min
+        t = 0.0 if span <= 0 else max(0.0, min(1.0, (log_val - log_min) / span))
+
+    # белый → светло-зелёный → насыщенный зелёный
+    if t <= 0.5:
+        s = t * 2
+        r, g, b = (int(255 - 57 * s), int(255 - 16 * s), int(255 - 49 * s))
+    else:
+        s = (t - 0.5) * 2
+        r, g, b = (int(198 - 159 * s), int(239 - 65 * s), int(206 - 110 * s))
+    return f"{r:02X}{g:02X}{b:02X}"
+
+
 def parse_token_data(data) -> list:
     """Парсинг данных токенов из API ответа DeBank"""
     tokens = []
@@ -193,19 +239,25 @@ def parse_token_data(data) -> list:
         if not isinstance(token, dict):
             continue
         amount = token.get('amount', 0)
-        if amount and float(amount) > 0:
-            price = token.get('price', 0) or 0
-            value_usd = float(amount) * float(price)
-            tokens.append({
-                'chain': token.get('chain', ''),
-                'symbol': token.get('symbol', token.get('optimized_symbol', 'UNKNOWN')),
-                'name': token.get('name', ''),
-                'address': token.get('id', token.get('contract_id', '')),
-                'balance': float(amount),
-                'price_usd': float(price),
-                'value_usd': value_usd,
-                'logo_url': token.get('logo_url', ''),
-            })
+        if not amount or float(amount) <= 0:
+            continue
+        if is_junk_token(token):
+            continue
+
+        price = token.get('price', 0) or 0
+        tokens.append({
+            'chain': token.get('chain', ''),
+            'symbol': token.get('symbol', token.get('optimized_symbol', 'UNKNOWN')),
+            'name': token.get('name', ''),
+            'address': token.get('id', token.get('contract_id', '')),
+            'balance': float(amount),
+            'price_usd': float(price),
+            'value_usd': float(amount) * float(price),
+            'logo_url': token.get('logo_url', ''),
+            # Рейтинг токена у DeBank: у настоящих активов он огромный,
+            # у свежих аирдропов — ноль. По нему считаем «надёжную» сумму.
+            'credit_score': float(token.get('credit_score') or 0),
+        })
     return tokens
 
 
@@ -461,7 +513,8 @@ async def process_wallets_async(wallets: list, proxy_map: dict = None) -> dict:
                             batch = [
                                 (wallet, t['chain'], t['symbol'], t['name'],
                                  t['address'], t['balance'], t['price_usd'],
-                                 t['value_usd'], t['logo_url'])
+                                 t['value_usd'], t['logo_url'],
+                                 t.get('credit_score', 0))
                                 for t in result['tokens']
                             ]
                             save_token_balances_batch(batch)
@@ -523,11 +576,20 @@ def process_wallets(wallets: list, proxy_map: dict = None) -> dict:
     return asyncio.run(process_wallets_async(wallets, proxy_map))
 
 
-def save_results_csv(wallets: list):
-    """Экспорт балансов: одна строка = один кошелёк, токены как колонки.
-    Формат колонки: chain:symbol (например eth:ETH, arb:USDC).
-    Если у кошелька нет токена — пишется 0.
+def save_results_xlsx(wallets: list):
+    """Экспорт балансов в XLSX: сводка по кошелькам, токены и разрез по сетям.
+
+    Раньше выгрузка была одной CSV-таблицей «токен = отдельная колонка».
+    На реальных данных это 1800+ колонок: такую таблицу нельзя ни
+    отсортировать, ни отфильтровать, а стоимости позиций в ней не видно
+    вовсе — только количество токенов. Здесь те же данные разложены на
+    три листа, каждый отвечает на свой вопрос: у кого сколько, из чего
+    складывается, и где эти деньги лежат.
     """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
     result_dir = project_root / 'result'
     result_dir.mkdir(exist_ok=True)
 
@@ -536,56 +598,176 @@ def save_results_csv(wallets: list):
         console.print("[yellow]⚠️ Нет данных для экспорта[/yellow]")
         return None
 
-    # Собрать все уникальные токены (chain:symbol) в порядке появления
-    token_columns = []
-    token_columns_set = set()
-    # wallet -> {token_key: balance}
-    wallet_data = {}
-
+    by_wallet = {}
     for b in all_balances:
-        w = b['wallet_address']
-        token_key = f"{b['chain']}:{b['token_symbol']}"
+        by_wallet.setdefault(b['wallet_address'], []).append({
+            'chain': b['chain'],
+            'symbol': b['token_symbol'],
+            'name': b['token_name'] or '',
+            'balance': float(b['balance'] or 0),
+            'price': float(b['price_usd'] or 0),
+            'value': float(b['value_usd'] or 0),
+            'score': float(b.get('credit_score') or 0),
+        })
 
-        if token_key not in token_columns_set:
-            token_columns_set.add(token_key)
-            token_columns.append(token_key)
+    # ── Стили ──
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill("solid", start_color="2C3E50", end_color="2C3E50")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    edge = Side(style='thin', color='D5D8DC')
+    border = Border(left=edge, right=edge, top=edge, bottom=edge)
+    mono_font = Font(name='Consolas', size=10)
+    body_font = Font(size=10)
+    money_font = Font(bold=True, size=10)
+    junk_fill = "FDEBD0"        # мягкий оранжевый — «на эту сумму не рассчитывай»
 
-        if w not in wallet_data:
-            wallet_data[w] = {}
-        wallet_data[w][token_key] = b['balance']
+    MONEY = '$#,##0.00'
+    PRICE = '$#,##0.00######'
+    AMOUNT = '#,##0.########'
+    SHARE = '0.0%'
 
-    # Вычислить total_usd для каждого кошелька
-    wallet_totals = {}
-    for b in all_balances:
-        w = b['wallet_address']
-        wallet_totals[w] = wallet_totals.get(w, 0) + b['value_usd']
+    def put_header(ws, titles, widths):
+        for idx, (title, width) in enumerate(zip(titles, widths), 1):
+            cell = ws.cell(row=1, column=idx, value=title)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+            ws.column_dimensions[get_column_letter(idx)].width = width
+        ws.row_dimensions[1].height = 26
+        ws.freeze_panes = 'A2'
+
+    def put(ws, row, col, value, *, font=None, fmt=None, fill=None,
+            align=None):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.font = font or body_font
+        cell.border = border
+        if fmt:
+            cell.number_format = fmt
+        if fill:
+            cell.fill = PatternFill("solid", start_color=fill, end_color=fill)
+        if align:
+            cell.alignment = Alignment(horizontal=align)
+        return cell
+
+    # ── Лист 1: сводка по кошелькам ──
+    summary = []
+    for wallet, tokens in by_wallet.items():
+        total = sum(t['value'] for t in tokens)
+        trusted = sum(t['value'] for t in tokens
+                      if t['score'] >= TRUSTED_CREDIT_SCORE)
+        top = max(tokens, key=lambda t: t['value'])
+        summary.append({
+            'wallet': wallet,
+            'total': total,
+            'trusted': trusted,
+            'junk': total - trusted,
+            'tokens': len(tokens),
+            'chains': len({t['chain'] for t in tokens}),
+            'top': f"{top['symbol']} · {top['chain']}" if top['value'] > 0 else '',
+            'top_share': (top['value'] / total) if total > 0 else 0,
+        })
+    # Сортируем по сумме: дорогие кошельки должны быть сверху, а не теряться
+    # среди тысяч пустых. Порядок из data.csv восстанавливается автофильтром.
+    summary.sort(key=lambda r: -r['total'])
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Сводка"
+    # «Всего» — как считает сам DeBank, чтобы цифру можно было сверить с
+    # сайтом. «Надёжные» — без мусорных аирдропов. Расходятся сильно —
+    # значит сумма дутая, и это видно сразу, без раскопок.
+    put_header(ws, ['#', 'Кошелёк', 'Всего, $', 'Надёжные, $', 'Мусор, $',
+                    'Токенов', 'Сетей', 'Крупнейший актив', 'Его доля'],
+               [6, 46, 15, 15, 14, 10, 8, 26, 11])
+
+    for idx, row in enumerate(summary, start=2):
+        put(ws, idx, 1, idx - 1, align="center")
+        put(ws, idx, 2, row['wallet'], font=mono_font)
+        put(ws, idx, 3, round(row['total'], 2), font=money_font, fmt=MONEY,
+            fill=gradient_color(row['total']))
+        put(ws, idx, 4, round(row['trusted'], 2), font=money_font, fmt=MONEY,
+            fill=gradient_color(row['trusted']))
+        put(ws, idx, 5, round(row['junk'], 2), fmt=MONEY,
+            fill=junk_fill if row['junk'] >= GRADIENT_MIN_USD else None)
+        put(ws, idx, 6, row['tokens'], align="center")
+        put(ws, idx, 7, row['chains'], align="center")
+        put(ws, idx, 8, row['top'])
+        put(ws, idx, 9, row['top_share'], fmt=SHARE, align="center")
+    ws.auto_filter.ref = f"A1:I{len(summary) + 1}"
+
+    # ── Лист 2: все позиции по токенам ──
+    ws2 = wb.create_sheet("Токены")
+    put_header(ws2, ['Кошелёк', 'Сеть', 'Токен', 'Название', 'Количество',
+                     'Цена, $', 'Стоимость, $', 'Рейтинг', 'Качество'],
+               [46, 12, 14, 26, 22, 15, 15, 13, 12])
+
+    line = 1
+    skipped_dust = 0
+    for row in summary:
+        for t in sorted(by_wallet[row['wallet']], key=lambda x: -x['value']):
+            if t['value'] < MIN_VALUE_USD:
+                skipped_dust += 1
+                continue
+            line += 1
+            put(ws2, line, 1, row['wallet'], font=mono_font)
+            put(ws2, line, 2, t['chain'], align="center")
+            put(ws2, line, 3, t['symbol'])
+            put(ws2, line, 4, t['name'])
+            put(ws2, line, 5, t['balance'], fmt=AMOUNT)
+            put(ws2, line, 6, t['price'], fmt=PRICE)
+            trusted = t['score'] >= TRUSTED_CREDIT_SCORE
+            put(ws2, line, 7, round(t['value'], 2), font=money_font, fmt=MONEY,
+                fill=gradient_color(t['value']) if trusted else junk_fill)
+            put(ws2, line, 8, int(t['score']), fmt='#,##0', align="center")
+            put(ws2, line, 9, 'надёжный' if trusted else 'мусор',
+                align="center", fill=None if trusted else junk_fill)
+    ws2.auto_filter.ref = f"A1:I{max(line, 1)}"
+
+    # ── Лист 3: где лежат деньги ──
+    chains = {}
+    for wallet, tokens in by_wallet.items():
+        for t in tokens:
+            stat = chains.setdefault(t['chain'],
+                                     {'wallets': set(), 'tokens': 0, 'value': 0.0})
+            stat['wallets'].add(wallet)
+            stat['tokens'] += 1
+            stat['value'] += t['value']
+
+    grand_total = sum(stat['value'] for stat in chains.values())
+    ws3 = wb.create_sheet("Сети")
+    put_header(ws3, ['Сеть', 'Кошельков', 'Токенов', 'Сумма, $', 'Доля'],
+               [16, 13, 11, 16, 10])
+
+    for idx, (chain, stat) in enumerate(
+            sorted(chains.items(), key=lambda kv: -kv[1]['value']), start=2):
+        put(ws3, idx, 1, chain)
+        put(ws3, idx, 2, len(stat['wallets']), align="center")
+        put(ws3, idx, 3, stat['tokens'], align="center")
+        put(ws3, idx, 4, round(stat['value'], 2), font=money_font, fmt=MONEY,
+            fill=gradient_color(stat['value']))
+        put(ws3, idx, 5, (stat['value'] / grand_total) if grand_total else 0,
+            fmt=SHARE, align="center")
+    ws3.auto_filter.ref = f"A1:E{len(chains) + 1}"
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = result_dir / f"debank_balances_{timestamp}.csv"
-
-    with open(filepath, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        # Заголовок: wallet, total_usd, chain:symbol, chain:symbol, ...
-        writer.writerow(['wallet', 'total_usd'] + token_columns)
-
-        # Пишем в порядке wallets (из файла), потом остальные из БД
-        written = set()
-        for wallet in wallets:
-            if wallet in wallet_data:
-                row = [wallet, f"{wallet_totals.get(wallet, 0):.2f}"]
-                for tk in token_columns:
-                    row.append(wallet_data[wallet].get(tk, 0))
-                writer.writerow(row)
-                written.add(wallet)
-        # Кошельки из БД, которых нет в wallets (на всякий случай)
-        for wallet in wallet_data:
-            if wallet not in written:
-                row = [wallet, f"{wallet_totals.get(wallet, 0):.2f}"]
-                for tk in token_columns:
-                    row.append(wallet_data[wallet].get(tk, 0))
-                writer.writerow(row)
+    filepath = result_dir / f"debank_balances_{timestamp}.xlsx"
+    wb.save(str(filepath))
 
     console.print(f"[green]💾 Результаты сохранены: {filepath}[/green]")
+    trusted_total = sum(row['trusted'] for row in summary)
+    console.print(
+        f"[dim]Кошельков: {len(summary)} · позиций: {line - 1} · "
+        f"сетей: {len(chains)} · всего: ${grand_total:,.2f}[/dim]"
+    )
+    console.print(
+        f"[dim]Из них надёжных: ${trusted_total:,.2f} · "
+        f"мусорных аирдропов: ${grand_total - trusted_total:,.2f}"
+        f" (рейтинг ниже {TRUSTED_CREDIT_SCORE:,})[/dim]"
+    )
+    if skipped_dust:
+        console.print(f"[dim]Скрыто позиций дешевле ${MIN_VALUE_USD:.2f}: "
+                      f"{skipped_dust}[/dim]")
     return filepath
 
 
@@ -672,7 +854,7 @@ def debank_checker_menu():
         choices=[
             Choice('   ▶️  Продолжить незавершённые задачи', 'continue'),
             Choice('   🔄 Начать заново (сброс БД)', 'reset'),
-            Choice('   📊 Экспорт результатов в CSV', 'export'),
+            Choice('   📊 Экспорт результатов в Excel', 'export'),
             Choice('   🔙 Назад', 'back')
         ],
         qmark='🛠️ ',
@@ -683,7 +865,7 @@ def debank_checker_menu():
         return
 
     if action == 'export':
-        save_results_csv(wallets)
+        save_results_xlsx(wallets)
         return
 
     if action == 'reset':
@@ -696,7 +878,7 @@ def debank_checker_menu():
     pending_tasks = get_pending_tasks()
     if not pending_tasks:
         console.print("[yellow]⚠️ Все задачи уже выполнены. Используйте 'Начать заново' для повторной проверки.[/yellow]")
-        save_results_csv(wallets)
+        save_results_xlsx(wallets)
         return
 
     wallets_to_check = [t['wallet_address'] for t in pending_tasks]
@@ -708,8 +890,8 @@ def debank_checker_menu():
     # Итоги
     print_summary(results)
 
-    # Экспорт в CSV
-    save_results_csv(wallets)
+    # Экспорт в Excel
+    save_results_xlsx(wallets)
 
     console.print("\n[bold green]✅ Проверка DeBank завершена![/bold green]\n")
 

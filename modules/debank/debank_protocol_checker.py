@@ -7,7 +7,6 @@ DeBank Protocol Checker
 import re
 import sys
 import json
-import math
 import asyncio
 import time
 import random
@@ -27,7 +26,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config.modules.general_config import (
-    NUM_THREADS, RETRY_COUNT, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
+    NUM_THREADS, SLEEP_BETWEEN_ACTIONS, DELAY_BETWEEN_ACCOUNTS
 )
 from config.modules.cfg_debank_protocol import (
     MIN_VALUE_USD, GRADIENT_MIN_USD, GRADIENT_MAX_USD
@@ -39,9 +38,9 @@ from modules.debank.database import (
     get_protocol_task_statistics
 )
 from modules.debank.debank_checker import (
-    load_wallets, load_private_keys_as_wallets, load_proxies, parse_proxy_for_playwright,
+    load_proxies, parse_proxy_for_playwright,
     load_wallet_rows, SOURCE_PRIVATE_KEYS, chains_from_body, USED_CHAINS_PATH,
-    DATA_WAIT_TIMEOUT, MAX_ATTEMPTS
+    DATA_WAIT_TIMEOUT, MAX_ATTEMPTS, gradient_color
 )
 
 console = Console()
@@ -500,38 +499,10 @@ def process_wallets_protocols(wallets: list, proxy_map: dict = None) -> dict:
 # ─── XLSX Export ─────────────────────────────────────────────────────────────
 
 
-def _gradient_color(value_usd: float) -> str | None:
-    """Возвращает hex-цвет градиента от белого к зелёному в зависимости от суммы.
-    None — без заливки (ниже порога GRADIENT_MIN_USD).
-    """
-    if value_usd < GRADIENT_MIN_USD:
-        return None
-
-    # Логарифмический градиент для лучшего распределения цветов
-    if value_usd >= GRADIENT_MAX_USD:
-        t = 1.0
-    else:
-        log_min = math.log10(max(GRADIENT_MIN_USD, 0.01))
-        log_max = math.log10(max(GRADIENT_MAX_USD, 1.0))
-        log_val = math.log10(max(value_usd, GRADIENT_MIN_USD))
-        t = (log_val - log_min) / (log_max - log_min)
-        t = max(0.0, min(1.0, t))
-
-    # Градиент: белый (FFFFFF) → светло-зелёный (C6EFCE) → ярко-зелёный (27AE60)
-    if t <= 0.5:
-        # белый → светло-зелёный
-        s = t * 2
-        r = int(255 - (255 - 198) * s)
-        g = int(255 - (255 - 239) * s)
-        b = int(255 - (255 - 206) * s)
-    else:
-        # светло-зелёный → ярко-зелёный
-        s = (t - 0.5) * 2
-        r = int(198 - (198 - 39) * s)
-        g = int(239 - (239 - 174) * s)
-        b = int(206 - (206 - 96) * s)
-
-    return f"{r:02X}{g:02X}{b:02X}"
+def _gradient_color(value_usd: float):
+    """Цвет заливки по сумме. Шкала общая с чекером балансов —
+    отличаются только пороги из конфига этого модуля."""
+    return gradient_color(value_usd, GRADIENT_MIN_USD, GRADIENT_MAX_USD)
 
 
 def _format_cell_text(p: dict) -> str:
