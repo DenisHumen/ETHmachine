@@ -9,7 +9,6 @@
 
 import re
 import json
-import math
 import asyncio
 import time
 import random
@@ -36,7 +35,8 @@ from modules.debank.database import (
 from modules.debank.debank_checker import (
     choose_wallet_source, load_proxies, parse_proxy_for_playwright,
     progress_panel, task_stats_panel, top_wallets_panel, wallet_proxy_map,
-    chains_from_body, USED_CHAINS_PATH, DATA_WAIT_TIMEOUT, MAX_ATTEMPTS,
+    chains_from_body, gradient_color, USED_CHAINS_PATH, DATA_WAIT_TIMEOUT,
+    MAX_ATTEMPTS,
 )
 from modules.simple_logger import logger
 from modules.ui import ui
@@ -441,38 +441,10 @@ def process_wallets_protocols(wallets: list, proxy_map: dict = None) -> dict:
 # ─── XLSX Export ─────────────────────────────────────────────────────────────
 
 
-def _gradient_color(value_usd: float) -> str | None:
-    """Возвращает hex-цвет градиента от белого к зелёному в зависимости от суммы.
-    None — без заливки (ниже порога GRADIENT_MIN_USD).
-    """
-    if value_usd < GRADIENT_MIN_USD:
-        return None
-
-    # Логарифмический градиент для лучшего распределения цветов
-    if value_usd >= GRADIENT_MAX_USD:
-        t = 1.0
-    else:
-        log_min = math.log10(max(GRADIENT_MIN_USD, 0.01))
-        log_max = math.log10(max(GRADIENT_MAX_USD, 1.0))
-        log_val = math.log10(max(value_usd, GRADIENT_MIN_USD))
-        t = (log_val - log_min) / (log_max - log_min)
-        t = max(0.0, min(1.0, t))
-
-    # Градиент: белый (FFFFFF) → светло-зелёный (C6EFCE) → ярко-зелёный (27AE60)
-    if t <= 0.5:
-        # белый → светло-зелёный
-        s = t * 2
-        r = int(255 - (255 - 198) * s)
-        g = int(255 - (255 - 239) * s)
-        b = int(255 - (255 - 206) * s)
-    else:
-        # светло-зелёный → ярко-зелёный
-        s = (t - 0.5) * 2
-        r = int(198 - (198 - 39) * s)
-        g = int(239 - (239 - 174) * s)
-        b = int(206 - (206 - 96) * s)
-
-    return f"{r:02X}{g:02X}{b:02X}"
+def _gradient_color(value_usd: float):
+    """Цвет заливки по сумме. Шкала общая с чекером балансов —
+    отличаются только пороги из конфига этого модуля."""
+    return gradient_color(value_usd, GRADIENT_MIN_USD, GRADIENT_MAX_USD)
 
 
 def _format_cell_text(p: dict) -> str:

@@ -57,9 +57,17 @@ def init_database():
                     price_usd REAL DEFAULT 0,
                     value_usd REAL DEFAULT 0,
                     logo_url TEXT,
+                    credit_score REAL DEFAULT 0,
                     UNIQUE(wallet_address, chain, token_address)
                 )
             ''')
+
+            # Миграция: у баз, созданных до появления рейтинга токенов.
+            try:
+                cursor.execute(
+                    "ALTER TABLE debank_balances ADD COLUMN credit_score REAL DEFAULT 0")
+            except Exception:
+                pass
 
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_debank_tasks_status
@@ -173,32 +181,10 @@ def update_task_status(wallet_address: str, status: str, error_message: Optional
             conn.commit()
 
 
-def save_token_balance(wallet_address: str, chain: str, token_symbol: str,
-                       token_name: str, token_address: str, balance: float,
-                       price_usd: float, value_usd: float, logo_url: str = ''):
-    with db_lock:
-        with sqlite3.connect(str(DB_FILE)) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO debank_balances
-                (wallet_address, chain, token_symbol, token_name, token_address, balance, price_usd, value_usd, logo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(wallet_address, chain, token_address)
-                DO UPDATE SET
-                    token_symbol = excluded.token_symbol,
-                    token_name = excluded.token_name,
-                    balance = excluded.balance,
-                    price_usd = excluded.price_usd,
-                    value_usd = excluded.value_usd,
-                    logo_url = excluded.logo_url
-            ''', (wallet_address, chain, token_symbol, token_name, token_address,
-                  balance, price_usd, value_usd, logo_url))
-            conn.commit()
-
-
 def save_token_balances_batch(balances: List[tuple]):
     """Batch insert/update token balances.
-    Each tuple: (wallet_address, chain, token_symbol, token_name, token_address, balance, price_usd, value_usd, logo_url)
+    Each tuple: (wallet_address, chain, token_symbol, token_name, token_address,
+                 balance, price_usd, value_usd, logo_url, credit_score)
     """
     if not balances:
         return
@@ -208,8 +194,9 @@ def save_token_balances_batch(balances: List[tuple]):
             cursor = conn.cursor()
             cursor.executemany('''
                 INSERT INTO debank_balances
-                (wallet_address, chain, token_symbol, token_name, token_address, balance, price_usd, value_usd, logo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (wallet_address, chain, token_symbol, token_name, token_address,
+                 balance, price_usd, value_usd, logo_url, credit_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(wallet_address, chain, token_address)
                 DO UPDATE SET
                     token_symbol = excluded.token_symbol,
@@ -217,7 +204,8 @@ def save_token_balances_batch(balances: List[tuple]):
                     balance = excluded.balance,
                     price_usd = excluded.price_usd,
                     value_usd = excluded.value_usd,
-                    logo_url = excluded.logo_url
+                    logo_url = excluded.logo_url,
+                    credit_score = excluded.credit_score
             ''', balances)
             conn.commit()
 
@@ -229,7 +217,8 @@ def get_all_balances() -> List[Dict]:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT wallet_address, chain, token_symbol, token_name,
-                       token_address, balance, price_usd, value_usd
+                       token_address, balance, price_usd, value_usd,
+                       COALESCE(credit_score, 0) AS credit_score
                 FROM debank_balances
                 ORDER BY wallet_address, value_usd DESC
             ''')
