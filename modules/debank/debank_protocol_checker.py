@@ -35,8 +35,8 @@ from modules.debank.database import (
 from modules.debank.debank_checker import (
     choose_wallet_source, load_proxies, parse_proxy_for_playwright,
     progress_panel, task_stats_panel, top_wallets_panel, wallet_proxy_map,
-    chains_from_body, gradient_color, USED_CHAINS_PATH, DATA_WAIT_TIMEOUT,
-    MAX_ATTEMPTS,
+    chains_from_body, gradient_color, response_owner, USED_CHAINS_PATH,
+    DATA_WAIT_TIMEOUT, MAX_ATTEMPTS,
 )
 from modules.simple_logger import logger
 from modules.ui import ui
@@ -216,15 +216,23 @@ def parse_protocol_data(data) -> list:
 PROJECT_LIST_PATH = '/portfolio/project_list'
 
 
-def watch_protocol_api(page) -> dict:
-    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки."""
+def watch_protocol_api(page, wallet: str) -> dict:
+    """Подписаться на ответы DeBank; словарь наполняется по ходу загрузки.
+
+    Ответы по другим адресам отбрасываются — см. ``watch_balance_api``.
+    """
     state = {'chains': None, 'projects': None}
+    wallet = wallet.lower()
 
     async def handle_response(response):
         url = response.url
         if 'api.debank.com' not in url:
             return
         path = urlparse(url).path
+        if path not in (USED_CHAINS_PATH, PROJECT_LIST_PATH):
+            return
+        if response_owner(url) != wallet or response.status != 200:
+            return
         try:
             if path == USED_CHAINS_PATH:
                 chains = chains_from_body(await response.json())
@@ -275,7 +283,7 @@ async def check_wallet_protocols(wallet: str, proxy_config: dict, semaphore: asy
                 browser = await playwright_instance.chromium.launch(**launch_args)
                 try:
                     page = await browser.new_page()
-                    state = watch_protocol_api(page)
+                    state = watch_protocol_api(page, wallet)
 
                     # Не networkidle: профиль тянет данные десятками запросов
                     # и тишины в сети может не наступить вовсе.

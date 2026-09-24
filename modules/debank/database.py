@@ -9,14 +9,29 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from threading import Lock
 
+from modules.simple_logger import logger
+
 DB_DIR = Path(__file__).parent.parent.parent / "db"
 DB_FILE = DB_DIR / "debank_checker.db"
 
 db_lock = Lock()
 
+# Почему старый результат ушёл на перепроверку — видно в отчёте на листе
+# «Не проверено».
+RECHECK_REASON = 'перепроверка: результат собран без сверки с оценкой DeBank'
+
 
 def ensure_db_directory():
     DB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _add_column(cursor, table: str, column: str, ddl: str) -> bool:
+    """Добавить колонку в существующую таблицу. ``True`` — колонки не было."""
+    columns = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+    if column in columns:
+        return False
+    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    return True
 
 
 def init_database():
@@ -34,16 +49,30 @@ def init_database():
                     status TEXT NOT NULL DEFAULT 'pending',
                     attempts INTEGER DEFAULT 0,
                     error_message TEXT,
+                    net_worth_usd REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
             # Миграция: добавить account_name если таблица уже существует
-            try:
-                cursor.execute("ALTER TABLE debank_tasks ADD COLUMN account_name TEXT")
-            except Exception:
-                pass
+            _add_column(cursor, 'debank_tasks', 'account_name', 'TEXT')
+
+            # Оценка кошелька самой DeBank (с DeFi-позициями) — по ней
+            # сверяется собранный список токенов.
+            if _add_column(cursor, 'debank_tasks', 'net_worth_usd', 'REAL'):
+                # Результаты, собранные до сверки, могли принадлежать чужому
+                # адресу: у кошельков с реальными $0.08 в отчёт попадали
+                # $859 000. Без повторной проверки им верить нельзя.
+                cursor.execute('''
+                    UPDATE debank_tasks
+                    SET status = 'pending', error_message = ?
+                    WHERE status = 'completed'
+                ''', (RECHECK_REASON,))
+                if cursor.rowcount:
+                    logger.warning(
+                        f"DeBank: {cursor.rowcount} старых результатов уйдут на "
+                        f"перепроверку — они собраны без сверки с оценкой DeBank")
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS debank_balances (
@@ -58,16 +87,15 @@ def init_database():
                     value_usd REAL DEFAULT 0,
                     logo_url TEXT,
                     credit_score REAL DEFAULT 0,
+                    total_supply REAL,
                     UNIQUE(wallet_address, chain, token_address)
                 )
             ''')
 
-            # Миграция: у баз, созданных до появления рейтинга токенов.
-            try:
-                cursor.execute(
-                    "ALTER TABLE debank_balances ADD COLUMN credit_score REAL DEFAULT 0")
-            except Exception:
-                pass
+            # Миграции: у баз, созданных до появления рейтинга токенов и
+            # эмиссии. Без эмиссии проверка доли просто не срабатывает.
+            _add_column(cursor, 'debank_balances', 'credit_score', 'REAL DEFAULT 0')
+            _add_column(cursor, 'debank_balances', 'total_supply', 'REAL')
 
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_debank_tasks_status
@@ -125,8 +153,10 @@ def init_database():
             conn.commit()
 
 
-def create_tasks(wallets: List[str]):
+def create_tasks(wallets: List[str], names: Optional[Dict[str, str]] = None):
+    """Задачи на кошельки; ``names`` — имена из data.csv для отчёта."""
     init_database()
+    names = names or {}
 
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
@@ -136,6 +166,11 @@ def create_tasks(wallets: List[str]):
                     INSERT OR IGNORE INTO debank_tasks (wallet_address, status)
                     VALUES (?, 'pending')
                 ''', (wallet,))
+                if names.get(wallet):
+                    cursor.execute('''
+                        UPDATE debank_tasks SET account_name = ?
+                        WHERE wallet_address = ?
+                    ''', (names[wallet], wallet))
             conn.commit()
 
 
@@ -153,7 +188,8 @@ def get_pending_tasks() -> List[Dict]:
             return [dict(row) for row in cursor.fetchall()]
 
 
-def update_task_status(wallet_address: str, status: str, error_message: Optional[str] = None):
+def update_task_status(wallet_address: str, status: str, error_message: Optional[str] = None,
+                       net_worth_usd: Optional[float] = None):
     with db_lock:
         with sqlite3.connect(str(DB_FILE)) as conn:
             cursor = conn.cursor()
@@ -162,9 +198,10 @@ def update_task_status(wallet_address: str, status: str, error_message: Optional
             if status == 'completed':
                 cursor.execute('''
                     UPDATE debank_tasks
-                    SET status = ?, updated_at = ?, attempts = attempts + 1, error_message = NULL
+                    SET status = ?, updated_at = ?, attempts = attempts + 1,
+                        error_message = NULL, net_worth_usd = ?
                     WHERE wallet_address = ?
-                ''', (status, now, wallet_address))
+                ''', (status, now, net_worth_usd, wallet_address))
             elif status == 'failed':
                 cursor.execute('''
                     UPDATE debank_tasks
@@ -184,7 +221,7 @@ def update_task_status(wallet_address: str, status: str, error_message: Optional
 def save_token_balances_batch(balances: List[tuple]):
     """Batch insert/update token balances.
     Each tuple: (wallet_address, chain, token_symbol, token_name, token_address,
-                 balance, price_usd, value_usd, logo_url, credit_score)
+                 balance, price_usd, value_usd, logo_url, credit_score, total_supply)
     """
     if not balances:
         return
@@ -195,8 +232,8 @@ def save_token_balances_batch(balances: List[tuple]):
             cursor.executemany('''
                 INSERT INTO debank_balances
                 (wallet_address, chain, token_symbol, token_name, token_address,
-                 balance, price_usd, value_usd, logo_url, credit_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 balance, price_usd, value_usd, logo_url, credit_score, total_supply)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(wallet_address, chain, token_address)
                 DO UPDATE SET
                     token_symbol = excluded.token_symbol,
@@ -205,7 +242,8 @@ def save_token_balances_batch(balances: List[tuple]):
                     price_usd = excluded.price_usd,
                     value_usd = excluded.value_usd,
                     logo_url = excluded.logo_url,
-                    credit_score = excluded.credit_score
+                    credit_score = excluded.credit_score,
+                    total_supply = excluded.total_supply
             ''', balances)
             conn.commit()
 
@@ -218,9 +256,23 @@ def get_all_balances() -> List[Dict]:
             cursor.execute('''
                 SELECT wallet_address, chain, token_symbol, token_name,
                        token_address, balance, price_usd, value_usd,
-                       COALESCE(credit_score, 0) AS credit_score
+                       COALESCE(credit_score, 0) AS credit_score, total_supply
                 FROM debank_balances
                 ORDER BY wallet_address, value_usd DESC
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+
+def get_all_tasks() -> List[Dict]:
+    """Все задачи проверки балансов — статус, ошибка и оценка DeBank."""
+    with db_lock:
+        with sqlite3.connect(str(DB_FILE)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT wallet_address, account_name, status, attempts,
+                       error_message, net_worth_usd, updated_at
+                FROM debank_tasks
             ''')
             return [dict(row) for row in cursor.fetchall()]
 
